@@ -143,6 +143,9 @@ For a new deployment with no running instance. To move an existing one, see
      `REPORTING_BINDING_SECRET` goes in `superset` and in `bootstrap` (the migration runner writes the
      database's copy).
    - `MIGRATION_DATABASE_URL` goes **only** in `bootstrap`, never in `worker` (ADR-001).
+   - Superset secrets go only where they are used: `backend` holds just
+     `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, and `worker` holds none. Production has no development
+     defaults for them (PR 1), so nothing else needs them.
    - Do not put a key in KV that compose also sets non-empty: the loader refuses to start (exit 78).
    - `METRICS_TOKEN` must be a real value; production refuses the dev default (PR 1).
 
@@ -187,6 +190,10 @@ window, and rehearse it (including the [rollback](#rollback)) on a copy first.
   MIGRATION_DATABASE_URL=... pnpm --filter @platform/db db:check-local-ciphertext
   ```
 
+  It needs a live database connection: point `MIGRATION_DATABASE_URL` at the production database
+  (or a read replica) from a host that can reach it, not at a laptop checkout. It only counts,
+  in a read-only transaction, and prints counts, never values.
+
   It is read-only and prints counts only. It **must report zero** before production runs with the
   new guards (PR 1), because production refuses to decrypt `local:` values. If it reports any,
   re-enter those credentials through the write path first:
@@ -227,6 +234,17 @@ are, and give each a **dated** rotation plan. Until rotated, they are not consid
 
 ### 4. Load, switch, verify
 
+**Blocking checklist, before you switch:**
+
+- [ ] The rollback override exists in the repository and has been **rehearsed** on a copy
+      (tracked in #943; see [Rollback](#rollback)).
+- [ ] Prometheus's scrape credential for the API and worker `/metrics` is the **production**
+      `METRICS_TOKEN`, not the dev token in `docker/observability/prometheus.yml`. Otherwise metrics
+      stop when the production guard refuses the dev token.
+- [ ] `db:check-local-ciphertext` reported zero (step 1).
+- [ ] `check:prod-compose` passes with the server's `COMPOSE_PROFILES`.
+- [ ] An OpenBao restore, and a joint database + OpenBao restore, have been tested.
+
 1. Do [first-time setup](#first-time-setup) steps 1–6 with the values from steps 1–3.
 2. Stop the old stack, start with the override: `$DC up -d`.
 3. Check every secret-holding service logged `applied <n> keys`, and click through: sign-in, a
@@ -252,9 +270,10 @@ cutover.
    `-f docker-compose.prod.yml`: that starts the dev OpenBao, and the base file's inline values
    would win over any `env_file`.
 
-   > **Not in the repository yet.** `docker-compose.prod.yml` (PR 4) has no "loader off" switch.
-   > A small rollback override is a follow-up: it resets each service's entrypoint and points
-   > `env_file` at the one-time files. **Don't cut over until it exists and has been rehearsed.**
+   > **Not in the repository yet (#943).** `docker-compose.prod.yml` (PR 4) has no "loader off"
+   > switch. A small rollback override is a follow-up: it resets each service's entrypoint and
+   > points `env_file` at the one-time files. **Don't cut over until it exists and has been
+   > rehearsed.**
 
 3. When the cutover is signed off (or the rollback has ended), delete the files with `shred -u`.
 
@@ -396,3 +415,10 @@ Find the exit code with `$DC ps -a`, and the reason in the service's log lines t
 The Prometheus rules include `OpenBaoDown` and `OpenBaoSealed`; they fire only once an OpenBao
 scrape job is enabled in `docker/observability/prometheus.yml` (it ships commented out, because the
 target is deployment-specific).
+
+**To enable the alerts:** in your deployment's copy of `docker/observability/prometheus.yml`,
+uncomment the `openbao` scrape job and set its target to OpenBao's address and port. Then make sure
+Prometheus can reach it: put Prometheus on the OpenBao project network, or scrape through an address
+that's allowed. Also make sure the metrics endpoint answers it, either through unauthenticated
+metrics access or a metrics token. That is an **[ops repo]** setting on the OpenBao listener.
+Reload Prometheus, then check that `up{job="openbao"}` is `1` before relying on the alerts.
