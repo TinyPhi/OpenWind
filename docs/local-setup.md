@@ -416,9 +416,23 @@ required, unlike the optional services below.
 **OpenBao** (`@platform/secrets` backing store) runs in `-dev` mode: an
 in-memory, non-persistent secrets engine meant for local development only.
 Its root token is the hardcoded `dev-root-token` (see `docker-compose.yml`).
-Because storage is in-memory, recreating the `openbao` container (not just
-restarting it) wipes any secrets written during the session — expected in
-dev, never a bug to chase.
+Because storage is in-memory, **any** stop of the `openbao` container wipes
+it — a plain restart (including `docker compose restart`, a Docker Desktop
+restart or a reboot) as well as a recreate. After a restart the Transit engine
+and key are gone until `ow-secrets-init` runs again on the next
+`docker compose up -d`, and that run creates a **new** `platform-credentials`
+key. Every Transit ciphertext made against the old key can no
+longer be decrypted. That is expected in dev, never a bug to chase: re-enter
+any dev connector credentials after a restart. (`local:` ciphertext does not
+use OpenBao at all, so it survives; it is encrypted with a key published in
+this repo, which is why production refuses it.)
+
+**Dev vs production.** Everything in this section is for local development.
+Production does not run this container: OpenWind connects to a separate,
+persistent, TLS-protected OpenBao server, each service logs in with its own
+AppRole, and secrets are read at container start. See
+[ADR-023](decisions/ADR-023-openbao-secrets-manager.md) and the
+[OpenBao secrets runbook](runbooks/openbao-secrets.md).
 
 `ow-secrets-init` runs `bao secrets enable transit` on every `docker compose
 up`. On a second or later run that engine is already enabled from the first

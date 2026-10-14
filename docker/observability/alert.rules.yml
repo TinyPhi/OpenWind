@@ -118,3 +118,29 @@ groups:
         annotations:
           summary: "Schedule rule fire p99 duration is over 10s"
           description: 'P99 time to fire one schedule rule is {{ $value | printf "%.0f" }}ms over the last 15 minutes.'
+
+      # OpenBao (ADR-023 Decision 4; docs/runbooks/openbao-secrets.md). OpenWind
+      # services can't start while OpenBao is down or sealed. Both rules stay
+      # quiet until the "openbao" scrape job in prometheus.yml is enabled: with
+      # no job there is no series to match. vault_core_unsealed is the gauge
+      # name OpenBao inherits from Vault's telemetry; confirm it in the server's
+      # /v1/sys/metrics output when enabling the job.
+      - alert: OpenBaoDown
+        expr: up{job="openbao"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "OpenBao is not answering Prometheus scrapes"
+          description: "Scrapes of {{ $labels.instance }} have failed for more than 2 minutes. OpenWind services cannot start until OpenBao is back."
+
+      - alert: OpenBaoSealed
+        expr: vault_core_unsealed{job="openbao"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "OpenBao is sealed"
+          description: "{{ $labels.instance }} has been sealed for more than 2 minutes. OpenWind services cannot start until it is unsealed."

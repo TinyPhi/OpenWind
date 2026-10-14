@@ -154,6 +154,34 @@ OpenWind uses tenant context when calling the Transit engine so connector
 credential ciphertext is tenant-bound. Protecting the Transit key and its
 recovery material remains the deployer's responsibility.
 
+The production model is decided in
+[ADR-023](decisions/ADR-023-openbao-secrets-manager.md); the day-to-day steps
+are in the [OpenBao secrets runbook](runbooks/openbao-secrets.md). In short:
+
+- OpenBao is a separate server, not a service in OpenWind's compose project.
+  The production override (`docker-compose.prod.yml`) keeps the dev `openbao`
+  container from starting.
+- Each secret-holding service (backend, worker, Superset, the `superset-init`
+  and `bootstrap` one-shots, Novu) has its own AppRole and reads exactly one KV
+  path, `secret/openwind/<env>/<service>`, once at container start. The
+  frontend has no role; it gets only public values.
+- OpenBao values win. A key set both by compose and by OpenBao stops the
+  service from starting. `.env.local` is not read in production.
+- If OpenBao is down, sealed or refuses the login, the service does not start.
+  After a host reboot OpenWind waits until OpenBao is unsealed.
+- OpenWind reaches OpenBao over a private per-project network, never through
+  the public proxy, and only over `https`. Role logins are bound to that
+  network's addresses.
+- Connector credentials stay encrypted with Transit. A database backup can only
+  be restored together with the matching OpenBao data (see
+  [the backup runbook](specs/backup-dr-runbook.md)).
+- Changing a secret means restarting the service that reads it.
+
+Some of these pieces arrive in separate pull requests (the startup loader, the
+production override and its `.env.production.example`, and the production
+guards in `@platform/config`). Until they are merged, treat this list as the
+target, not as current behaviour.
+
 ## Go-live checklist
 
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.
@@ -166,3 +194,4 @@ recovery material remains the deployer's responsibility.
 - [ ] Encryption and backup keys are stored separately from protected data.
 - [ ] A restore, including key recovery, has been tested and timed.
 - [ ] Production OpenBao is durable and does not use dev mode or a root token.
+- [ ] An OpenBao restore has been tested together with a database restore.
