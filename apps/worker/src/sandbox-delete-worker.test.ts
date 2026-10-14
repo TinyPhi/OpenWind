@@ -108,7 +108,7 @@ const { processSandboxDeleteJob } = await import("./sandbox-delete-worker.js");
 beforeEach(() => {
   vi.clearAllMocks();
   mockSelectLimit.mockResolvedValue([
-    { isSandbox: true, zitadelOrgId: "org-1" },
+    { isSandbox: true, status: "active", zitadelOrgId: "org-1" },
   ]);
   mockAcquireTenantAdvisoryLock.mockResolvedValue({
     acquired: true,
@@ -180,7 +180,7 @@ describe("processSandboxDeleteJob", () => {
 
   it("skips the Zitadel call when the tenant has no zitadelOrgId, but still deletes/purges", async () => {
     mockSelectLimit.mockResolvedValue([
-      { isSandbox: true, zitadelOrgId: null },
+      { isSandbox: true, status: "active", zitadelOrgId: null },
     ]);
 
     await processSandboxDeleteJob(
@@ -273,7 +273,7 @@ describe("processSandboxDeleteJob", () => {
 
   it("throws and writes a failed audit entry when the tenant is not a sandbox", async () => {
     mockSelectLimit.mockResolvedValue([
-      { isSandbox: false, zitadelOrgId: null },
+      { isSandbox: false, status: "active", zitadelOrgId: null },
     ]);
 
     await expect(
@@ -285,6 +285,22 @@ describe("processSandboxDeleteJob", () => {
       expect.objectContaining({ action: "sandbox.delete_failed" }),
     );
   });
+
+  it.each(["deleted", "purged"])(
+    "refuses a %s sandbox before touching Zitadel or taking the lock",
+    async (status) => {
+      mockSelectLimit.mockResolvedValue([
+        { isSandbox: true, status, zitadelOrgId: "org-1" },
+      ]);
+
+      await expect(
+        processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+      ).rejects.toThrow("SANDBOX_DELETE_INVALID_TENANT_STATUS");
+
+      expect(mockDeleteOrg).not.toHaveBeenCalled();
+      expect(mockAcquireTenantAdvisoryLock).not.toHaveBeenCalled();
+    },
+  );
 
   it("throws, releases the lock, and writes a failed audit entry when the status update affects zero rows", async () => {
     mockUpdateReturning.mockResolvedValue([]);

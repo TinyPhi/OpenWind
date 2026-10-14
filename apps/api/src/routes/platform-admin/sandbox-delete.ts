@@ -47,13 +47,28 @@ export const sandboxDeleteHandler = platformAdminFactory.createHandlers(
     // 404-not-403 rule — a platform_admin has no narrower resource to be denied here).
     const [tenant] = await withPlatformAdminContext((tx) =>
       tx
-        .select({ id: tenants.id, isSandbox: tenants.isSandbox })
+        .select({
+          id: tenants.id,
+          isSandbox: tenants.isSandbox,
+          status: tenants.status,
+        })
         .from(tenants)
         .where(eq(tenants.id, tenantId))
         .limit(1),
     );
     if (!tenant?.isSandbox) {
       return c.json({ error: "NOT_FOUND", message: "No such sandbox" }, 404);
+    }
+    // A sandbox already being (or done being) purged can't be deleted again; say so instead
+    // of enqueueing a job the worker would fail with a bare 500.
+    if (tenant.status !== "active" && tenant.status !== "suspended") {
+      return c.json(
+        {
+          error: "SANDBOX_ALREADY_DELETED",
+          message: "This sandbox has already been deleted",
+        },
+        409,
+      );
     }
 
     // Fast pre-check only -- see module doc comment. Released immediately; the worker

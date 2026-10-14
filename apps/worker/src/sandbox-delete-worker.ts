@@ -76,6 +76,7 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     const [tenant] = await db
       .select({
         isSandbox: tenants.isSandbox,
+        status: tenants.status,
         zitadelOrgId: tenants.zitadelOrgId,
       })
       .from(tenants)
@@ -89,6 +90,16 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     if (!tenant.isSandbox) {
       logger.warn({ tenantId }, "sandbox delete: tenant is not a sandbox");
       throw new Error("SANDBOX_DELETE_NOT_A_SANDBOX");
+    }
+    // Checked before Zitadel is touched: a repeat delete of an already-deleted sandbox used
+    // to call deleteOrg() again and only then fail on the guarded UPDATE below (which stays,
+    // for the race where two deletes pass this check together).
+    if (tenant.status !== "active" && tenant.status !== "suspended") {
+      logger.warn(
+        { tenantId, status: tenant.status },
+        "sandbox delete: tenant was not in active/suspended status -- already deleted or in an unexpected state",
+      );
+      throw new Error("SANDBOX_DELETE_INVALID_TENANT_STATUS");
     }
 
     const lock = await acquireTenantAdvisoryLock(tenantId, "sandbox-lifecycle");

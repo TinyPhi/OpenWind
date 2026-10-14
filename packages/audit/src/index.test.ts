@@ -249,15 +249,26 @@ describe("anonymizeAuditLogForTenant", () => {
     expect(order).toEqual(["json", "actors"]);
   });
 
-  it("throws and does not run the UPDATE when an active tenant RLS context is detected", async () => {
+  it("throws and does not run the UPDATE under another tenant's RLS context", async () => {
     mockExecute.mockResolvedValue([{ current_setting: "tenant-x" }]);
 
     await expect(
       anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a"),
-    ).rejects.toThrow("cannot execute UPDATE under active tenant RLS context");
+    ).rejects.toThrow(
+      "cannot execute UPDATE under another tenant's RLS context",
+    );
 
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockScrubJson).not.toHaveBeenCalled();
+  });
+
+  it("runs under the purged tenant's own RLS context (withTenantPurgeContext, migration 0144)", async () => {
+    mockExecute.mockResolvedValue([{ current_setting: "tenant-a" }]);
+
+    await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
+
+    expect(mockScrubJson).toHaveBeenCalledWith(mockPurgeDb, "tenant-a");
+    expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
 
   it("throws and does not run the UPDATE when the RLS context check itself fails — fails closed, not open", async () => {

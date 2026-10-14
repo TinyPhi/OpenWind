@@ -26,13 +26,17 @@ vi.mock("@platform/auth", () => ({
 
 const mockOrderByRows = vi.fn();
 const mockLimitRows = vi.fn();
+const mockWhere = vi.fn();
 const mockTx = {
   select: () => ({
     from: () => ({
-      where: () => ({
-        orderBy: () => mockOrderByRows(),
-        limit: () => mockLimitRows(),
-      }),
+      where: (cond: unknown) => {
+        mockWhere(cond);
+        return {
+          orderBy: () => mockOrderByRows(),
+          limit: () => mockLimitRows(),
+        };
+      },
     }),
   }),
 };
@@ -42,6 +46,7 @@ vi.mock("@platform/db", () => ({
     id: "id",
     name: "name",
     isSandbox: "isSandbox",
+    status: "status",
     trialEndsAt: "trialEndsAt",
     createdAt: "createdAt",
   },
@@ -72,6 +77,7 @@ vi.mock("@platform/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: (a: unknown, b: unknown) => ["eq", a, b],
   and: (...args: unknown[]) => ["and", ...args],
+  inArray: (a: unknown, b: unknown) => ["inArray", a, b],
   desc: (a: unknown) => ["desc", a],
 }));
 
@@ -94,6 +100,18 @@ beforeEach(() => {
 });
 
 describe("GET /sandboxes", () => {
+  it("lists only active or suspended sandboxes, so deleted ones drop out", async () => {
+    mockOrderByRows.mockResolvedValue([]);
+
+    await makeApp().request("/sandboxes");
+
+    expect(mockWhere).toHaveBeenCalledWith([
+      "and",
+      ["eq", "isSandbox", true],
+      ["inArray", "status", ["active", "suspended"]],
+    ]);
+  });
+
   it("returns every sandbox as a PlatformAdminSandboxView, newest first", async () => {
     const trialEndsAt = new Date(Date.now() + 86_400_000);
     mockOrderByRows.mockResolvedValue([
