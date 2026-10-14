@@ -47,7 +47,7 @@
  *     failure audit entry's `rolledBack` field records which case occurred.
  */
 
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Worker } from "@platform/telemetry";
 import {
   db,
@@ -176,9 +176,7 @@ async function createOrgWithRetry(
 ): Promise<{ orgId: string; name: string } | null> {
   for (let attempt = 0; attempt < MAX_NAME_CONFLICT_ATTEMPTS; attempt++) {
     const name =
-      attempt === 0
-        ? baseName
-        : `${baseName}-${Math.floor(1000 + Math.random() * 9000)}`;
+      attempt === 0 ? baseName : `${baseName}-${randomInt(1000, 10000)}`;
     const result = await createOrg(name);
     if (result.ok) return { orgId: result.orgId, name };
     if (!result.conflict) return null;
@@ -191,7 +189,7 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `${base}-${Math.floor(1000 + Math.random() * 9000)}`;
+  return `${base}-${randomInt(1000, 10000)}`;
 }
 
 async function auditOutcome(

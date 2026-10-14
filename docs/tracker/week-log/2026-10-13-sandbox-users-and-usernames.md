@@ -15,6 +15,10 @@
   same suffix as the email after a clash), and the handover lists username, email and role.
   Checked live first: the sandbox org's domain policy has `userLoginMustBeDomain` off (it
   inherits the default), so the bare username is a valid, instance-unique login name.
+- **CodeQL on #913 (2026-10-14).** `js/insecure-randomness` flagged the username, since its retry
+  suffix came from `Math.random()`. The template's name picks, member count and suffix, and the
+  worker's org-name and slug suffixes, now use `crypto.randomInt`. A new test checks the suffix
+  stays within 1000-9999.
 - Tests: grant search scoped to the org; `createHumanUser` sends a username only when given;
   the worker passes the email local part, including on the suffixed retry; the handover shows
   the username and the sign-in hint.
