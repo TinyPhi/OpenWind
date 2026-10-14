@@ -447,6 +447,38 @@ describe("createHumanUser", () => {
   });
 });
 
+describe("createHumanUser username", () => {
+  const base = {
+    orgId: "org-123",
+    email: "olivia.smith@example.com",
+    givenName: "Olivia",
+    familyName: "Smith",
+    password: "Ow-abc123-9!",
+  };
+
+  it("sends the username when one is given", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const sent = queueCapturedJsonResponse(200, { userId: "user-1" });
+
+    await createHumanUser({ ...base, username: "olivia.smith" });
+
+    expect((sent.body as { username?: string }).username).toBe("olivia.smith");
+  });
+
+  it("omits the username otherwise, so Zitadel keeps using the email", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const sent = queueCapturedJsonResponse(200, { userId: "user-2" });
+
+    await createHumanUser(base);
+
+    expect(sent.body).not.toHaveProperty("username");
+  });
+});
+
 describe("deleteOrg", () => {
   it("returns true on a successful deletion", async () => {
     setProvisioningKey();

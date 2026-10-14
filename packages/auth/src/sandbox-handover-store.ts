@@ -22,7 +22,7 @@ function handoverKey(tenantId: string): string {
 }
 
 export interface SandboxHandoverCredentials {
-  seededAccounts: { email: string; role: "admin" | "user" }[];
+  seededAccounts: { username: string; email: string; role: "admin" | "user" }[];
   defaultPassword: string;
 }
 

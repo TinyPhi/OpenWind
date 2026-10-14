@@ -317,7 +317,9 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
       { resultTenantId: TENANT_ID, status: "completed" },
     ]);
     mockGetSandboxHandoverCredentials.mockResolvedValueOnce({
-      seededAccounts: [{ email: "admin@example.com", role: "admin" }],
+      seededAccounts: [
+        { username: "admin.user", email: "admin@example.com", role: "admin" },
+      ],
       defaultPassword: "Ow-abc-9!",
     });
 
@@ -328,7 +330,9 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
     expect(await res.json()).toEqual({
       data: {
         tenantId: TENANT_ID,
-        seededAccounts: [{ email: "admin@example.com", role: "admin" }],
+        seededAccounts: [
+          { username: "admin.user", email: "admin@example.com", role: "admin" },
+        ],
         defaultPassword: "Ow-abc-9!",
       },
     });

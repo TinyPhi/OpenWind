@@ -151,17 +151,21 @@ async function createAccountWithRetry(
   template: SandboxAccountTemplate,
   password: string,
   domain: string,
-): Promise<{ userId: string; email: string } | null> {
+): Promise<{ userId: string; username: string; email: string } | null> {
   for (let attempt = 0; attempt < MAX_ACCOUNT_CONFLICT_ATTEMPTS; attempt++) {
     const email = nextEmailCandidate(template, domain, attempt);
+    // The username is the email's local part, so the two always match -- including the
+    // suffixed candidate after a clash (usernames are instance-unique, like emails).
+    const username = email.slice(0, email.indexOf("@"));
     const result = await createHumanUser({
       orgId,
+      username,
       email,
       givenName: template.givenName,
       familyName: template.familyName,
       password,
     });
-    if (result.ok) return { userId: result.userId, email };
+    if (result.ok) return { userId: result.userId, username, email };
     if (!result.conflict) return null;
   }
   return null;
@@ -321,9 +325,11 @@ export async function processSandboxProvisioningJob(
 
     // Labelled with the Zitadel role each account was granted (admin / user), not the
     // template's internal "member" name, so the handover matches what the account can do.
-    const seededAccounts: { email: string; role: "admin" | "user" }[] = [
-      { email: admin.email, role: "admin" },
-    ];
+    const seededAccounts: {
+      username: string;
+      email: string;
+      role: "admin" | "user";
+    }[] = [{ username: admin.username, email: admin.email, role: "admin" }];
     let seededAccountCount = 1;
     let failedAccountCount = 0;
     for (const [index, member] of template.members.entries()) {
@@ -341,7 +347,11 @@ export async function processSandboxProvisioningJob(
         (await authorizeUser(account.userId, org.orgId, ["user"]));
       if (account && authorized) {
         seededAccountCount++;
-        seededAccounts.push({ email: account.email, role: "user" });
+        seededAccounts.push({
+          username: account.username,
+          email: account.email,
+          role: "user",
+        });
       } else {
         failedAccountCount++;
         logger.warn(

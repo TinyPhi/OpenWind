@@ -582,6 +582,12 @@ export async function deleteOrg(orgId: string): Promise<boolean> {
 
 export interface CreateHumanUserInput {
   orgId: string;
+  /**
+   * Login username. Omitted: Zitadel uses the email (its default). Sandboxes set the email's
+   * local part so seeded accounts can sign in with just that -- valid because the sandbox
+   * orgs' domain policy has userLoginMustBeDomain off, which also makes it instance-unique.
+   */
+  username?: string;
   email: string;
   givenName: string;
   familyName: string;
@@ -618,6 +624,7 @@ export async function createHumanUser(
     const url = `${internalBase()}/v2/users/human`;
     const payload = {
       organization: { orgId: input.orgId },
+      ...(input.username ? { username: input.username } : {}),
       profile: {
         givenName: input.givenName,
         familyName: input.familyName,

@@ -235,8 +235,14 @@ describe("processSandboxProvisioningJob", () => {
       {
         defaultPassword: expect.any(String),
         seededAccounts: expect.arrayContaining([
-          expect.objectContaining({ role: "admin" }),
-          expect.objectContaining({ role: "user" }),
+          expect.objectContaining({
+            role: "admin",
+            username: expect.any(String),
+          }),
+          expect.objectContaining({
+            role: "user",
+            username: expect.any(String),
+          }),
         ]),
       },
     );
@@ -314,13 +320,21 @@ describe("processSandboxProvisioningJob", () => {
     });
 
     expect(mockCreateHumanUser).toHaveBeenCalledTimes(2);
+    // The username follows the email candidate, so a suffixed retry gets a matching
+    // username (usernames are instance-unique, like emails).
     expect(mockCreateHumanUser).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ email: "olivia.smith@localhost" }),
+      expect.objectContaining({
+        email: "olivia.smith@localhost",
+        username: "olivia.smith",
+      }),
     );
     expect(mockCreateHumanUser).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ email: "olivia.smith1@localhost" }),
+      expect.objectContaining({
+        email: "olivia.smith1@localhost",
+        username: "olivia.smith1",
+      }),
     );
     expect(result.adminEmail).toBe("olivia.smith1@localhost");
   });

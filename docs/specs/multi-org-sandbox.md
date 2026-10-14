@@ -125,6 +125,11 @@ and every other seeded account as `user`. Without this Zitadel refuses sign-in w
 least one grant on the application"). A failed project grant or admin authorization rolls the
 sandbox back; a member that can't be authorized counts as a failed account and is left out of
 the handover list.
+✓ **(added 2026-10-13)** Each seeded account has a short username, the local part of its email
+(e.g. `abigail.smith`, or `abigail.smith1234` when the email needed a suffix), and can sign in
+with either the username or the email. This relies on the sandbox orgs' domain policy having
+"user loginname must contain org domain" off (checked live), which makes usernames
+instance-unique; a clash retries like an email clash. The handover lists username, email and role.
 
 R4: The platform admin chooses which modules arrive pre-populated.
 ✓ All 7 core modules (`crm`, `helpdesk`, `hrms`, `invoicing`, `procurement`, `projects`,
