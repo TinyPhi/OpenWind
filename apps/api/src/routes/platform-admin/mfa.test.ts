@@ -12,10 +12,23 @@ const { mockPlatformAdmin } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock("@platform/config", () => ({
+  env: { PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS: 7 },
+}));
+
 const mockRequestMfaCode = vi.fn();
 const mockVerifyMfaCode = vi.fn();
 
+const { MfaResendTooSoonErrorMock } = vi.hoisted(() => ({
+  MfaResendTooSoonErrorMock: class extends Error {
+    constructor(readonly retryAfterSeconds: number) {
+      super("too soon");
+    }
+  },
+}));
+
 vi.mock("@platform/auth", () => ({
+  MfaResendTooSoonError: MfaResendTooSoonErrorMock,
   requirePlatformAdminIdentity:
     () =>
     async (
@@ -50,7 +63,20 @@ describe("POST /platform-admin/mfa/request", () => {
     const res = await makeApp().request("/mfa/request", { method: "POST" });
     expect(res.status).toBe(200);
     expect(mockRequestMfaCode).toHaveBeenCalledWith("pa-1", "ops@openwind.io");
-    expect(await res.json()).toEqual({ data: { sent: true } });
+    expect(await res.json()).toEqual({
+      data: { sent: true, resendAfterSeconds: 7 },
+    });
+  });
+
+  it("returns 429 with Retry-After and the wait when a code was just sent (#801)", async () => {
+    mockRequestMfaCode.mockRejectedValueOnce(new MfaResendTooSoonErrorMock(12));
+    const res = await makeApp().request("/mfa/request", { method: "POST" });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("12");
+    expect(await res.json()).toMatchObject({
+      error: "MFA_RESEND_TOO_SOON",
+      meta: { retryAfterSeconds: 12 },
+    });
   });
 
   it("returns 502 when sending fails, rather than reporting false success", async () => {

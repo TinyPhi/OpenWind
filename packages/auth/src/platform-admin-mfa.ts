@@ -2,6 +2,7 @@ import { randomInt, createHash, timingSafeEqual } from "node:crypto";
 import { getRedis, withRedisTimeout } from "@platform/redis";
 import { sendDirectNotification } from "@platform/notifications";
 import { logger } from "@platform/logger";
+import { env } from "@platform/config";
 
 /**
  * OpenWind-owned MFA for the Multi-Org Sandbox System's platform_admin role
@@ -35,6 +36,23 @@ function attemptsKey(userId: string): string {
 function verifiedKey(userId: string): string {
   return `platform-admin:mfa:verified:${userId}`;
 }
+function freshKey(userId: string): string {
+  return `platform-admin:mfa:fresh:${userId}`;
+}
+function resendKey(userId: string): string {
+  return `platform-admin:mfa:resend:${userId}`;
+}
+
+/**
+ * Thrown when a code is requested again before PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS has
+ * passed. The route turns it into a 429 that tells the admin how long to wait.
+ */
+export class MfaResendTooSoonError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super(`A code was sent recently; retry in ${retryAfterSeconds}s`);
+    this.name = "MfaResendTooSoonError";
+  }
+}
 
 function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
@@ -55,17 +73,40 @@ export async function requestMfaCode(
   userId: string,
   email: string,
 ): Promise<void> {
-  const code = generateCode();
   const redis = getRedis();
+  // Cooldown first, before a code is generated or stored: a refused resend must leave the
+  // code the admin already has valid. NX so concurrent requests cannot both pass.
+  const claimed = await redis.set(
+    resendKey(userId),
+    "1",
+    "EX",
+    env.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS,
+    "NX",
+  );
+  if (claimed === null) {
+    const ttl = await redis.ttl(resendKey(userId));
+    throw new MfaResendTooSoonError(
+      ttl > 0 ? ttl : env.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS,
+    );
+  }
+
+  const code = generateCode();
   await redis.set(otpKey(userId), hashCode(code), "EX", OTP_TTL_SECONDS);
   await redis.del(attemptsKey(userId));
 
-  await sendDirectNotification({
-    notificationId: `platform-admin-mfa:${userId}:${Date.now()}`,
-    title: "Your OpenWind platform admin verification code",
-    body: `Your verification code is ${code}. It expires in 10 minutes. If you did not request this, contact your OpenWind administrator.`,
-    recipients: [{ userId, email }],
-  });
+  try {
+    await sendDirectNotification({
+      notificationId: `platform-admin-mfa:${userId}:${Date.now()}`,
+      title: "Your OpenWind platform admin verification code",
+      body: `Your verification code is ${code}. It expires in 10 minutes. If you did not request this, contact your OpenWind administrator.`,
+      recipients: [{ userId, email }],
+    });
+  } catch (err) {
+    // The code never reached the admin, so the cooldown must not make them wait to retry a
+    // failure that was not theirs.
+    await redis.del(resendKey(userId));
+    throw err;
+  }
 
   logger.info({ userId }, "platform-admin-mfa: code sent");
 }
@@ -118,6 +159,15 @@ export async function verifyMfaCode(
 
   await redis.del(otpKey(userId), attemptsKey(userId));
   await redis.set(verifiedKey(userId), "1", "EX", VERIFIED_TTL_SECONDS);
+  // Step-up marker (ADR-022 Decision 10, #865): this code was just entered, so the admin is
+  // "fresh" for the configured window -- what reset and delete require on top of the
+  // 12-hour verified flag.
+  await redis.set(
+    freshKey(userId),
+    "1",
+    "EX",
+    env.PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS,
+  );
   logger.info({ userId }, "platform-admin-mfa: verified");
   return true;
 }
@@ -128,5 +178,17 @@ export async function isMfaVerified(userId: string): Promise<boolean> {
     async () => (await getRedis().get(verifiedKey(userId))) !== null,
     false,
     { userId, op: "platform-admin-mfa:isMfaVerified" },
+  );
+}
+
+/**
+ * True only if a code was verified within PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS. Fails
+ * closed like isMfaVerified: a Redis timeout/error is "not fresh", never "fresh".
+ */
+export async function isMfaFresh(userId: string): Promise<boolean> {
+  return withRedisTimeout(
+    async () => (await getRedis().get(freshKey(userId))) !== null,
+    false,
+    { userId, op: "platform-admin-mfa:isMfaFresh" },
   );
 }

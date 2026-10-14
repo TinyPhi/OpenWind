@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { zValidator } from "../../lib/validator.js";
-import { requirePlatformAdmin } from "@platform/auth";
+import { requirePlatformAdmin, requireFreshMfa } from "@platform/auth";
 import {
   tenants,
   withPlatformAdminContext,
@@ -40,6 +40,7 @@ const WAIT_FOR_RESET_TTL_MS = 60_000;
 
 export const sandboxResetHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),
+  requireFreshMfa(),
   zValidator("param", TenantIdParamSchema),
   async (c) => {
     const { userId } = c.get("platformAdmin");

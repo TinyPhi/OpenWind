@@ -101,6 +101,7 @@ const mockVerifyJwt = vi.fn();
 const mockExtractAuthContext = vi.fn();
 const mockExtractPlatformAdminContext = vi.fn();
 const mockIsMfaVerified = vi.fn();
+const mockIsMfaFresh = vi.fn();
 vi.mock("./jwks.js", () => ({
   verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
   extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
@@ -117,6 +118,7 @@ vi.mock("./jwks.js", () => ({
 
 vi.mock("./platform-admin-mfa.js", () => ({
   isMfaVerified: (...args: unknown[]) => mockIsMfaVerified(...args),
+  isMfaFresh: (...args: unknown[]) => mockIsMfaFresh(...args),
 }));
 
 const mockIntrospectToken = vi.fn();
@@ -227,6 +229,7 @@ const {
   requireRole,
   requireIntrospection,
   requirePlatformAdmin,
+  requireFreshMfa,
   requirePlatformAdminIdentity,
   isTenantTrialActive,
 } = await import("./middleware.js");
@@ -1593,6 +1596,64 @@ describe("requirePlatformAdmin", () => {
     const app = makeApp([requirePlatformAdmin()]);
     const res = await get(app, "valid.jwt.token");
     expect(res.status).toBe(200);
+  });
+});
+
+describe("requireFreshMfa (ADR-022 step-up, #865)", () => {
+  const PLATFORM_ADMIN_CTX = {
+    userId: "pa-user-1",
+    roles: ["platform_admin"],
+    email: "ops@openwind.io",
+    displayName: "Ops",
+  };
+
+  // Earlier tests can leave unconsumed mockResolvedValueOnce values queued (a dev-bypass test
+  // never reads isMfaVerified), so reset before arranging.
+  function arrangeVerifiedAdmin(): void {
+    mockIsMfaVerified.mockReset();
+    mockIsMfaFresh.mockReset();
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    mockIsMfaVerified.mockResolvedValueOnce(true);
+  }
+
+  it("returns 403 MFA_REAUTH_REQUIRED when the admin is verified (12h) but not fresh", async () => {
+    arrangeVerifiedAdmin();
+    mockIsMfaFresh.mockResolvedValueOnce(false);
+    mockMfaDevBypass = false;
+    const app = makeApp([requirePlatformAdmin(), requireFreshMfa()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "MFA_REAUTH_REQUIRED" });
+    expect(mockIsMfaFresh).toHaveBeenCalledWith("pa-user-1");
+  });
+
+  it("allows the request when the admin is fresh", async () => {
+    arrangeVerifiedAdmin();
+    mockIsMfaFresh.mockResolvedValueOnce(true);
+    mockMfaDevBypass = false;
+    const app = makeApp([requirePlatformAdmin(), requireFreshMfa()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(200);
+  });
+
+  it("skips the check, like requirePlatformAdmin, when the dev bypass is on", async () => {
+    mockIsMfaFresh.mockReset();
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    mockMfaDevBypass = true;
+    const app = makeApp([requirePlatformAdmin(), requireFreshMfa()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(200);
+    expect(mockIsMfaFresh).not.toHaveBeenCalled();
+  });
+
+  it("does not run for an unauthenticated request (requirePlatformAdmin rejects first)", async () => {
+    mockIsMfaFresh.mockReset();
+    const app = makeApp([requirePlatformAdmin(), requireFreshMfa()]);
+    const res = await get(app);
+    expect(res.status).toBe(401);
+    expect(mockIsMfaFresh).not.toHaveBeenCalled();
   });
 });
 

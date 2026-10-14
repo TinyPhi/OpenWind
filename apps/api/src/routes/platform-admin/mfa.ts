@@ -4,7 +4,9 @@ import {
   requirePlatformAdminIdentity,
   requestMfaCode,
   verifyMfaCode,
+  MfaResendTooSoonError,
 } from "@platform/auth";
+import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { platformAdminFactory } from "./factory.js";
 
@@ -34,13 +36,30 @@ export const mfaRequestHandler = platformAdminFactory.createHandlers(
     try {
       await requestMfaCode(userId, email);
     } catch (err) {
+      if (err instanceof MfaResendTooSoonError) {
+        c.header("Retry-After", String(err.retryAfterSeconds));
+        return c.json(
+          {
+            error: "MFA_RESEND_TOO_SOON",
+            message: `A code was sent recently. Try again in ${err.retryAfterSeconds} seconds.`,
+            meta: { retryAfterSeconds: err.retryAfterSeconds },
+          },
+          429,
+        );
+      }
       logger.error({ err, userId }, "platform-admin mfa/request: send failed");
       return c.json(
         { error: "SEND_FAILED", message: "Could not send verification code" },
         502,
       );
     }
-    return c.json({ data: { sent: true } });
+    return c.json({
+      data: {
+        sent: true,
+        // Lets the client run an accurate resend countdown from the server's own setting.
+        resendAfterSeconds: env.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS,
+      },
+    });
   },
 );
 
