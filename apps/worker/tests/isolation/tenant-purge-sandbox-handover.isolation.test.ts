@@ -51,8 +51,14 @@ afterAll(async () => {
 describe("tenant-purge: sandbox handover credentials (T14)", () => {
   it("deletes the sandbox's handover credentials from Redis as part of the purge", async () => {
     await storeSandboxHandoverCredentials(TENANT_ID, {
-      seededAccounts: [{ email: "admin@example.com", role: "admin" }],
-      defaultPassword: "Ow-abc-9!",
+      seededAccounts: [
+        {
+          username: "admin.user",
+          email: "admin@example.com",
+          role: "admin",
+          password: "Ow-abc-9!",
+        },
+      ],
     });
     expect(await getSandboxHandoverCredentials(TENANT_ID)).not.toBeNull();
 

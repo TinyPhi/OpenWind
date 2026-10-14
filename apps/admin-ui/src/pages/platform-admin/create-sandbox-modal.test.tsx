@@ -118,9 +118,19 @@ describe("CreateSandboxModal", () => {
       data: {
         tenantId: "t1",
         seededAccounts: [
-          { username: "admin.user", email: "admin@example.com", role: "admin" },
+          {
+            username: "admin.user",
+            email: "admin@example.com",
+            role: "admin",
+            password: "Ow-admin-9!",
+          },
+          {
+            username: "olivia.smith",
+            email: "olivia.smith@example.com",
+            role: "user",
+            password: "Ow-olivia-9!",
+          },
         ],
-        defaultPassword: "Ow-abc-9!",
       },
     });
     renderModal();
@@ -131,9 +141,12 @@ describe("CreateSandboxModal", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Sandbox ready")).toBeTruthy();
-      expect(screen.getByText("Ow-abc-9!")).toBeTruthy();
       expect(screen.getByText(/admin@example.com/)).toBeTruthy();
       expect(screen.getByText("admin.user")).toBeTruthy();
+      // Each account shows its own password; there is no shared one any more.
+      expect(screen.getByText("Ow-admin-9!")).toBeTruthy();
+      expect(screen.getByText("Ow-olivia-9!")).toBeTruthy();
+      expect(screen.queryByText("Default password")).toBeNull();
       expect(screen.getByText(/either the username or the email/)).toBeTruthy();
     });
     expect(mockFetchWithAuth).toHaveBeenCalledWith(
@@ -169,9 +182,9 @@ describe("CreateSandboxModal", () => {
               username: "admin.user",
               email: "admin@example.com",
               role: "admin",
+              password: "Ow-abc-9!",
             },
           ],
-          defaultPassword: "Ow-abc-9!",
         },
       });
     });
@@ -218,7 +231,7 @@ describe("CreateSandboxModal", () => {
       },
     });
     mockFetchWithAuth.mockResolvedValueOnce({
-      data: { tenantId: "t1", seededAccounts: [], defaultPassword: "pw" },
+      data: { tenantId: "t1", seededAccounts: [] },
     });
     const { onCreated } = renderModal();
     fireEvent.change(screen.getByLabelText("Organization name"), {
