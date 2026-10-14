@@ -13,6 +13,7 @@ export {
   notificationDispatchDurationSeconds,
   notificationPolicyMatchTotal,
   mentionRecordFailureTotal,
+  retentionDeletedRowsTotal,
   getSerializedMetrics,
 } from "./metrics.js";
 export { Queue, Worker } from "./bullmq.js";
