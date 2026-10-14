@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 
 export type ModalMode = "create" | "edit";
 
@@ -66,15 +66,18 @@ export function useModal<TItem = void>(
     optionsRef.current?.onClose?.();
   }, []);
 
-  return {
-    isOpen,
-    item,
-    mode,
-    isEditing: isOpen && item !== null,
-    isCreating: isOpen && item === null,
-    open,
-    openCreate,
-    openEdit,
-    close,
-  };
+  return useMemo(
+    () => ({
+      isOpen,
+      item,
+      mode,
+      isEditing: isOpen && item !== null,
+      isCreating: isOpen && item === null,
+      open,
+      openCreate,
+      openEdit,
+      close,
+    }),
+    [isOpen, item, mode, open, openCreate, openEdit, close],
+  );
 }

@@ -821,11 +821,15 @@ export function WorkflowCanvas({
   // ── Overlay state ────────────────────────────────────────────────────────
   const addStateModal = useModal<{ readonly x: number; readonly y: number }>();
   const editStateModal = useModal<WorkflowState>();
+  const { open: openEditStateModal } = editStateModal;
   const transPanelModal = useModal<TransPanelData>();
+  const { open: openTransPanelModal } = transPanelModal;
   const confirmDeleteModal = useModal<{
     readonly message: string;
     readonly onConfirm: () => void;
   }>();
+  const { open: openConfirmDeleteModal, close: closeConfirmDeleteModal } =
+    confirmDeleteModal;
 
   // ── Selection tracking (for Delete key) ─────────────────────────────────
   const [selection, setSelection] = useState<{
@@ -854,18 +858,18 @@ export function WorkflowCanvas({
   const handleNodeDoubleClick = useCallback(
     (id: string) => {
       const s = draftStatesRef.current.find((x) => x.id === id);
-      if (s) editStateModal.open(s);
+      if (s) openEditStateModal(s);
     },
-    [editStateModal],
+    [openEditStateModal],
   );
 
   const handleNodeContextMenu = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.preventDefault();
       const s = draftStatesRef.current.find((x) => x.id === id);
-      if (s) editStateModal.open(s);
+      if (s) openEditStateModal(s);
     },
-    [editStateModal],
+    [openEditStateModal],
   );
 
   const nodeCallbacks = useMemo(
@@ -980,12 +984,12 @@ export function WorkflowCanvas({
           (t) => t.fromState === state.name || t.toState === state.name,
         );
         if (affectedTransitions.length > 0) {
-          confirmDeleteModal.open({
+          openConfirmDeleteModal({
             message: `Delete "${state.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
             onConfirm: () => {
               deleteSelectedEdges();
               deleteState(nodeId);
-              confirmDeleteModal.close();
+              closeConfirmDeleteModal();
             },
           });
           return;
@@ -999,7 +1003,14 @@ export function WorkflowCanvas({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isAdmin, selection, draftStates, draftTransitions, confirmDeleteModal]);
+  }, [
+    isAdmin,
+    selection,
+    draftStates,
+    draftTransitions,
+    openConfirmDeleteModal,
+    closeConfirmDeleteModal,
+  ]);
 
   // ── State operations ─────────────────────────────────────────────────────
   function addState(
@@ -1118,7 +1129,7 @@ export function WorkflowCanvas({
       const srcState = draftStates.find((s) => s.id === conn.source);
       const tgtState = draftStates.find((s) => s.id === conn.target);
       if (!srcState || !tgtState) return;
-      transPanelModal.open({
+      openTransPanelModal({
         mode: "new",
         fromState: srcState.name,
         toState: tgtState.name,
@@ -1127,7 +1138,7 @@ export function WorkflowCanvas({
         requiresComment: false,
       });
     },
-    [draftStates, transPanelModal],
+    [draftStates, openTransPanelModal],
   );
 
   // ── onEdgeClick (edit transition) ────────────────────────────────────────
@@ -1136,7 +1147,7 @@ export function WorkflowCanvas({
       if (!isAdmin) return;
       const t = draftTransitions.find((x) => x.id === edge.id);
       if (!t) return;
-      transPanelModal.open({
+      openTransPanelModal({
         mode: "edit",
         id: t.id,
         fromState: t.fromState,
@@ -1146,7 +1157,7 @@ export function WorkflowCanvas({
         requiresComment: t.requiresComment,
       });
     },
-    [isAdmin, draftTransitions, transPanelModal],
+    [isAdmin, draftTransitions, openTransPanelModal],
   );
 
   function handleDiscard(): void {
