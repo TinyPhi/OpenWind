@@ -39,7 +39,10 @@ attributable, and subject to the same rules as any other change of state where t
 - **D6 — it counts as acting.** The event is a real state change (`from_state` differs from `to_state`), so under
   `actor_not_prior_actor` an admin who overrode a step cannot then also approve it.
 - **D7 — recorded twice.** The workflow event (who, why, from, to) and an admin audit entry,
-  `workflow.state_overridden`, written in the same transaction as the change by the route.
+  `workflow.state_overridden`, written in the same transaction as the change by the route. The entry's
+  `resourceType` is the entity type's name (like the entity engine's own audit entries), so an auditor filtering
+  by type finds an overridden contact as a contact. The access check, the override and the audit write share one
+  transaction, so access cannot change between the check and the change.
 
 ## §R Requirements
 

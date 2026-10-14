@@ -7,6 +7,8 @@ import type * as EntityEngine from "@platform/entity-engine";
 
 const mockOverride = vi.fn();
 const mockGetEntity = vi.fn();
+const mockGetEntityType = vi.fn();
+const mockWithTenantContext = vi.fn();
 const mockHasAccess = vi.fn();
 const mockWriteAuditEntry = vi.fn();
 let mockRoles: string[] = ["admin"];
@@ -38,7 +40,10 @@ vi.mock("@platform/auth", () => ({
 const fakeTx = { tx: true };
 vi.mock("@platform/db", () => ({
   db: {},
-  withTenantContext: (_t: string, fn: (tx: unknown) => unknown) => fn(fakeTx),
+  withTenantContext: (t: string, fn: (tx: unknown) => unknown) => {
+    mockWithTenantContext(t);
+    return fn(fakeTx);
+  },
 }));
 
 vi.mock("@platform/audit", () => ({
@@ -47,7 +52,11 @@ vi.mock("@platform/audit", () => ({
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
   const real = await importOriginal<typeof EntityEngine>();
-  return { ...real, getEntity: (...args: unknown[]) => mockGetEntity(...args) };
+  return {
+    ...real,
+    getEntity: (...args: unknown[]) => mockGetEntity(...args),
+    getEntityType: (...args: unknown[]) => mockGetEntityType(...args),
+  };
 });
 
 vi.mock("../../lib/entity-access.js", () => ({
@@ -97,7 +106,12 @@ describe("POST /entities/:id/override-state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRoles = ["admin"];
-    mockGetEntity.mockResolvedValue({ id: INST, tenantId: "t-aaa" });
+    mockGetEntity.mockResolvedValue({
+      id: INST,
+      tenantId: "t-aaa",
+      entityTypeId: "et-1",
+    });
+    mockGetEntityType.mockResolvedValue({ id: "et-1", name: "vendor" });
     mockHasAccess.mockResolvedValue(true);
     mockOverride.mockResolvedValue(event);
     mockWriteAuditEntry.mockResolvedValue(undefined);
@@ -129,7 +143,7 @@ describe("POST /entities/:id/override-state", () => {
         tenantId: "t-aaa",
         actorId: "u-admin",
         actorType: "user",
-        resourceType: "ticket",
+        resourceType: "vendor",
         resourceId: INST,
         action: "workflow.state_overridden",
         beforeSnapshot: { currentState: "draft" },
@@ -137,6 +151,27 @@ describe("POST /entities/:id/override-state", () => {
         metadata: { reason: "Customer escalated, skip review", workflowId: WF },
       }),
     );
+  });
+
+  it("labels the audit entry with the entity type's name, not a hardcoded ticket", async () => {
+    mockGetEntityType.mockResolvedValue({ id: "et-2", name: "crm_contact" });
+
+    await post({ state: "final", reason: "x".repeat(12) });
+
+    expect(mockGetEntityType).toHaveBeenCalledWith(fakeTx, "t-aaa", "et-1");
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      fakeTx,
+      expect.objectContaining({ resourceType: "crm_contact" }),
+    );
+  });
+
+  it("does the access check, the override and the audit write in ONE transaction", async () => {
+    await post({ state: "final", reason: "x".repeat(12) });
+
+    expect(mockWithTenantContext).toHaveBeenCalledTimes(1);
+    for (const fn of [mockGetEntity, mockHasAccess, mockOverride]) {
+      expect(fn.mock.calls[0]?.[0]).toBe(fakeTx);
+    }
   });
 
   it("refuses a non-admin before anything runs", async () => {
@@ -188,6 +223,18 @@ describe("POST /entities/:id/override-state", () => {
     const res = await post({ state: "final", reason: "x".repeat(12) });
 
     expect(res.status).toBeGreaterThanOrEqual(500);
+  });
+
+  it("leaves the reason's length bounds to the engine: 1500 characters reaches it, 2001 is a 400", async () => {
+    // The body cap (2x the engine maximum) only stops absurd payloads; the engine owns the real
+    // bounds so its 422 can tell the client what they are.
+    const ok = await post({ state: "final", reason: "x".repeat(1500) });
+    expect(ok.status).toBe(200);
+    expect(mockOverride).toHaveBeenCalledTimes(1);
+
+    const tooBig = await post({ state: "final", reason: "x".repeat(2001) });
+    expect(tooBig.status).toBe(400);
+    expect(mockOverride).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a malformed body with 400 before touching the engine", async () => {

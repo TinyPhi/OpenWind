@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { writeAuditEntry } from "@platform/audit";
 import { withTenantContext } from "@platform/db";
-import { getEntity, EntityError } from "@platform/entity-engine";
+import { getEntity, getEntityType, EntityError } from "@platform/entity-engine";
 import {
   overrideWorkflowState,
   OVERRIDE_REASON_MAX_LENGTH,
@@ -35,17 +35,15 @@ export const overrideStateHandler = factory.createHandlers(
     const { state, reason } = c.req.valid("json");
 
     try {
-      const instance = await withTenantContext(tenantId, (tx) =>
-        getEntity(tx, tenantId, instanceId),
-      );
-      const allowed = await withTenantContext(tenantId, (tx) =>
-        hasEntityAccess(tx, tenantId, instance, userId, roles),
-      );
-      if (!allowed) {
-        return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
-      }
-
+      // One transaction for the lot: the access check, the override and the audit entry all see
+      // the same record under the same lock, so access cannot change between the check and the
+      // change, and a failed audit write rolls the state change back with it.
       const event = await withTenantContext(tenantId, async (tx) => {
+        const instance = await getEntity(tx, tenantId, instanceId);
+        if (!(await hasEntityAccess(tx, tenantId, instance, userId, roles))) {
+          return null;
+        }
+
         const result = await overrideWorkflowState(tx, tenantId, {
           instanceId,
           state,
@@ -53,11 +51,18 @@ export const overrideStateHandler = factory.createHandlers(
           actorId: userId,
           actorRoles: roles,
         });
+        // Labelled with the entity type's name, like the entity engine's own audit entries, so an
+        // auditor filtering by type finds an overridden CRM contact as a contact, not a ticket.
+        const entityType = await getEntityType(
+          tx,
+          tenantId,
+          instance.entityTypeId,
+        );
         await writeAuditEntry(tx, {
           tenantId,
           actorId: userId,
           actorType: "user",
-          resourceType: "ticket",
+          resourceType: entityType.name,
           resourceId: instanceId,
           action: "workflow.state_overridden",
           beforeSnapshot: { currentState: result.fromState },
@@ -66,6 +71,9 @@ export const overrideStateHandler = factory.createHandlers(
         });
         return result;
       });
+      if (event === null) {
+        return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
 
       return c.json({ data: event });
     } catch (err) {
