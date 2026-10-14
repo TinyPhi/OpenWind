@@ -270,7 +270,9 @@ function saveProducedVars(vars: Record<string, string>): void {
   const { secrets, config } = splitProducedVars(vars);
   const written = secretsFile.write({ ...config, ...secrets });
   if (written.length > 0) {
-    ok(`Wrote ${written.join(", ")} to ${secretsFile.path} (values not shown)`);
+    ok(
+      `Wrote ${written.join(", ")} to the BOOTSTRAP_SECRETS_OUT file (values not shown)`,
+    );
   }
 }
 
@@ -1011,7 +1013,7 @@ async function main(): Promise<void> {
       assertSecretsFileAvailable(dest.path);
       secretsFile = new SecretsFile(dest.path);
       info(
-        `Production mode — new secrets go to ${dest.path}; .env.local will not be written`,
+        `Production mode — new secrets go to the BOOTSTRAP_SECRETS_OUT file; .env.local will not be written`,
       );
     }
   } catch (e) {
@@ -1138,7 +1140,7 @@ async function main(): Promise<void> {
     const names = secretsFile.keyNames;
     if (names.length > 0) {
       warn(
-        `New secrets written to ${secretsFile.path}: ${names.join(", ")}. Load them into OpenBao (kv patch the service paths that use them — kv put replaces the whole path), then delete the file.`,
+        `New secrets written to the BOOTSTRAP_SECRETS_OUT file: ${names.join(", ")}. Load them into OpenBao (kv patch the service paths that use them — kv put replaces the whole path), then delete the file.`,
       );
     } else {
       ok("No new secrets were created — nothing written");
