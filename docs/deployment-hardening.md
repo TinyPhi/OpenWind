@@ -154,6 +154,13 @@ OpenWind uses tenant context when calling the Transit engine so connector
 credential ciphertext is tenant-bound. Protecting the Transit key and its
 recovery material remains the deployer's responsibility.
 
+**Breaking change for existing production servers (ADR-023).** With
+`NODE_ENV=production`, the API and worker refuse to start on `SECRETS_PROVIDER=local`,
+a static `OPENBAO_TOKEN`, a non-`https://` `OPENBAO_ADDR`, a missing or default
+`METRICS_TOKEN`, or a Superset secret left at its development default. They also no
+longer read `.env.local`. A server still on the dev OpenBao must move to the ADR-023
+setup before it is redeployed (see `CHANGELOG.md`).
+
 ## Go-live checklist
 
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.

@@ -389,3 +389,35 @@ describe("OpenBao — production guards (ADR-023)", () => {
     ).toThrow(/Either OPENBAO_TOKEN \(dev\) or both OPENBAO_ROLE_ID/);
   });
 });
+
+describe("Superset secrets — least privilege in production (ADR-023)", () => {
+  const SUPERSET_KEYS = [
+    "SUPERSET_SECRET_KEY",
+    "SUPERSET_GUEST_TOKEN_SECRET",
+    "SUPERSET_SERVICE_ACCOUNT_PASSWORD",
+    "SUPERSET_ADMIN_PASSWORD",
+  ] as const;
+
+  it("starts a production service that holds none of them (the worker)", () => {
+    const withoutSuperset: Record<string, string> = { ...PRODUCTION_ENV };
+    for (const key of SUPERSET_KEYS) delete withoutSuperset[key];
+    const parsed = EnvSchema.parse(withoutSuperset);
+    for (const key of SUPERSET_KEYS) expect(parsed[key]).toBeUndefined();
+  });
+
+  it("never fills in a development default in production", () => {
+    const onlyServiceAccount: Record<string, string> = { ...PRODUCTION_ENV };
+    for (const key of SUPERSET_KEYS) delete onlyServiceAccount[key];
+    onlyServiceAccount["SUPERSET_SERVICE_ACCOUNT_PASSWORD"] = "a-real-password";
+    const parsed = EnvSchema.parse(onlyServiceAccount);
+    expect(parsed.SUPERSET_SERVICE_ACCOUNT_PASSWORD).toBe("a-real-password");
+    expect(parsed.SUPERSET_SECRET_KEY).toBeUndefined();
+  });
+
+  it("still checks a value that is set in production", () => {
+    const { SUPERSET_GUEST_TOKEN_SECRET: _g, ...rest } = PRODUCTION_ENV;
+    expect(() =>
+      EnvSchema.parse({ ...rest, SUPERSET_SECRET_KEY: "too-short" }),
+    ).toThrow(/SUPERSET_SECRET_KEY must be at least 32 characters/);
+  });
+});

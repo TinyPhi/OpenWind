@@ -31,7 +31,8 @@ Decrypt chooses by the ciphertext itself: values starting with `local:` use the 
 provider, everything else goes to OpenBao. In production, `local` is refused at startup and
 `local:` ciphertext is refused at decrypt. Before relying on that in a database that existed
 earlier, run `pnpm --filter @platform/db db:check-local-ciphertext` (read-only; must report
-zero).
+zero). It needs a live database connection: run it with `MIGRATION_DATABASE_URL` pointing at
+the production database (or a read replica), not from a laptop checkout.
 
 ## Configuration
 

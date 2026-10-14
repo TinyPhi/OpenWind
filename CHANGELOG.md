@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — OpenBao client hardening and production guards (#911, ADR-023)]
+
+### Breaking change (production only)
+
+- **With `NODE_ENV=production`, the API and worker now refuse to start** if:
+  - `SECRETS_PROVIDER=local` (its AES key is published in this repo);
+  - `OPENBAO_TOKEN` is set (use AppRole: `OPENBAO_ROLE_ID` and `OPENBAO_SECRET_ID`);
+  - `OPENBAO_ADDR` doesn't start with `https://`;
+  - `METRICS_TOKEN` is missing or still its development default;
+  - any Superset secret that is set is still its development default or too short.
+
+  `.env.local` is no longer loaded in production, and `local:` connector ciphertext is refused
+  at decrypt. **Before redeploying a server that runs with `NODE_ENV=production` and the dev OpenBao
+  (`OPENBAO_TOKEN`, `http://openbao:8200`), the default `METRICS_TOKEN`, or settings in
+  `.env.local`:** move it to the ADR-023 setup first, or it won't start. See
+  `docs/deployment-hardening.md`.
+
+### Changed
+
+- `@platform/secrets`: 10 s request timeout, retry on network errors / 429 / 5xx, AppRole token
+  renewal at about 2/3 of its lease, one shared login for concurrent callers, one re-login on 403.
+- In production the Superset secrets have no development defaults; each service holds only the
+  ones it uses (the API: the service account password; the worker: none).
+
+### Added
+
+- `pnpm --filter @platform/db db:check-local-ciphertext`: read-only count of `local:` connector
+  credentials. Needs a live database connection (`MIGRATION_DATABASE_URL`).
+
+---
+
 ## [Unreleased — step-up MFA for sandbox reset and delete (#865, #801)]
 
 ### Added
