@@ -760,6 +760,7 @@ async function scrubComments(
     FROM workflow_events,
       jsonb_array_elements_text(${recordedAs}) AS alias
     WHERE tenant_id = ${tenantId}
+      AND metadata ->> 'type' = 'comment'
   `);
   const known = new Set([email.toLowerCase(), targetUserId]);
   for (const { alias } of recorded) {
@@ -775,6 +776,7 @@ async function scrubComments(
       .where(
         and(
           eq(workflowEvents.tenantId, tenantId),
+          sql`${workflowEvents.metadata} ->> 'type' = 'comment'`,
           sql`jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'`,
           sql`jsonb_typeof(${workflowEvents.metadata} -> 'mentionIdentifiers' -> ${targetUserId}::text) = 'array'`,
           sql`${workflowEvents.metadata} -> 'mentionIdentifiers' -> ${targetUserId}::text ? ${value}::text`,
