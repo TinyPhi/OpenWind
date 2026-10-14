@@ -40,3 +40,14 @@
     without touching references or `team_id`.
   - Unassigned when there are no accounts; module failure isolation; outbox suppression.
   - Provisioning passes the seeded user ids.
+- **Follow-up (same PR): sandbox Reset.**
+  - **Reset failed every time on compose.** Its privileged pre-step deleted
+    `schedule_executions` on plain `db` (app_user), so it was refused before anything was
+    wiped, and the platform admin saw a 500. It now runs those two deletes (`schedule_executions`,
+    `saved_views`) in `withTenantPurgeContext`; migration 0144's role already grants exactly
+    these.
+  - **Reseeded records get assignees again.** Reset reads the sandbox's people from
+    `org_employees.user_id` (inside the tenant context) and passes them to the seeder.
+  - **Scope.** Reset still only replaces records: it never reinstalls entity types or fields,
+    so a sandbox created before the field-rule fix keeps its old fields. Reset never touches
+    Zitadel.
