@@ -101,6 +101,25 @@ export async function withTenantLifecycleContext<T>(
   });
 }
 
+/**
+ * For tenant-purge's privileged pre-steps only: archive schedule_rules, delete
+ * schedule_executions and saved_views, and anonymize admin_audit_log -- writes app_user
+ * can't make (migration 0144). app.tenant_id is set too, so the tables' tenant RLS policies
+ * still confine every statement to `tenantId`; callers keep their explicit tenant_id filters.
+ */
+export async function withTenantPurgeContext<T>(
+  tenantId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL ROLE tenant_purge_role`);
+    await tx.execute(
+      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+    );
+    return fn(tx);
+  });
+}
+
 export async function withTenantAndUserContext<T>(
   tenantId: string,
   userId: string,

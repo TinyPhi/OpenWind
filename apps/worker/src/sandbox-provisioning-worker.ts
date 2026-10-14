@@ -149,9 +149,15 @@ function generateSandboxPassword(): string {
 async function createAccountWithRetry(
   orgId: string,
   template: SandboxAccountTemplate,
-  password: string,
   domain: string,
-): Promise<{ userId: string; username: string; email: string } | null> {
+): Promise<{
+  userId: string;
+  username: string;
+  email: string;
+  password: string;
+} | null> {
+  // One password per account, never shared across a sandbox's accounts.
+  const password = generateSandboxPassword();
   for (let attempt = 0; attempt < MAX_ACCOUNT_CONFLICT_ATTEMPTS; attempt++) {
     const email = nextEmailCandidate(template, domain, attempt);
     // The username is the email's local part, so the two always match -- including the
@@ -165,7 +171,7 @@ async function createAccountWithRetry(
       familyName: template.familyName,
       password,
     });
-    if (result.ok) return { userId: result.userId, username, email };
+    if (result.ok) return { userId: result.userId, username, email, password };
     if (!result.conflict) return null;
   }
   return null;
@@ -241,7 +247,6 @@ export async function processSandboxProvisioningJob(
   // start, not one that grows mid-poll as accounts are discovered.
   const template = generateSandboxOrgTemplate();
   const domain = sandboxEmailDomain();
-  const defaultPassword = generateSandboxPassword();
   const totalSteps = template.members.length + 5; // org, tenant, admin, members..., modules, sync
 
   try {
@@ -310,7 +315,6 @@ export async function processSandboxProvisioningJob(
     const admin = await createAccountWithRetry(
       org.orgId,
       template.admin,
-      defaultPassword,
       domain,
     );
     if (!admin) {
@@ -327,16 +331,19 @@ export async function processSandboxProvisioningJob(
       username: string;
       email: string;
       role: "admin" | "user";
-    }[] = [{ username: admin.username, email: admin.email, role: "admin" }];
+      password: string;
+    }[] = [
+      {
+        username: admin.username,
+        email: admin.email,
+        role: "admin",
+        password: admin.password,
+      },
+    ];
     let seededAccountCount = 1;
     let failedAccountCount = 0;
     for (const [index, member] of template.members.entries()) {
-      const account = await createAccountWithRetry(
-        org.orgId,
-        member,
-        defaultPassword,
-        domain,
-      );
+      const account = await createAccountWithRetry(org.orgId, member, domain);
       // Every other seeded account is a plain user. One that can't be authorized can't sign
       // in either, so it counts as failed (and is left out of the handover list) rather than
       // failing the whole sandbox.
@@ -349,6 +356,7 @@ export async function processSandboxProvisioningJob(
           username: account.username,
           email: account.email,
           role: "user",
+          password: account.password,
         });
       } else {
         failedAccountCount++;
@@ -406,7 +414,7 @@ export async function processSandboxProvisioningJob(
     );
 
     // Credentials go to Redis (7-day TTL), never this table -- see module doc comment.
-    // Review finding (PR #804): this is also why defaultPassword is never part of this
+    // Review finding (PR #804): this is also why no password is ever part of this
     // function's return value below -- BullMQ's removeOnComplete would otherwise persist
     // it a second time, in Redis's job-result store, with no gating at all. This dedicated
     // handover store (behind requirePlatformAdmin + MFA + the handover route's own status
@@ -423,7 +431,6 @@ export async function processSandboxProvisioningJob(
     try {
       await storeSandboxHandoverCredentials(tenantId, {
         seededAccounts,
-        defaultPassword,
       });
     } catch (err) {
       logger.error(

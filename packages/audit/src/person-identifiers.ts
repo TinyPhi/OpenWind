@@ -1,5 +1,5 @@
 import { and, asc, eq, gt, isNotNull } from "drizzle-orm";
-import type { Db } from "@platform/db";
+import type { DbOrTx } from "@platform/db";
 import { adminAuditLog, tenantUsers } from "@platform/db";
 
 /** Same sentinel the actor columns get on purge, so one exclusion pattern covers both. */
@@ -89,7 +89,7 @@ export function scrubPersonIdentifiers(
  * rewritten.
  */
 export async function collectPersonIdentifiers(
-  db: Db,
+  db: DbOrTx,
   tenantId: string,
 ): Promise<PersonIdentifiers> {
   const ids = new Set<string>();
@@ -138,10 +138,10 @@ export async function collectPersonIdentifiers(
  * Scrubs person identifiers from the JSON columns of one tenant's audit rows.
  * Walks the tenant's rows by id (keyset), so it terminates whatever the actor
  * columns hold and is safe to re-run: a row with nothing left to scrub is not
- * written. Plain `db` only, like anonymizeAuditLogForTenant.
+ * written. Same connection rules as anonymizeAuditLogForTenant.
  */
 export async function scrubAuditLogPersonIdentifiers(
-  db: Db,
+  db: DbOrTx,
   tenantId: string,
 ): Promise<number> {
   const known = await collectPersonIdentifiers(db, tenantId);

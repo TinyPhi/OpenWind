@@ -25,6 +25,7 @@ export {
   setScheduleSweeperRole,
   withPlatformAdminContext,
   withTenantLifecycleContext,
+  withTenantPurgeContext,
 } from "./middleware.js";
 export type { DbOrTx } from "./middleware.js";
 export * from "./schema/index.js";

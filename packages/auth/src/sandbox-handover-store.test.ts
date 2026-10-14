@@ -22,17 +22,21 @@ beforeEach(() => {
 
 describe("storeSandboxHandoverCredentials", () => {
   it("stores the credentials as JSON with a 7-day TTL, keyed by tenant id", async () => {
-    await storeSandboxHandoverCredentials("tenant-1", {
-      seededAccounts: [{ email: "admin@example.com", role: "admin" }],
-      defaultPassword: "Ow-abc-9!",
-    });
+    const credentials = {
+      seededAccounts: [
+        {
+          username: "admin.user",
+          email: "admin@example.com",
+          role: "admin" as const,
+          password: "Ow-abc-9!",
+        },
+      ],
+    };
+    await storeSandboxHandoverCredentials("tenant-1", credentials);
 
     expect(mockRedisSet).toHaveBeenCalledWith(
       "platform-admin:sandbox-handover:tenant-1",
-      JSON.stringify({
-        seededAccounts: [{ email: "admin@example.com", role: "admin" }],
-        defaultPassword: "Ow-abc-9!",
-      }),
+      JSON.stringify(credentials),
       "EX",
       7 * 24 * 60 * 60,
     );
@@ -40,23 +44,63 @@ describe("storeSandboxHandoverCredentials", () => {
 });
 
 describe("getSandboxHandoverCredentials", () => {
-  it("returns the stored credentials when present", async () => {
-    mockRedisGet.mockResolvedValueOnce(
-      JSON.stringify({
-        seededAccounts: [{ email: "admin@example.com", role: "admin" }],
-        defaultPassword: "Ow-abc-9!",
-      }),
-    );
+  it("returns the stored per-account credentials when present", async () => {
+    const credentials = {
+      seededAccounts: [
+        {
+          username: "admin.user",
+          email: "admin@example.com",
+          role: "admin",
+          password: "Ow-admin-9!",
+        },
+        {
+          username: "olivia.smith",
+          email: "olivia.smith@example.com",
+          role: "user",
+          password: "Ow-olivia-9!",
+        },
+      ],
+    };
+    mockRedisGet.mockResolvedValueOnce(JSON.stringify(credentials));
 
     const result = await getSandboxHandoverCredentials("tenant-1");
 
     expect(mockRedisGet).toHaveBeenCalledWith(
       "platform-admin:sandbox-handover:tenant-1",
     );
+    expect(result).toEqual(credentials);
+  });
+
+  it("gives every account the shared password of a handover stored before per-account passwords", async () => {
+    mockRedisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        seededAccounts: [
+          { username: "admin.user", email: "admin@example.com", role: "admin" },
+          { username: "olivia.smith", email: "o@example.com", role: "user" },
+        ],
+        defaultPassword: "Ow-shared-9!",
+      }),
+    );
+
+    const result = await getSandboxHandoverCredentials("tenant-1");
+
     expect(result).toEqual({
-      seededAccounts: [{ email: "admin@example.com", role: "admin" }],
-      defaultPassword: "Ow-abc-9!",
+      seededAccounts: [
+        {
+          username: "admin.user",
+          email: "admin@example.com",
+          role: "admin",
+          password: "Ow-shared-9!",
+        },
+        {
+          username: "olivia.smith",
+          email: "o@example.com",
+          role: "user",
+          password: "Ow-shared-9!",
+        },
+      ],
     });
+    expect(result).not.toHaveProperty("defaultPassword");
   });
 
   it("returns null when nothing is stored (never provisioned, or the TTL expired)", async () => {
@@ -74,6 +118,28 @@ describe("getSandboxHandoverCredentials", () => {
 
     expect(result).toBeNull();
   });
+
+  it.each([
+    ["JSON null", "null"],
+    ["no account list", JSON.stringify({ defaultPassword: "Ow-abc-9!" })],
+    [
+      "an account with no password on file",
+      JSON.stringify({
+        seededAccounts: [
+          { username: "admin.user", email: "a@example.com", role: "admin" },
+        ],
+      }),
+    ],
+  ])(
+    "returns null for a well-formed but unusable value (%s)",
+    async (_, raw) => {
+      mockRedisGet.mockResolvedValueOnce(raw);
+
+      const result = await getSandboxHandoverCredentials("tenant-1");
+
+      expect(result).toBeNull();
+    },
+  );
 });
 
 describe("deleteSandboxHandoverCredentials", () => {

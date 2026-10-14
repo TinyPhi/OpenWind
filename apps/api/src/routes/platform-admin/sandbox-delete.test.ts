@@ -54,7 +54,7 @@ const mockTx = {
 };
 
 vi.mock("@platform/db", () => ({
-  tenants: { id: "id", isSandbox: "isSandbox" },
+  tenants: { id: "id", isSandbox: "isSandbox", status: "status" },
   withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
@@ -88,7 +88,9 @@ const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
   vi.clearAllMocks();
   freshState.fresh = true;
-  mockSelectRows.mockResolvedValue([{ id: TENANT_ID, isSandbox: true }]);
+  mockSelectRows.mockResolvedValue([
+    { id: TENANT_ID, isSandbox: true, status: "active" },
+  ]);
 });
 
 describe("POST /sandboxes/:tenantId/delete", () => {
@@ -118,7 +120,9 @@ describe("POST /sandboxes/:tenantId/delete", () => {
   });
 
   it("returns 404 when the tenant exists but is not a sandbox", async () => {
-    mockSelectRows.mockResolvedValue([{ id: TENANT_ID, isSandbox: false }]);
+    mockSelectRows.mockResolvedValue([
+      { id: TENANT_ID, isSandbox: false, status: "active" },
+    ]);
     const app = makeApp();
 
     const res = await app.request(`/sandboxes/${TENANT_ID}/delete`, {
@@ -128,6 +132,27 @@ describe("POST /sandboxes/:tenantId/delete", () => {
     expect(res.status).toBe(404);
     expect(mockAcquireTenantAdvisoryLock).not.toHaveBeenCalled();
   });
+
+  it.each(["deleted", "purged"])(
+    "returns 409 SANDBOX_ALREADY_DELETED for a %s sandbox without enqueueing",
+    async (status) => {
+      mockSelectRows.mockResolvedValue([
+        { id: TENANT_ID, isSandbox: true, status },
+      ]);
+      const app = makeApp();
+
+      const res = await app.request(`/sandboxes/${TENANT_ID}/delete`, {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({
+        error: "SANDBOX_ALREADY_DELETED",
+      });
+      expect(mockAcquireTenantAdvisoryLock).not.toHaveBeenCalled();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns 409 when the sandbox-lifecycle lock is already held", async () => {
     mockAcquireTenantAdvisoryLock.mockResolvedValue({
