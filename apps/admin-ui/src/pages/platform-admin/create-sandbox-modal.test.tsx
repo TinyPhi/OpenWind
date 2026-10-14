@@ -17,7 +17,51 @@ vi.mock("../../lib/api.js", () => ({
   API_URL: "/api",
 }));
 
+// The CSV content itself is covered by sandbox-handover-csv.test.ts; here only the wiring.
+const mockDownloadHandoverCsv = vi.fn();
+vi.mock("./sandbox-handover-csv.js", () => ({
+  downloadHandoverCsv: (...args: unknown[]) =>
+    mockDownloadHandoverCsv(...args) as unknown,
+}));
+
 const { CreateSandboxModal } = await import("./create-sandbox-modal.js");
+
+const HANDOVER_ACCOUNTS = [
+  {
+    username: "admin.user",
+    email: "admin@example.com",
+    role: "admin",
+    password: "Ow-admin-9!",
+  },
+  {
+    username: "olivia.smith",
+    email: "olivia.smith@example.com",
+    role: "user",
+    password: "Ow-olivia-9!",
+  },
+];
+
+async function showHandover(): Promise<void> {
+  mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+  mockFetchWithAuth.mockResolvedValueOnce({
+    data: {
+      status: "completed",
+      currentStep: null,
+      completedSteps: 7,
+      totalSteps: 7,
+      error: null,
+    },
+  });
+  mockFetchWithAuth.mockResolvedValueOnce({
+    data: { tenantId: "t1", seededAccounts: HANDOVER_ACCOUNTS },
+  });
+  renderModal();
+  fireEvent.change(screen.getByLabelText("Organization name"), {
+    target: { value: "Acme Sandbox" },
+  });
+  fireEvent.click(screen.getByText("Create sandbox"));
+  await waitFor(() => screen.getByText("Sandbox ready"));
+}
 
 function renderModal(
   onCreated: () => void = vi.fn(),
@@ -153,6 +197,49 @@ describe("CreateSandboxModal", () => {
       "/api/platform-admin/sandboxes/job-1/handover",
       undefined,
     );
+  });
+
+  it("downloads the on-screen accounts as a CSV named after the sandbox", async () => {
+    await showHandover();
+
+    fireEvent.click(screen.getByText("Download CSV"));
+
+    expect(mockDownloadHandoverCsv).toHaveBeenCalledWith(
+      "Acme Sandbox",
+      HANDOVER_ACCOUNTS,
+    );
+    // Built from what's on screen: the handover is still fetched only once.
+    const urls = mockFetchWithAuth.mock.calls.map(([url]) => url);
+    expect(urls.filter((u) => u.endsWith("/handover"))).toHaveLength(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows an inline error when the CSV can't be created", async () => {
+    mockDownloadHandoverCsv.mockImplementationOnce(() => {
+      throw new Error("Blob unavailable");
+    });
+    await showHandover();
+
+    fireEvent.click(screen.getByText("Download CSV"));
+
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /Could not create the CSV/,
+    );
+    expect(screen.getByText("Ow-admin-9!")).toBeTruthy();
+  });
+
+  it("widens the dialog for the handover and gives email its own column", async () => {
+    renderModal();
+    expect(screen.getByRole("dialog").style.maxWidth).toBe("480px");
+    cleanup();
+
+    await showHandover();
+
+    expect(screen.getByRole("dialog").style.maxWidth).toBe("960px");
+    expect(screen.getByRole("columnheader", { name: "Email" })).toBeTruthy();
+    expect(
+      screen.getByRole("cell", { name: "olivia.smith@example.com" }),
+    ).toBeTruthy();
   });
 
   // PR #842 review B: the handover endpoint is one-time. The server keeps answering
