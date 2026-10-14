@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 
-const executedStatements: string[] = [];
+const dialect = new PgDialect();
+
+const executedStatements: Array<{ sql: string; params: unknown[] }> = [];
 
 const mockTx = {
-  execute: vi.fn(async (query: unknown) => {
-    // drizzle sql tagged template objects have queryChunks or asString
-    const str =
-      typeof query === "object" && query !== null
-        ? JSON.stringify(query)
-        : String(query);
-    executedStatements.push(str);
+  execute: vi.fn(async (query: SQL) => {
+    // Compile the Drizzle SQL object to { sql: string, params: unknown[] }
+    // using the Postgres dialect compiler rather than inspecting internal AST nodes.
+    const compiled = dialect.sqlToQuery(query);
+    executedStatements.push(compiled);
     return [];
   }),
 };
@@ -40,71 +42,79 @@ describe("db middleware context functions", () => {
     executedStatements.length = 0;
   });
 
-  it("withTenantPurgeContext switches role to tenant_purge_role and sets app.tenant_id", async () => {
-    const result = await withTenantPurgeContext("tenant-123", async (tx) => {
-      expect(tx).toBe(mockTx);
-      return "purged";
-    });
-
-    expect(result).toBe("purged");
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
-    expect(mockTx.execute).toHaveBeenCalledTimes(2);
-    expect(executedStatements[0]).toContain("tenant_purge_role");
-    expect(executedStatements[1]).toContain("tenant-123");
-  });
-
-  it("withTenantLifecycleContext switches role to tenant_lifecycle_role inside transaction", async () => {
-    const result = await withTenantLifecycleContext(async (tx) => {
-      expect(tx).toBe(mockTx);
-      return "lifecycle-done";
-    });
-
-    expect(result).toBe("lifecycle-done");
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
-    expect(mockTx.execute).toHaveBeenCalledTimes(1);
-    expect(executedStatements[0]).toContain("tenant_lifecycle_role");
-  });
-
-  it("withPlatformAdminContext switches role to platform_admin_role inside transaction", async () => {
-    const result = await withPlatformAdminContext(async (tx) => {
-      expect(tx).toBe(mockTx);
-      return "admin-done";
-    });
-
-    expect(result).toBe("admin-done");
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
-    expect(mockTx.execute).toHaveBeenCalledTimes(1);
-    expect(executedStatements[0]).toContain("platform_admin_role");
-  });
-
-  it("withTenantContext switches role to app_user and sets app.tenant_id", async () => {
-    const result = await withTenantContext("tenant-abc", async (tx) => {
-      expect(tx).toBe(mockTx);
-      return "tenant-done";
-    });
-
-    expect(result).toBe("tenant-done");
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
-    expect(mockTx.execute).toHaveBeenCalledTimes(2);
-    expect(executedStatements[0]).toContain("app_user");
-    expect(executedStatements[1]).toContain("tenant-abc");
-  });
-
-  it("withTenantAndUserContext switches role to app_user and sets both tenant and user ids", async () => {
-    const result = await withTenantAndUserContext(
-      "tenant-abc",
-      "user-xyz",
-      async (tx) => {
+  describe("withTenantPurgeContext (migration 0144 / #903)", () => {
+    it("switches role to tenant_purge_role and sets app.tenant_id", async () => {
+      const result = await withTenantPurgeContext("tenant-123", async (tx) => {
         expect(tx).toBe(mockTx);
-        return "tenant-user-done";
-      },
-    );
+        return "purged";
+      });
 
-    expect(result).toBe("tenant-user-done");
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
-    expect(mockTx.execute).toHaveBeenCalledTimes(2);
-    expect(executedStatements[0]).toContain("app_user");
-    expect(executedStatements[1]).toContain("tenant-abc");
-    expect(executedStatements[1]).toContain("user-xyz");
+      expect(result).toBe("purged");
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      expect(mockTx.execute).toHaveBeenCalledTimes(2);
+      expect(executedStatements[0].sql).toContain("tenant_purge_role");
+      expect(executedStatements[1].sql).toContain("set_config");
+      expect(executedStatements[1].params).toEqual(["tenant-123"]);
+    });
+  });
+
+  describe("pre-existing middleware context helpers (regression coverage)", () => {
+    it("withTenantLifecycleContext switches role to tenant_lifecycle_role inside transaction", async () => {
+      const result = await withTenantLifecycleContext(async (tx) => {
+        expect(tx).toBe(mockTx);
+        return "lifecycle-done";
+      });
+
+      expect(result).toBe("lifecycle-done");
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      expect(mockTx.execute).toHaveBeenCalledTimes(1);
+      expect(executedStatements[0].sql).toContain("tenant_lifecycle_role");
+      expect(executedStatements[0].params).toEqual([]);
+    });
+
+    it("withPlatformAdminContext switches role to platform_admin_role inside transaction", async () => {
+      const result = await withPlatformAdminContext(async (tx) => {
+        expect(tx).toBe(mockTx);
+        return "admin-done";
+      });
+
+      expect(result).toBe("admin-done");
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      expect(mockTx.execute).toHaveBeenCalledTimes(1);
+      expect(executedStatements[0].sql).toContain("platform_admin_role");
+      expect(executedStatements[0].params).toEqual([]);
+    });
+
+    it("withTenantContext switches role to app_user and sets app.tenant_id", async () => {
+      const result = await withTenantContext("tenant-abc", async (tx) => {
+        expect(tx).toBe(mockTx);
+        return "tenant-done";
+      });
+
+      expect(result).toBe("tenant-done");
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      expect(mockTx.execute).toHaveBeenCalledTimes(2);
+      expect(executedStatements[0].sql).toContain("app_user");
+      expect(executedStatements[1].sql).toContain("set_config");
+      expect(executedStatements[1].params).toEqual(["tenant-abc"]);
+    });
+
+    it("withTenantAndUserContext switches role to app_user and sets both tenant and user ids", async () => {
+      const result = await withTenantAndUserContext(
+        "tenant-abc",
+        "user-xyz",
+        async (tx) => {
+          expect(tx).toBe(mockTx);
+          return "tenant-user-done";
+        },
+      );
+
+      expect(result).toBe("tenant-user-done");
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      expect(mockTx.execute).toHaveBeenCalledTimes(2);
+      expect(executedStatements[0].sql).toContain("app_user");
+      expect(executedStatements[1].sql).toContain("set_config");
+      expect(executedStatements[1].params).toEqual(["tenant-abc", "user-xyz"]);
+    });
   });
 });
