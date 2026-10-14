@@ -40,7 +40,7 @@ POST   /platform-admin/sandboxes                 -> starts provisioning job, ret
 GET    /platform-admin/sandboxes/:jobId/progress -> polled by wait-screen {step, total, status}
 GET    /platform-admin/sandboxes                 -> list (metadata only: name, created, trial status)
 GET    /platform-admin/sandboxes/:tenantId        -> read metadata (no business data)
-GET    /platform-admin/sandboxes/:tenantId/handover -> username list + default-password pattern, for handoff
+GET    /platform-admin/sandboxes/:jobId/handover -> username list + default-password pattern, for handoff
 POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, cancels queued jobs
 DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts
 
@@ -144,7 +144,7 @@ wait-screen polls this job rather than holding one HTTP connection open for the 
 ✓ A failure partway through records where it got to, rather than leaving no information behind.
 ✓ On provisioning completion, the platform admin can view/export the seeded username list and the
 default-password pattern used, for handing off to the prospect — this is the actual handover
-artifact, not just a "done" status (`GET /platform-admin/sandboxes/:tenantId/handover`).
+artifact, not just a "done" status (`GET /platform-admin/sandboxes/:jobId/handover`).
 
 Operational note (review finding, PR #805): the handover artifact (usernames + shared password)
 lives in Redis with a 7-day TTL, not a durable DB column — see migration 0137's comment. If a
@@ -250,7 +250,7 @@ exceeding it returns a clear error, not a silent failure or partial provisioning
 role. Stage 1 does not start until this ADR is accepted (currently: changes requested, see
 ADR-022-sandboxing.md's review history).
 
-### Phase 1 — Foundation — ✅ implemented (PR1, `feat/sandbox-01-platform-admin-foundation`, not yet raised pending ADR acceptance)
+### Phase 1 — Foundation — ✅ implemented, except T5 (deferred, non-blocking) (PR1, `feat/sandbox-01-platform-admin-foundation`, not yet raised pending ADR acceptance)
 
 | id  | task                                                                                                                                                                                                                                                                                                                                                                                                            | status                  |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
@@ -258,7 +258,7 @@ ADR-022-sandboxing.md's review history).
 | T2  | Auth: recognize `platform_admin` claim, skip tenant-resolution                                                                                                                                                                                                                                                                                                                                                  | done                    |
 | T3  | `/platform-admin` auth: MFA (OpenWind email-OTP, revised) + production-guarded dev bypass                                                                                                                                                                                                                                                                                                                       | done                    |
 | T4  | Dedicated provisioning service-account credential (config + loader)                                                                                                                                                                                                                                                                                                                                             | done                    |
-| T5  | Zitadel password-policy spike — open questions written up, not yet verified against a live instance                                                                                                                                                                                                                                                                                                             | open                    |
+| T5  | Zitadel password-policy spike — open questions written up, not yet verified against a live instance. **Deferred, non-blocking:** provisioning does not depend on it (`generateSandboxPassword` is generous on every character class, and `isConflictResponse` accepts both the REST 409 and Zitadel's gRPC-gateway error shape); what is left is verifying both on a live Zitadel instance (#802)               | deferred                |
 | T19 | `PlatformAdminSandboxView` DTO + shared response helper — **wired up** (PR12, `feat/sandbox-11-list-endpoint`): the DTO existed but no route read through it until now. New `GET /platform-admin/sandboxes` (list, newest-first) and `GET /platform-admin/sandboxes/:tenantId` (single, 404 for non-sandbox/missing) resolve the backend prerequisite T17's dashboard needed but wasn't itself scoped to build. | done                    |
 | T20 | Per-platform-admin active-sandbox cap (config + check helper)                                                                                                                                                                                                                                                                                                                                                   | done                    |
 | T22 | Per-sandbox lifecycle-action lock                                                                                                                                                                                                                                                                                                                                                                               | todo (moved to Phase 3) |
