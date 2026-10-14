@@ -10,8 +10,8 @@ connection strings never in application env), ADR-009 (connector runtime — Tra
 `connector_credentials`), ADR-015 (observability — the OpenBao health alert is **new** work under
 this ADR), #1 and #7 (OpenBao chosen, Transit shipped), #455 (dev-mode exposure), #823 (persistent
 OpenBao inside OpenWind's compose — closed; superseded in direction by this ADR), #368 (first
-connectors that need to store credentials), #731 (assumes per-tenant Superset OAuth secrets in
-OpenBao — see OQ-5).
+connectors that need to store credentials), #731 (its draft sets the Superset OAuth secret "via
+OpenBao"; with this ADR that is the per-deployment `superset` path — see OQ-5).
 **Supersedes:** —
 **Superseded by:** —
 
@@ -83,13 +83,21 @@ A prototype was run locally on 2026-10-13 against a demo OpenBao with a private 
 
 - OpenWind connects to a separate OpenBao server. The dev `openbao` / `openbao-init` services stay
   for local development only.
-- Enforcement: they move behind a `dev-secrets` profile (enabled by default for local use); the
-  production override (`docker-compose.prod.yml`) removes the `depends_on: openbao` of
-  `ow-backend` / `ow-worker` and the base `OPENBAO_ADDR: http://openbao:8200`.
+- Enforcement lives **only in the production override** (`docker-compose.prod.yml`); the base
+  `docker-compose.yml` keeps `openbao` / `openbao-init` without a profile, so a plain
+  `docker compose up` on a laptop starts them exactly as today. Compose profiles are opt-in (a
+  service with a profile starts only when that profile is activated), so the override assigns
+  `openbao` and `openbao-init` a profile that is never activated in production, and resets the
+  `depends_on` of `ow-backend` / `ow-worker` (`depends_on: !reset {}`); it also replaces the base
+  `OPENBAO_ADDR: http://openbao:8200`. Verified with Docker Compose v5.3.0: the override removes
+  the service from `config --services`, and without the `depends_on` reset Compose rejects the
+  project ("depends on undefined service").
 - A check script asserts that the rendered production config
   (`docker compose -f docker-compose.yml -f docker-compose.prod.yml config`) contains no `openbao`
-  service, no `.env.local` `env_file` or mount, and no secret-named key in any `environment:`
-  block. Wiring it into CI is a maintainer change to `.github/workflows/`.
+  service, no `.env.local` `env_file` or mount, and no `environment:` key outside the per-service
+  non-secret allowlist (OQ-1). The allowlist is the definition of "allowed"; anything not on it
+  fails. The script is finalised together with OQ-1 in the loader PR. Wiring it into CI is a
+  maintainer change to `.github/workflows/`.
 - Requires Docker Compose ≥ 2.24.4 (`!override` / `!reset`).
 
 **Why:** running, unsealing, backing up and auditing OpenBao is an operations job with its own
@@ -175,13 +183,30 @@ Accepted for now; see Consequences and OQ-6.
   alias). The loader refuses to send credentials unless the name resolves to an address inside
   that network's subnet, so a container missing from the network can't leak its secret ID to the
   public path.
-- **Secret ID lifetime is finite** (for example 30 days) with a documented rotation and an alert
-  at half-life; today's operations default is "never expires".
+- The subnet the loader checks against comes from `OPENBAO_NETWORK_CIDR`, a non-secret value set by
+  the production override and listed on the OQ-1 allowlist. It is not baked into images (images
+  stay project-neutral) and not read from the Docker socket (no socket access inside containers).
 
 **Why:** a shared network without a reserved address range lets another project's container take
 OpenWind's address and pass the address check with a stolen secret ID. A per-project network
 removes that, and keeps address binding meaningful. This needs a change on the OpenBao operations
 side (outside this repository).
+
+### Decision 5a — Secret ID lifetime and use count
+
+| Setting                       | Value                                                                      | Why                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secret_id_num_uses`          | `0` (unlimited)                                                            | The loader logs in once at start, and backend and worker log in again at runtime for Transit whenever their token can no longer be renewed (after `token_max_ttl`, or a 403). Each login uses one use. `1` would make the first runtime re-login fail; `2` would fail on the second; any finite number turns a long-running service into a time bomb. The OpenBao operations repo's onboarding already sets `0`. |
+| `secret_id_ttl`               | finite, for example 30 days                                                | Unlimited uses must not also mean unlimited time. A leaked secret ID stops working at the next rotation. Rotation is a documented runbook step with an alert at half-life; today's operations default is "never expires", so this is a change there.                                                                                                                                                             |
+| `token_ttl` / `token_max_ttl` | short, for example 1h / 4h                                                 | The runtime client renews at about 2/3 of the TTL and re-logs in (single-flight) only when renewal is no longer possible (Decision 4).                                                                                                                                                                                                                                                                           |
+| Binding                       | `secret_id_bound_cidrs` and `token_bound_cidrs` on the per-project network | A stolen secret ID or token is useless from anywhere else (Decision 5).                                                                                                                                                                                                                                                                                                                                          |
+
+**Trade-off recorded:** with `num_uses=0`, a secret ID copied off the host works until it expires
+or is rotated, **from inside the per-project network**. The residual risk is bounded by the
+network binding, the finite TTL and the audit log, and delivering the secret ID as a file instead
+of an env var (OQ-2) narrows who can copy it. Per-start single-use secret IDs (response-wrapped,
+delivered by an orchestrator) would remove it but need tooling OpenWind's compose deployment
+doesn't have; out of scope here.
 
 ### Decision 6 — Moving the running instance: rotate what's cheap first, copy what protects data
 
@@ -217,6 +242,12 @@ OpenWind is open source; self-hosters choose their own tooling.
   `https`, treat empty values as unset, and **reject `local:` ciphertext on decrypt** (the `local`
   provider's key is published in the repo). A provider that lets the backend run without Transit
   when no connectors are installed is a follow-up (OQ-4).
+- **Before the `local:` guard is enabled:** the implementing PR includes a read-only check that
+  counts `connector_credentials` values with the `local:` prefix, and the runbook requires it to
+  return zero on each production database first. Nothing in the application can encrypt today
+  (`encryptCredential` has no caller), so such rows could only come from manual inserts. If any
+  exist, they are re-entered through the credential write path (Decision 8) before the guard is
+  enabled, rather than failing at decrypt.
 
 ### Decision 8 — Transit key settings and permissions
 
@@ -286,7 +317,8 @@ OpenWind is open source; self-hosters choose their own tooling.
 
 - In production, secrets come only from OpenBao; compose holds wiring only; `.env.local` is gone.
 - Each service sees only its own secrets; every read is audited.
-- Local development is unchanged.
+- Local development is unchanged: the base `docker-compose.yml` keeps the dev OpenBao with no
+  profile; only the production override disables it (Decision 1).
 
 **Negative / costs**
 
@@ -320,16 +352,16 @@ OpenWind is open source; self-hosters choose their own tooling.
 
 ## Open questions
 
-| ID   | Question                                                                           | Status                          | Evidence / answer                                                             |
-| ---- | ---------------------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------- |
-| OQ-1 | Exact non-secret allowlist per service for Decision 2                              | Open — settled in the loader PR | Derived from the config schema and compose wiring                             |
-| OQ-2 | Deliver the secret ID as a file (`*_FILE`, compose secrets) instead of env         | Deferred — issue to file        | Removes exposure via `docker inspect`; needs loader, `env.ts`, client changes |
-| OQ-3 | Move pgbouncer's password into OpenBao                                             | Deferred — issue to file        | Image has no Node/Python; options: shell loader, `auth_query`                 |
-| OQ-4 | Let the backend run in production without Transit when no connectors are installed | Deferred — issue to file        | Today `SECRETS_PROVIDER` is `openbao` or `local` only                         |
-| OQ-5 | Per-tenant secrets (e.g. Superset OAuth per tenant, as #731 assumes)               | Open                            | This ADR models per-service secrets only                                      |
-| OQ-6 | Unseal model and availability target (RTO, on-call beyond one owner, auto-unseal)  | Open — operations repo          | Manual Shamir unseal today                                                    |
-| OQ-7 | Pin the OpenBao server certificate issuer or key                                   | Deferred — issue to file        | Public CA today                                                               |
-| OQ-8 | Pin bootstrap image tooling (`--frozen-lockfile`, pinned global tools)             | Deferred — issue to file        | `Dockerfile.bootstrap` installs unpinned                                      |
+| ID   | Question                                                                           | Status                          | Evidence / answer                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---- | ---------------------------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | Exact non-secret allowlist per service for Decision 2                              | Open — settled in the loader PR | Derived from the config schema and compose wiring                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| OQ-2 | Deliver the secret ID as a file (`*_FILE`, compose secrets) instead of env         | Deferred — issue to file        | Removes exposure via `docker inspect`; needs loader, `env.ts`, client changes                                                                                                                                                                                                                                                                                                                                                                                                |
+| OQ-3 | Move pgbouncer's password into OpenBao                                             | Deferred — issue to file        | Image has no Node/Python; options: shell loader, `auth_query`                                                                                                                                                                                                                                                                                                                                                                                                                |
+| OQ-4 | Let the backend run in production without Transit when no connectors are installed | Deferred — issue to file        | Today `SECRETS_PROVIDER` is `openbao` or `local` only                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| OQ-5 | Does Superset OAuth (#731, ADR-019 Stage 2) need per-tenant secrets?               | Closed — no                     | `SUPERSET_OAUTH_CLIENT_ID` / secret are one value per deployment (one Superset OAuth client per Zitadel instance); `superset_config.py` reads a single env var; ADR-019 Decision 9 resolves the tenant at login from the org claim (`tenant_for_org()`), not from a per-tenant secret. Covered by Decision 3 (`superset` path). #731's draft wording "the tenant's secrets" is loose. Truly per-tenant secrets are out of scope for this ADR and would need their own design |
+| OQ-6 | Unseal model and availability target (RTO, on-call beyond one owner, auto-unseal)  | Open — operations repo          | Manual Shamir unseal today                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| OQ-7 | Pin the OpenBao server certificate issuer or key                                   | Deferred — issue to file        | Public CA today                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| OQ-8 | Pin bootstrap image tooling (`--frozen-lockfile`, pinned global tools)             | Deferred — issue to file        | `Dockerfile.bootstrap` installs unpinned                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ---
 
@@ -337,13 +369,17 @@ OpenWind is open source; self-hosters choose their own tooling.
 
 One PR each, after this ADR is accepted:
 
-1. `@platform/secrets` client hardening + tests + README.
-2. `env.ts` production guards, `.env.local` handling, `local:` decrypt rejection.
-3. Loaders (Node, Python) with tests, baked into images.
+1. `@platform/secrets` client hardening + tests + README, **and the `.claude/rules/security.md`
+   amendment (Decision 2)**, so every later PR is reviewed against accurate guidance.
+2. `env.ts` production guards, `.env.local` handling, `local:` decrypt rejection, and the read-only
+   `local:` row check that must pass before the guard is enabled (Decision 7).
+3. Loaders (Node, Python) with tests, baked into images; the OQ-1 allowlist; `OPENBAO_NETWORK_CIDR`
+   check.
 4. Bootstrap: no regeneration without an explicit flag; no `.env.local` writes in production.
-5. Compose base: dev OpenBao profile; Superset secrets no longer required from `.env`; Superset key
-   checks; `.dockerignore`.
-6. `docker-compose.prod.yml`, `.env.production.example`, pgbouncer file, Novu, config check script.
+5. Compose base: Superset secrets no longer required from `.env`; Superset key checks;
+   `.dockerignore`. The dev OpenBao stays as it is in the base file.
+6. `docker-compose.prod.yml` (dev OpenBao disabled by profile + `depends_on` reset, Decision 1),
+   `.env.production.example`, pgbouncer file, Novu, config check script.
 7. Admin CLI to create connector credentials (Transit encrypt), coordinated with #368.
-8. Docs and runbook: `security.md`, `.env.example`, `local-setup.md`, `deployment-hardening.md`,
+8. Remaining docs and runbook: `.env.example`, `local-setup.md`, `deployment-hardening.md`,
    backup/DR runbook, OpenBao health alert.
