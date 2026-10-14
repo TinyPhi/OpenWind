@@ -3,6 +3,7 @@ import { useLogout, useGetIdentity } from "@refinedev/core";
 import { Link, useLocation } from "react-router-dom";
 import { TOKENS } from "@platform/ui";
 import { userManager } from "../authProvider.js";
+import { initials } from "../lib/format.js";
 import { NotificationBell } from "./notification-bell.js";
 
 // ── Admin nav items ──────────────────────────────────────────────────────────
@@ -383,14 +384,7 @@ function InitialsAvatar({
     );
   }
 
-  const initials =
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0] ?? "")
-      .join("")
-      .toUpperCase() || "U";
+  const userInitials = initials(name);
 
   return (
     <div
@@ -413,7 +407,7 @@ function InitialsAvatar({
         ...style,
       }}
     >
-      {initials}
+      {userInitials}
     </div>
   );
 }

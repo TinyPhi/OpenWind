@@ -48,7 +48,7 @@ import {
   SeverityDropdown,
   type Severity,
 } from "../../components/severity-tag.js";
-import { formatFieldValue } from "../../lib/format.js";
+import { formatFieldValue, initials } from "../../lib/format.js";
 
 type EntityField = {
   id: string;
@@ -1056,12 +1056,7 @@ function AccessUserRow({
   }) => void;
 }): React.ReactElement {
   const name = user.displayName ?? user.email;
-  const initials = name
-    .split(" ")
-    .slice(0, 2)
-    .map((p) => p[0] ?? "")
-    .join("")
-    .toUpperCase();
+  const userInitials = initials(name);
   const isCreator = user.tag === "creator";
   const isAssigned = user.tag === "assigned";
 
@@ -1119,7 +1114,7 @@ function AccessUserRow({
           fontWeight: 700,
         }}
       >
-        {initials}
+        {userInitials}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div

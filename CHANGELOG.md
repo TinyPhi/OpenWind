@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — admin-ui blank-name initials fallback (#850)]
+
+### Fixed
+
+- **Blank or whitespace-only display names now render a `U` avatar initial** consistently across
+  admin-ui avatars through the shared initials formatter instead of producing empty avatar text.
+
+---
+
 ## [Unreleased — per-ticket notification failure badge (#571)]
 
 ### Added

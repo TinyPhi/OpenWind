@@ -39,13 +39,16 @@ export function singularize(plural: string): string {
   return plural;
 }
 
+// Keep every avatar caller aligned on one visible fallback for missing names.
 export function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("") || "U"
+  );
 }
 
 export interface AttachmentLike {

@@ -91,7 +91,9 @@ describe("format utilities", () => {
       expect(initials("Alice")).toBe("A");
       expect(initials("Alice Bob Charlie")).toBe("AB");
       expect(initials("  alice   smith  ")).toBe("AS");
-      expect(initials("")).toBe("");
+      expect(initials("")).toBe("U");
+      expect(initials("   ")).toBe("U");
+      expect(initials("@@@")).toBe("@");
     });
   });
 
