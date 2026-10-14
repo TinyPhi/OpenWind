@@ -654,6 +654,11 @@ services:
     env_file:
       - path: .env.local
         required: false
+    # Superset secrets: locally these come from the committed .env (dev values),
+    # so a normal setup is unchanged. `:-` instead of `:?` lets a production
+    # server's .env hold no secrets: the OpenBao loader fills them (ADR-023).
+    # superset_config.py refuses an empty value at start, so a missing one still
+    # fails loudly (in `docker compose logs`, no longer at `compose up`).
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-}
       SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
@@ -750,6 +755,11 @@ services:
     env_file:
       - path: .env.local
         required: false
+    # Superset secrets: locally these come from the committed .env (dev values),
+    # so a normal setup is unchanged. `:-` instead of `:?` lets a production
+    # server's .env hold no secrets: the OpenBao loader fills them (ADR-023).
+    # superset_config.py refuses an empty value at start, so a missing one still
+    # fails loudly (in `docker compose logs`, no longer at `compose up`).
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-}
       SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}

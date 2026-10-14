@@ -72,5 +72,31 @@ class SecretChecks(unittest.TestCase):
                 os.environ[name] = REAL
 
 
+    def test_production_refuses_dev_default_passwords_when_present(self):
+        os.environ["NODE_ENV"] = "production"
+        for name in ("SUPERSET_SECRET_KEY", "SUPERSET_GUEST_TOKEN_SECRET", "REPORTING_BINDING_SECRET"):
+            os.environ[name] = REAL
+        for name, dev in (
+            ("SUPERSET_ADMIN_PASSWORD", "admin_dev_password"),
+            ("SUPERSET_SERVICE_ACCOUNT_PASSWORD", "service_account_dev_password"),
+        ):
+            saved = os.environ.get(name)
+            try:
+                with self.subTest(name=name, case="dev default"):
+                    os.environ[name] = dev
+                    with self.assertRaisesRegex(RuntimeError, f"{name} is its development default"):
+                        self.load()
+                with self.subTest(name=name, case="real value"):
+                    os.environ[name] = "a-real-password"
+                    self.load()
+                with self.subTest(name=name, case="absent (superset server)"):
+                    os.environ.pop(name, None)
+                    self.load()
+            finally:
+                if saved is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = saved
+
 if __name__ == "__main__":
     unittest.main()

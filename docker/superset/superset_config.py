@@ -63,6 +63,20 @@ GUEST_TOKEN_JWT_SECRET = _secret("SUPERSET_GUEST_TOKEN_SECRET")
 # sees no rows. No fallback: without it every reporting query returns nothing.
 REPORTING_BINDING_SECRET = _secret("REPORTING_BINDING_SECRET")
 
+# Passwords superset-init uses to provision accounts. Only superset-init gets
+# them, so they're checked when present: in production a committed dev default
+# is refused here, since the API no longer holds these values (ADR-023).
+_DEV_PASSWORD_DEFAULTS = {
+    "SUPERSET_ADMIN_PASSWORD": "admin_dev_password",
+    "SUPERSET_SERVICE_ACCOUNT_PASSWORD": "service_account_dev_password",
+}
+if _PRODUCTION:
+    for _name, _dev_value in _DEV_PASSWORD_DEFAULTS.items():
+        if os.environ.get(_name) == _dev_value:
+            raise RuntimeError(
+                f"{_name} is its development default; refusing to start in production"
+            )
+
 SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL"]
 
 # ─── Embedding ──────────────────────────────────────────────────────────────
