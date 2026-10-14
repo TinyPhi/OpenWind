@@ -340,6 +340,8 @@ export async function processSandboxProvisioningJob(
         password: admin.password,
       },
     ];
+    // Seeded records are assigned round-robin across these accounts (admin first).
+    const seededUserIds = [admin.userId];
     let seededAccountCount = 1;
     let failedAccountCount = 0;
     for (const [index, member] of template.members.entries()) {
@@ -352,6 +354,7 @@ export async function processSandboxProvisioningJob(
         (await authorizeUser(account.userId, org.orgId, ["user"]));
       if (account && authorized) {
         seededAccountCount++;
+        seededUserIds.push(account.userId);
         seededAccounts.push({
           username: account.username,
           email: account.email,
@@ -388,7 +391,11 @@ export async function processSandboxProvisioningJob(
     // sandbox with some modules only partially seeded is still useful; a partially
     // created ORG/tenant/accounts is not, which is what T11's rollback guards against.
     const coreModuleInstall = await installCoreModulesForSandbox(tenantId);
-    await seedAllModulesData(tenantId, coreModuleInstall.succeeded);
+    await seedAllModulesData(
+      tenantId,
+      coreModuleInstall.succeeded,
+      seededUserIds,
+    );
 
     await updateJobProgress(jobId, {
       currentStep: "syncing_directory",

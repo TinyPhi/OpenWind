@@ -258,15 +258,20 @@ describe("processSandboxProvisioningJob", () => {
     expect(mockInstallCoreModulesForSandbox).toHaveBeenCalledWith(
       result.tenantId,
     );
-    expect(mockSeedAllModulesData).toHaveBeenCalledWith(result.tenantId, [
-      "helpdesk",
-      "crm",
-      "hrms",
-      "reimbursements",
-      "projects",
-      "invoicing",
-      "procurement",
-    ]);
+    // Records are assigned across the seeded accounts: the admin plus both members.
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(
+      result.tenantId,
+      [
+        "helpdesk",
+        "crm",
+        "hrms",
+        "reimbursements",
+        "projects",
+        "invoicing",
+        "procurement",
+      ],
+      ["user-x", "user-x", "user-x"],
+    );
   });
 
   it("still completes the job when storeSandboxHandoverCredentials fails (review finding, PR #805) -- a Redis blip on the last step must not fail an otherwise-successful run", async () => {
@@ -303,9 +308,11 @@ describe("processSandboxProvisioningJob", () => {
       data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
     });
 
-    expect(mockSeedAllModulesData).toHaveBeenCalledWith(result.tenantId, [
-      "helpdesk",
-    ]);
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(
+      result.tenantId,
+      ["helpdesk"],
+      expect.any(Array),
+    );
     expect(mockRunOrgDirectorySync).toHaveBeenCalled();
     const finalUpdate = lastProgressUpdate();
     expect(finalUpdate.status).toBe("completed");
