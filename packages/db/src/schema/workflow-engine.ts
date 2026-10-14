@@ -41,6 +41,13 @@ export const workflows = pgTable(
     allowAutoGrantOnMention: boolean("allow_auto_grant_on_mention")
       .default(false)
       .notNull(),
+    /**
+     * Hardening (docs/specs/state-override.md) — whether an admin may move a record to any
+     * step of this workflow through the recorded, reasoned override. Off by default.
+     */
+    allowStateOverride: boolean("allow_state_override")
+      .default(false)
+      .notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

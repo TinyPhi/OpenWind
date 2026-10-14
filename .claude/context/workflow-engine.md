@@ -47,6 +47,14 @@ an unidentified actor, an API-key (`apikey:`) or `system` identity satisfies non
 `metadata`. `getAvailableTransitions` takes the actor id so the list matches the guard. Automation rules
 cannot use them. Changes to a transition's conditions are audited. See `docs/specs/segregation-of-duties.md`.
 
+**State override is the one sanctioned exception to "transitions are irreversible".**
+`overrideWorkflowState` needs an admin user (never an API key, `system` or automation), the workflow's
+`allow_state_override` switch on (off by default), a reason of 10-1000 characters, a real target step different from
+the current one, and a caller who did not create the record. It locks the row and writes through the same
+`commitStateChange` as `executeTransition`, so it writes an event (a real state change, so it counts as acting), an
+outbox event with `override: true`, and moves the SLA timers. The route writes the admin audit entry in the same
+transaction. See `docs/specs/state-override.md`.
+
 **Idempotency via `idempotencyKey`.** If the same key has already been used, the existing
 event is returned immediately — no guards re-evaluated, no state written. Safe to retry.
 

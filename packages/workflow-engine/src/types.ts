@@ -19,6 +19,11 @@ export interface WorkflowDefinition {
    * (true) or creates an access-request instead (false, default).
    */
   allowAutoGrantOnMention: boolean;
+  /**
+   * Whether an admin may move a record to any step of this workflow through the recorded,
+   * reasoned override (docs/specs/state-override.md). Off by default.
+   */
+  allowStateOverride: boolean;
   createdAt: Date;
 }
 
@@ -76,6 +81,8 @@ export interface WorkflowEvent {
   // nothing reads it off a replay. See engine.ts's executeTransition and
   // issue #143.
   transitionEventId?: string;
+  /** True when the state was set by the recorded override, not a guarded transition. */
+  override?: true;
 }
 
 // Condition tree — evaluated against entity field values
@@ -158,6 +165,19 @@ export interface TransitionRequest {
   depth?: number;
 }
 
+export interface StateOverrideRequest {
+  instanceId: string;
+  /** The step to move the record to. */
+  state: string;
+  /** Why. Recorded on the event and the admin audit entry. */
+  reason: string;
+  actorId: string;
+  actorRoles: string[];
+}
+
+export const OVERRIDE_REASON_MIN_LENGTH = 10;
+export const OVERRIDE_REASON_MAX_LENGTH = 1000;
+
 export interface WorkflowFull extends WorkflowDefinition {
   states: WorkflowState[];
   transitions: WorkflowTransition[];
@@ -178,6 +198,7 @@ export type UpdateWorkflowInput = {
    * updateWorkflow's validation and addWorkflowState's auto-heal. */
   initialState?: string | undefined;
   allowAutoGrantOnMention?: boolean | undefined;
+  allowStateOverride?: boolean | undefined;
 };
 
 // Caller identity for per-workflow authorization checks (see authorization.ts).

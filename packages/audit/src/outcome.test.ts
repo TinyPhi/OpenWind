@@ -52,6 +52,8 @@ describe("role/permission-change actions (#640)", () => {
     "workflow.admins_updated",
     "workflow.transition_roles_updated",
     "workflow.transition_conditions_updated",
+    "workflow.state_overridden",
+    "workflow.override_policy_updated",
   ];
 
   it.each(NEW)("classifies %s as allowed", (action) => {
