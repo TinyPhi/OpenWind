@@ -41,6 +41,21 @@ describe("handleWorkflowError", () => {
     expect(json.error).toBe("SLA_TIMER_FAILED");
   });
 
+  it("returns 422 with the unknown step names for WORKFLOW_CONDITION_STATE_UNKNOWN", async () => {
+    const err = new WorkflowError("WORKFLOW_CONDITION_STATE_UNKNOWN", {
+      unknown: ["aproval"],
+    });
+    const res = handleWorkflowError(fakeContext(), err);
+
+    expect(res.status).toBe(422);
+    const json = (await res.json()) as {
+      error: string;
+      meta: { unknown: string[] };
+    };
+    expect(json.error).toBe("WORKFLOW_CONDITION_STATE_UNKNOWN");
+    expect(json.meta.unknown).toEqual(["aproval"]);
+  });
+
   // Regression baseline — an existing, already-handled case must be unaffected.
   it("still returns 404 for WORKFLOW_NOT_FOUND", async () => {
     const err = new WorkflowError("WORKFLOW_NOT_FOUND");

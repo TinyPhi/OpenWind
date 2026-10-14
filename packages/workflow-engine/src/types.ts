@@ -40,7 +40,7 @@ export interface WorkflowTransition {
   toState: string;
   label: string | null;
   allowedRoles: string[];
-  conditions: ConditionTree | null;
+  conditions: TransitionConditionTree | null;
   requiresComment: boolean;
   requiresFields: string[];
   sortOrder: number;
@@ -84,6 +84,48 @@ export type ConditionTree =
   | { op: "or"; children: ConditionTree[] }
   | { op: "not"; child: ConditionTree }
   | FieldCondition;
+
+/**
+ * Segregation-of-duties rules (docs/specs/segregation-of-duties.md). Unlike FieldCondition
+ * they look at WHO is acting, not at the entity's fields, so they only make sense on a
+ * workflow transition: automation rules share ConditionTree and deliberately cannot use them.
+ * Every actor rule fails closed -- an unidentified actor satisfies none of them -- and none may
+ * sit under `not`, which would turn that refusal into a pass.
+ */
+export type ActorCondition =
+  /** The actor is not the user who created the record ("the requester cannot approve"). */
+  | { op: "actor_not_creator" }
+  /**
+   * The actor is the user who created the record ("only the requester may withdraw it").
+   * Use this, never `not` around actor_not_creator: actor rules cannot sit under `not`.
+   */
+  | { op: "actor_is_creator" }
+  /**
+   * The actor has not already acted on this instance ("each stage needs a different person").
+   * With `states`, only earlier transitions that left one of those states count.
+   */
+  | { op: "actor_not_prior_actor"; states?: string[] | undefined };
+
+/** ConditionTree plus the actor rules; what a workflow transition's `conditions` may hold. */
+export type TransitionConditionTree =
+  | { op: "and"; children: TransitionConditionTree[] }
+  | { op: "or"; children: TransitionConditionTree[] }
+  | { op: "not"; child: TransitionConditionTree }
+  | FieldCondition
+  | ActorCondition;
+
+/** What the actor rules are evaluated against; loaded inside the transition lock. */
+export interface ActorContext {
+  /** The acting user, or null when unidentified (automation, system). */
+  actorId: string | null;
+  /** The user who created the record, or null if it was not created by a user. */
+  createdBy: string | null;
+  /**
+   * Users who already performed a transition on this instance, with the state each one left.
+   * Undefined when the context was not loaded, which fails any rule that needs it.
+   */
+  priorActors?: ReadonlyArray<{ actorId: string; fromState: string }>;
+}
 
 export interface FieldCondition {
   op:
@@ -168,7 +210,7 @@ export type CreateWorkflowTransitionInput = {
   toState: string;
   label?: string | undefined;
   allowedRoles?: string[] | undefined;
-  conditions?: ConditionTree | null | undefined;
+  conditions?: TransitionConditionTree | null | undefined;
   requiresComment?: boolean | undefined;
   requiresFields?: string[] | undefined;
 };
@@ -176,7 +218,7 @@ export type CreateWorkflowTransitionInput = {
 export type UpdateWorkflowTransitionInput = {
   label?: string | undefined;
   allowedRoles?: string[] | undefined;
-  conditions?: ConditionTree | null | undefined;
+  conditions?: TransitionConditionTree | null | undefined;
   requiresComment?: boolean | undefined;
   requiresFields?: string[] | undefined;
 };

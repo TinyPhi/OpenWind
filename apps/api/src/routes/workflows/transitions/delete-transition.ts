@@ -5,7 +5,10 @@ import { deleteWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
-import { auditTransitionRoleChanges } from "../../../lib/audit-workflow-access.js";
+import {
+  auditTransitionRoleChanges,
+  auditTransitionConditionChanges,
+} from "../../../lib/audit-workflow-access.js";
 
 export const deleteTransitionHandler = factory.createHandlers(
   requireAuth(),
@@ -22,6 +25,7 @@ export const deleteTransitionHandler = factory.createHandlers(
             fromState: workflowTransitions.fromState,
             toState: workflowTransitions.toState,
             allowedRoles: workflowTransitions.allowedRoles,
+            conditions: workflowTransitions.conditions,
           })
           .from(workflowTransitions)
           .where(
@@ -50,6 +54,20 @@ export const deleteTransitionHandler = factory.createHandlers(
                 fromState: before.fromState,
                 toState: before.toState,
                 before: before.allowedRoles,
+                after: null,
+              },
+            ],
+          });
+          await auditTransitionConditionChanges(tx, {
+            tenantId,
+            actorId: auth.userId,
+            workflowId,
+            changes: [
+              {
+                transitionId,
+                fromState: before.fromState,
+                toState: before.toState,
+                before: before.conditions,
                 after: null,
               },
             ],

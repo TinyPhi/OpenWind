@@ -1009,6 +1009,13 @@
       "when": 1791880163575,
       "tag": "0143_tenant_lifecycle_role",
       "breakpoints": false
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1791967470781,
+      "tag": "0145_admin_audit_log_transition_conditions_action",
+      "breakpoints": false
     }
   ]
 }

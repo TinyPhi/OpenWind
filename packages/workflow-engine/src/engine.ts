@@ -13,14 +13,79 @@ import {
 import { redactMetadata, buildSensitivityMap } from "./redact.js";
 import { logger } from "@platform/logger";
 import { WorkflowError } from "./errors.js";
-import { evaluateConditionTree } from "./condition-evaluator.js";
+import {
+  evaluateConditionTree,
+  treeNeedsPriorActors,
+} from "./condition-evaluator.js";
 import type {
   WorkflowTransition,
   WorkflowEvent,
   TransitionRequest,
   WorkflowTransitionedEvent,
-  ConditionTree,
+  ActorContext,
+  TransitionConditionTree,
 } from "./types.js";
+
+/**
+ * Only a real user can satisfy an actor rule. An API key's identity ("apikey:<id>") is minted
+ * per key, so it is never the creator and never appears in earlier history: letting it through
+ * would let a record's creator approve their own work by acting through a key (and rotating
+ * the key would reset "already acted"). Automation and system carry no user either.
+ */
+function userActorId(actorId: string | null | undefined): string | null {
+  if (actorId === null || actorId === undefined || actorId === "") return null;
+  if (actorId === "system" || actorId.startsWith("apikey:")) return null;
+  return actorId;
+}
+
+/**
+ * What the actor rules are evaluated against. The creator comes from the instance row already
+ * in hand; the prior actors are read from the event log only when a tree actually needs them,
+ * so a workflow with no segregation rule pays nothing. In executeTransition this runs inside
+ * the row lock, so the history it reads cannot change under the decision.
+ *
+ * "Acted" means a real state change: from_state differs from to_state. Comments, tags, severity
+ * and attachment events, and access grants all record the current state as both, and that is
+ * set by the server, unlike metadata, which a caller can write (a transition sent with
+ * metadata {"type":"comment"} must still count).
+ */
+async function loadActorContext(
+  db: DbOrTx,
+  tenantId: string,
+  instance: { id: string; createdBy: string | null },
+  actorId: string | null | undefined,
+  trees: ReadonlyArray<TransitionConditionTree | null>,
+): Promise<ActorContext> {
+  const context: ActorContext = {
+    actorId: userActorId(actorId),
+    createdBy: instance.createdBy,
+  };
+  if (!trees.some(treeNeedsPriorActors)) return context;
+
+  const rows = await db
+    .selectDistinct({
+      actorId: workflowEvents.actorId,
+      fromState: workflowEvents.fromState,
+    })
+    .from(workflowEvents)
+    .where(
+      and(
+        eq(workflowEvents.instanceId, instance.id),
+        eq(workflowEvents.tenantId, tenantId),
+        isNotNull(workflowEvents.actorId),
+        isNotNull(workflowEvents.fromState),
+        sql`${workflowEvents.fromState} <> ${workflowEvents.toState}`,
+      ),
+    );
+  const priorActors: Array<{ actorId: string; fromState: string }> = [];
+  for (const r of rows) {
+    const id = userActorId(r.actorId);
+    if (id !== null && r.fromState !== null) {
+      priorActors.push({ actorId: id, fromState: r.fromState });
+    }
+  }
+  return { ...context, priorActors };
+}
 
 export async function executeTransition(
   db: DbOrTx,
@@ -40,6 +105,7 @@ export async function executeTransition(
       .from(workflowEvents)
       .where(
         and(
+          eq(workflowEvents.tenantId, tenantId),
           eq(workflowEvents.instanceId, request.instanceId),
           eq(workflowEvents.idempotencyKey, request.idempotencyKey),
           isNotNull(workflowEvents.idempotencyKey),
@@ -169,14 +235,18 @@ export async function executeTransition(
     });
   }
 
-  // 5. Guard: conditions
+  // 5. Guard: conditions (including the segregation-of-duties rules, evaluated against the
+  // actor context loaded under this transaction's row lock)
   const fields = instance.fields as Record<string, unknown>;
-  if (
-    !evaluateConditionTree(
-      transition.conditions as ConditionTree | null,
-      fields,
-    )
-  ) {
+  const conditions = transition.conditions as TransitionConditionTree | null;
+  const actorContext = await loadActorContext(
+    db,
+    tenantId,
+    instance,
+    request.actorId,
+    [conditions],
+  );
+  if (!evaluateConditionTree(conditions, fields, actorContext)) {
     throw new WorkflowError("CONDITION_NOT_MET", {
       transitionId: transition.id,
     });
@@ -389,6 +459,7 @@ export async function getAvailableTransitions(
   tenantId: string,
   instanceId: string,
   actorRoles: string[] = [],
+  actorId?: string | null,
 ): Promise<WorkflowTransition[]> {
   const [instance] = await db
     .select()
@@ -415,6 +486,15 @@ export async function getAvailableTransitions(
     );
 
   const fields = instance.fields as Record<string, unknown>;
+  // Same context as executeTransition, so this list never offers a transition that the
+  // segregation rules would then refuse.
+  const actorContext = await loadActorContext(
+    db,
+    tenantId,
+    instance,
+    actorId,
+    transitions.map((t) => t.conditions as TransitionConditionTree | null),
+  );
 
   return transitions
     .filter((t) => {
@@ -423,7 +503,13 @@ export async function getAvailableTransitions(
         !hasRequiredRole(actorRoles, t.allowedRoles)
       )
         return false;
-      if (!evaluateConditionTree(t.conditions as ConditionTree | null, fields))
+      if (
+        !evaluateConditionTree(
+          t.conditions as TransitionConditionTree | null,
+          fields,
+          actorContext,
+        )
+      )
         return false;
       return true;
     })
@@ -434,7 +520,7 @@ export async function getAvailableTransitions(
       toState: t.toState,
       label: t.label ?? null,
       allowedRoles: t.allowedRoles,
-      conditions: t.conditions as ConditionTree | null,
+      conditions: t.conditions as TransitionConditionTree | null,
       requiresComment: t.requiresComment,
       requiresFields: t.requiresFields,
       sortOrder: t.sortOrder,

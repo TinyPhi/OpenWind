@@ -371,6 +371,7 @@ describe("GET /:id/transitions", () => {
       TENANT,
       RECORD_ID,
       ["agent", "user"],
+      ACTOR,
     );
   });
 
@@ -385,6 +386,7 @@ describe("GET /:id/transitions", () => {
       TENANT,
       RECORD_ID,
       ["user"],
+      ACTOR,
     );
   });
 

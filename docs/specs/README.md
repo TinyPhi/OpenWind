@@ -38,6 +38,7 @@ Last reconciled: 2026-09-28 (#694).
 | [pool-load-test-tooling](pool-load-test-tooling.md)                                         | ✓     | T1–T3 shipped; T4–T5 (real run + results) deferred                               |
 | [reporting-metadata-masking-repair](reporting-metadata-masking-repair.md)                   | —     | migrations 0117–0119 (3G)                                                        |
 | [schedule-rules-mandate-fields](schedule-rules-mandate-fields.md)                           | ✓     | #659                                                                             |
+| [segregation-of-duties](segregation-of-duties.md)                                           | —     | hardening                                                                        |
 | [superset-embedded-dashboarding](superset-embedded-dashboarding.md)                         | —     | 3G Stage 1 (#663–#671)                                                           |
 | [superset-standalone-with-zitadel](superset-standalone-with-zitadel.md)                     | —     | 3G Stage 2 (#663–#671)                                                           |
 | [superset-gdpr-erasure](superset-gdpr-erasure.md)                                           | —     | 3G Stage 2 gate (#728, #709, #716, #729, #731); draft                            |

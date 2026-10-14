@@ -11,7 +11,9 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 import {
   auditTransitionRoleChanges,
+  auditTransitionConditionChanges,
   type TransitionRoleChange,
+  type TransitionConditionChange,
 } from "../../lib/audit-workflow-access.js";
 
 const NEW_PREFIX = "__new_";
@@ -199,6 +201,8 @@ export const canvasSaveHandler = factory.createHandlers(
         );
 
         const roleChanges: TransitionRoleChange[] = [];
+        // A transition removed with its conditions removes any segregation-of-duties rule on it.
+        const conditionChanges: TransitionConditionChange[] = [];
 
         if (newTransitions.length > 0) {
           const inserted = await tx
@@ -272,6 +276,13 @@ export const canvasSaveHandler = factory.createHandlers(
             before: prior.allowedRoles,
             after: null,
           });
+          conditionChanges.push({
+            transitionId: id,
+            fromState: prior.fromState,
+            toState: prior.toState,
+            before: prior.conditions,
+            after: null,
+          });
         }
         for (const t of existingTransitions) {
           const prior = priorTransitions.get(t.id);
@@ -288,6 +299,12 @@ export const canvasSaveHandler = factory.createHandlers(
           actorId: caller.userId,
           workflowId,
           changes: roleChanges,
+        });
+        await auditTransitionConditionChanges(tx, {
+          tenantId,
+          actorId: caller.userId,
+          workflowId,
+          changes: conditionChanges,
         });
 
         logger.info(

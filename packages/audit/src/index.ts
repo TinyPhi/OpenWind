@@ -203,7 +203,11 @@ export type AuditAction =
   | "access.updated"
   | "access.revoked"
   | "workflow.admins_updated"
-  | "workflow.transition_roles_updated";
+  | "workflow.transition_roles_updated"
+  // Segregation of duties: a change to a transition's `conditions`, which holds the
+  // actor rules. Migration 0145_admin_audit_log_transition_conditions_action.sql extends
+  // the DB CHECK constraint in the same commit.
+  | "workflow.transition_conditions_updated";
 
 export type AuditEntryInput = {
   tenantId: string;
