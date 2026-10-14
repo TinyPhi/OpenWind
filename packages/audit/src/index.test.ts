@@ -19,6 +19,12 @@ vi.mock("@platform/db", () => ({
   },
 }));
 
+const mockScrubJson = vi.fn().mockResolvedValue(0);
+vi.mock("./person-identifiers.js", () => ({
+  scrubAuditLogPersonIdentifiers: (...args: unknown[]) =>
+    mockScrubJson(...args),
+}));
+
 vi.mock("@platform/workflow-engine", () => ({
   redactMetadata: vi.fn(
     (metadata: Record<string, unknown>, map: Map<string, string>) => {
@@ -229,6 +235,20 @@ describe("anonymizeAuditLogForTenant", () => {
     expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
 
+  it("scrubs the JSON columns before it rewrites the actor columns (#860)", async () => {
+    const order: string[] = [];
+    mockScrubJson.mockImplementationOnce(async () => {
+      order.push("json");
+      return 0;
+    });
+    mockUpdateSet.mockImplementationOnce(() => order.push("actors"));
+
+    await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
+
+    expect(mockScrubJson).toHaveBeenCalledWith(mockPurgeDb, "tenant-a");
+    expect(order).toEqual(["json", "actors"]);
+  });
+
   it("throws and does not run the UPDATE when an active tenant RLS context is detected", async () => {
     mockExecute.mockResolvedValue([{ current_setting: "tenant-x" }]);
 
@@ -237,6 +257,7 @@ describe("anonymizeAuditLogForTenant", () => {
     ).rejects.toThrow("cannot execute UPDATE under active tenant RLS context");
 
     expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockScrubJson).not.toHaveBeenCalled();
   });
 
   it("throws and does not run the UPDATE when the RLS context check itself fails — fails closed, not open", async () => {

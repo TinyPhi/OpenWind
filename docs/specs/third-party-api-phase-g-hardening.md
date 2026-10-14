@@ -148,6 +148,8 @@ removal (queryable before AND after the sweep, same numbers).
 
 R9: A tenant purge immediately anonymizes (does not delete) that tenant's `admin_audit_log`
 rows, regardless of how much of the 90-day window remained.
+Person identifiers held in the JSON columns (`metadata`, `before_snapshot`, `after_snapshot`) are
+included: see `docs/specs/audit-log-json-anonymization.md` (#860).
 ✓ A row created 1 day before purge (nowhere near the 90-day sweep) is anonymized immediately
 by the purge itself, not left to age out naturally.
 ✓ The anonymized row still exists (action type, resourceType/resourceId, outcome, timestamp

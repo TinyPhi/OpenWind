@@ -23,6 +23,7 @@ Last reconciled: 2026-09-28 (#694).
 | Spec                                                                                        | Tasks | Shipped via                                                                      |
 | ------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
 | [advisory-lock-direct-connection](advisory-lock-direct-connection.md)                       | —     | #853                                                                             |
+| [audit-log-json-anonymization](audit-log-json-anonymization.md)                             | —     | #860                                                                             |
 | [automation-trigger-config-scoping](automation-trigger-config-scoping.md)                   | —     | see header                                                                       |
 | [backup-dr-runbook](backup-dr-runbook.md)                                                   | —     | #482                                                                             |
 | [export-audit-trail](export-audit-trail.md)                                                 | —     | #687                                                                             |
