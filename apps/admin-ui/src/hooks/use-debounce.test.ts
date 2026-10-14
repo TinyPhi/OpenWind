@@ -152,4 +152,16 @@ describe("useDebouncedCallback", () => {
     });
     expect(cb).not.toHaveBeenCalled();
   });
+
+  it("is a no-op when flush is called with no pending execution", () => {
+    const cb = vi.fn();
+    const { result } = renderHook(() => useDebouncedCallback(cb, 200));
+
+    act(() => {
+      result.current.flush();
+    });
+
+    expect(cb).not.toHaveBeenCalled();
+    expect(result.current.isPending()).toBe(false);
+  });
 });
