@@ -427,7 +427,12 @@ export async function executeTransition(
   const [workflow] = await db
     .select()
     .from(workflows)
-    .where(eq(workflows.id, instance.workflowId))
+    .where(
+      and(
+        eq(workflows.id, instance.workflowId),
+        or(isNull(workflows.tenantId), eq(workflows.tenantId, tenantId)),
+      ),
+    )
     .limit(1);
 
   if (!workflow) {
@@ -643,7 +648,9 @@ export async function getAvailableTransitions(
 
   const fields = instance.fields as Record<string, unknown>;
   // Same context as executeTransition, so this list never offers a transition that the
-  // segregation rules would then refuse.
+  // segregation rules would then refuse. This read takes no row lock, deliberately: the list is
+  // guidance for the UI and executeTransition re-evaluates everything under the lock, so a
+  // briefly stale list can only offer something the engine then refuses. Do not add a lock here.
   const actorContext = await loadActorContext(
     db,
     tenantId,
@@ -723,9 +730,11 @@ export async function getWorkflowEventLog(
         ? sql`(${workflowEvents.metadata}->>'type' IS NULL OR ${workflowEvents.metadata}->>'type' != 'comment')`
         : undefined;
 
-  const baseWhere = typeFilter
-    ? and(eq(workflowEvents.instanceId, instanceId), typeFilter)
-    : eq(workflowEvents.instanceId, instanceId);
+  const scope = and(
+    eq(workflowEvents.instanceId, instanceId),
+    eq(workflowEvents.tenantId, tenantId),
+  );
+  const baseWhere = typeFilter ? and(scope, typeFilter) : scope;
 
   const query = db
     .select()

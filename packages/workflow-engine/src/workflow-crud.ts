@@ -439,7 +439,9 @@ export async function updateWorkflow(
     const [current] = await db
       .select()
       .from(workflows)
-      .where(eq(workflows.id, workflowId))
+      .where(
+        and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)),
+      )
       .limit(1);
     if (!current) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
     return rowToWorkflow(current);
@@ -485,7 +487,12 @@ export async function deleteWorkflow(
   const [instance] = await db
     .select({ id: entityInstances.id })
     .from(entityInstances)
-    .where(eq(entityInstances.workflowId, workflowId))
+    .where(
+      and(
+        eq(entityInstances.workflowId, workflowId),
+        eq(entityInstances.tenantId, tenantId),
+      ),
+    )
     .limit(1);
 
   if (instance) {
@@ -508,7 +515,9 @@ export async function deleteWorkflow(
         eq(workflowStates.tenantId, tenantId),
       ),
     );
-  await db.delete(workflows).where(eq(workflows.id, workflowId));
+  await db
+    .delete(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)));
 
   logger.info({ tenantId, workflowId }, "Workflow deleted");
 }
@@ -626,6 +635,7 @@ export async function updateWorkflowState(
       and(
         eq(workflowStates.id, stateId),
         eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
       ),
     )
     .limit(1);
@@ -652,6 +662,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(workflowStates.workflowId, workflowId),
+          eq(workflowStates.tenantId, tenantId),
           eq(workflowStates.name, newName),
         ),
       )
@@ -699,6 +710,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.tenantId, tenantId),
           eq(workflowTransitions.fromState, oldName),
         ),
       );
@@ -708,6 +720,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.tenantId, tenantId),
           eq(workflowTransitions.toState, oldName),
         ),
       );
@@ -715,7 +728,11 @@ export async function updateWorkflowState(
       .update(workflows)
       .set({ initialState: finalName })
       .where(
-        and(eq(workflows.id, workflowId), eq(workflows.initialState, oldName)),
+        and(
+          eq(workflows.id, workflowId),
+          eq(workflows.tenantId, tenantId),
+          eq(workflows.initialState, oldName),
+        ),
       );
     await db
       .update(entityInstances)
@@ -723,6 +740,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(entityInstances.workflowId, workflowId),
+          eq(entityInstances.tenantId, tenantId),
           eq(entityInstances.currentState, oldName),
         ),
       );
@@ -881,6 +899,10 @@ async function assertStateNotNamedByRule(
   stateName: string,
   stateId: string,
 ): Promise<void> {
+  // A scan of this workflow's transitions in JS, on purpose: a workflow has a handful of
+  // transitions, this runs only on a rename or delete, and the names live inside jsonb trees of
+  // varying shape. A GIN index over `conditions` would not simplify this (the match is over
+  // arbitrary nested `states` arrays) and would add write cost to every transition edit.
   const rows = await db
     .select({ conditions: workflowTransitions.conditions })
     .from(workflowTransitions)
