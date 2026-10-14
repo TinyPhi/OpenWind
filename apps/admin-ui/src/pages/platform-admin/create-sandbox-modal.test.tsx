@@ -117,7 +117,9 @@ describe("CreateSandboxModal", () => {
     mockFetchWithAuth.mockResolvedValueOnce({
       data: {
         tenantId: "t1",
-        seededAccounts: [{ email: "admin@example.com", role: "admin" }],
+        seededAccounts: [
+          { username: "admin.user", email: "admin@example.com", role: "admin" },
+        ],
         defaultPassword: "Ow-abc-9!",
       },
     });
@@ -131,6 +133,8 @@ describe("CreateSandboxModal", () => {
       expect(screen.getByText("Sandbox ready")).toBeTruthy();
       expect(screen.getByText("Ow-abc-9!")).toBeTruthy();
       expect(screen.getByText(/admin@example.com/)).toBeTruthy();
+      expect(screen.getByText("admin.user")).toBeTruthy();
+      expect(screen.getByText(/either the username or the email/)).toBeTruthy();
     });
     expect(mockFetchWithAuth).toHaveBeenCalledWith(
       "/api/platform-admin/sandboxes/job-1/handover",
@@ -160,7 +164,13 @@ describe("CreateSandboxModal", () => {
       return Promise.resolve({
         data: {
           tenantId: "t1",
-          seededAccounts: [{ email: "admin@example.com", role: "admin" }],
+          seededAccounts: [
+            {
+              username: "admin.user",
+              email: "admin@example.com",
+              role: "admin",
+            },
+          ],
           defaultPassword: "Ow-abc-9!",
         },
       });

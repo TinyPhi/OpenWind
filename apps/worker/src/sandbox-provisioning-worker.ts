@@ -47,7 +47,7 @@
  *     failure audit entry's `rolledBack` field records which case occurred.
  */
 
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Worker } from "@platform/telemetry";
 import {
   db,
@@ -151,17 +151,21 @@ async function createAccountWithRetry(
   template: SandboxAccountTemplate,
   password: string,
   domain: string,
-): Promise<{ userId: string; email: string } | null> {
+): Promise<{ userId: string; username: string; email: string } | null> {
   for (let attempt = 0; attempt < MAX_ACCOUNT_CONFLICT_ATTEMPTS; attempt++) {
     const email = nextEmailCandidate(template, domain, attempt);
+    // The username is the email's local part, so the two always match -- including the
+    // suffixed candidate after a clash (usernames are instance-unique, like emails).
+    const username = email.slice(0, email.indexOf("@"));
     const result = await createHumanUser({
       orgId,
+      username,
       email,
       givenName: template.givenName,
       familyName: template.familyName,
       password,
     });
-    if (result.ok) return { userId: result.userId, email };
+    if (result.ok) return { userId: result.userId, username, email };
     if (!result.conflict) return null;
   }
   return null;
@@ -172,9 +176,7 @@ async function createOrgWithRetry(
 ): Promise<{ orgId: string; name: string } | null> {
   for (let attempt = 0; attempt < MAX_NAME_CONFLICT_ATTEMPTS; attempt++) {
     const name =
-      attempt === 0
-        ? baseName
-        : `${baseName}-${Math.floor(1000 + Math.random() * 9000)}`;
+      attempt === 0 ? baseName : `${baseName}-${randomInt(1000, 10000)}`;
     const result = await createOrg(name);
     if (result.ok) return { orgId: result.orgId, name };
     if (!result.conflict) return null;
@@ -187,7 +189,7 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `${base}-${Math.floor(1000 + Math.random() * 9000)}`;
+  return `${base}-${randomInt(1000, 10000)}`;
 }
 
 async function auditOutcome(
@@ -319,9 +321,13 @@ export async function processSandboxProvisioningJob(
       throw new Error("SANDBOX_ADMIN_AUTHORIZATION_FAILED");
     }
 
-    const seededAccounts: { email: string; role: "admin" | "member" }[] = [
-      { email: admin.email, role: "admin" },
-    ];
+    // Labelled with the Zitadel role each account was granted (admin / user), not the
+    // template's internal "member" name, so the handover matches what the account can do.
+    const seededAccounts: {
+      username: string;
+      email: string;
+      role: "admin" | "user";
+    }[] = [{ username: admin.username, email: admin.email, role: "admin" }];
     let seededAccountCount = 1;
     let failedAccountCount = 0;
     for (const [index, member] of template.members.entries()) {
@@ -339,7 +345,11 @@ export async function processSandboxProvisioningJob(
         (await authorizeUser(account.userId, org.orgId, ["user"]));
       if (account && authorized) {
         seededAccountCount++;
-        seededAccounts.push({ email: account.email, role: "member" });
+        seededAccounts.push({
+          username: account.username,
+          email: account.email,
+          role: "user",
+        });
       } else {
         failedAccountCount++;
         logger.warn(

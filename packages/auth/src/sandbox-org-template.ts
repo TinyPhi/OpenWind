@@ -10,6 +10,8 @@
  * Zitadel reports a conflict, until an unused one is accepted.
  */
 
+import { randomInt } from "node:crypto";
+
 const GIVEN_NAMES = [
   "Olivia",
   "Liam",
@@ -95,15 +97,13 @@ const MIN_MEMBERS = 10;
 const MAX_MEMBERS = 20;
 
 function pick<T>(pool: readonly T[]): T {
-  const item = pool[Math.floor(Math.random() * pool.length)];
+  const item = pool[randomInt(pool.length)];
   if (item === undefined) throw new Error("sandbox-org-template: empty pool");
   return item;
 }
 
 function randomAccountCount(): number {
-  return (
-    MIN_MEMBERS + Math.floor(Math.random() * (MAX_MEMBERS - MIN_MEMBERS + 1))
-  );
+  return randomInt(MIN_MEMBERS, MAX_MEMBERS + 1);
 }
 
 function slugifyLocalPart(givenName: string, familyName: string): string {
@@ -145,6 +145,6 @@ export function nextEmailCandidate(
   attempt: number,
 ): string {
   if (attempt <= 0) return `${template.emailLocalPart}@${domain}`;
-  const suffix = Math.floor(1000 + Math.random() * 9000);
+  const suffix = randomInt(1000, 10000);
   return `${template.emailLocalPart}${suffix}@${domain}`;
 }

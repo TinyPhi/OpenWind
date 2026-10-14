@@ -228,6 +228,6 @@ export function toProvisioningProgressView(
  */
 export interface ProvisioningHandoverView {
   tenantId: string;
-  seededAccounts: { email: string; role: "admin" | "member" }[];
+  seededAccounts: { username: string; email: string; role: "admin" | "user" }[];
   defaultPassword: string;
 }

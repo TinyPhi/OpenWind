@@ -65,4 +65,15 @@ describe("nextEmailCandidate", () => {
     expect(first).toMatch(/^olivia\.smith\d{4}@example\.com$/);
     expect(second).toMatch(/^olivia\.smith\d{4}@example\.com$/);
   });
+
+  it("keeps the retry suffix within 1000-9999", () => {
+    for (let attempt = 1; attempt <= 500; attempt++) {
+      const email = nextEmailCandidate(template, "example.com", attempt);
+      const suffix = Number(
+        email.slice("olivia.smith".length, email.indexOf("@")),
+      );
+      expect(suffix).toBeGreaterThanOrEqual(1000);
+      expect(suffix).toBeLessThanOrEqual(9999);
+    }
+  });
 });

@@ -12,7 +12,7 @@ interface ProvisioningProgress {
 
 interface SandboxHandover {
   tenantId: string;
-  seededAccounts: { email: string; role: "admin" | "member" }[];
+  seededAccounts: { username: string; email: string; role: "admin" | "user" }[];
   defaultPassword: string;
 }
 
@@ -187,10 +187,13 @@ export function CreateSandboxModal({
               {handover.defaultPassword}
             </pre>
             <p style={{ fontWeight: 600, marginTop: 16 }}>Seeded accounts</p>
+            <p style={{ color: "var(--text-muted)", margin: "0 0 6px" }}>
+              Sign in with either the username or the email.
+            </p>
             <ul style={{ margin: 0, paddingLeft: 20 }}>
               {handover.seededAccounts.map((a) => (
                 <li key={a.email}>
-                  {a.email} ({a.role})
+                  <strong>{a.username}</strong> — {a.email} ({a.role})
                 </li>
               ))}
             </ul>
