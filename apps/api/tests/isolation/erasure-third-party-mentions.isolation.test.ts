@@ -272,6 +272,16 @@ beforeAll(async () => {
     },
   );
 
+  // Not a comment: the alias scan is limited to comment rows (#914).
+  ids["loginNonComment"] = await thirdPartyComment(
+    TENANT,
+    "ghost.alias in a non-comment event",
+    {
+      type: "note",
+      mentionIdentifiers: { [TARGET]: ["ghost.alias"] },
+    },
+  );
+
   await withTenantContext(TENANT, (tx) =>
     eraseUserFromTenant(tx, TENANT, TARGET),
   );
@@ -389,6 +399,12 @@ describe("erasure redacts third-party mentions (#689)", () => {
     const other = await meta(ids["loginBystander"] ?? "");
     expect(other.text).toBe("cc @alice.login");
     expect(other.mentionIdentifiers).toEqual({ [TARGET]: ["alice.login"] });
+  });
+
+  it("does not collect or rewrite an alias recorded on a non-comment event (#914)", async () => {
+    expect((await meta(ids["loginNonComment"] ?? "")).text).toBe(
+      "ghost.alias in a non-comment event",
+    );
   });
 
   it("does not touch another tenant's comment", async () => {
