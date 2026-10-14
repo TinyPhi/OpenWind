@@ -1,0 +1,298 @@
+# Production override — every secret comes from OpenBao (ADR-023).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# The base docker-compose.yml stays the local-development stack. This file only
+# changes what production needs:
+#   - the dev OpenBao (in-memory, published root token) is disabled;
+#   - each secret-holding service starts through the OpenBao startup loader
+#     (packages/openbao-deploy), which reads ONE KV path and refuses to start on
+#     any problem;
+#   - no service reads .env.local, and compose keeps only non-secret wiring;
+#   - services reach OpenBao directly on the per-project network, never
+#     through the reverse proxy.
+#
+# Non-secret values come from the server's .env (see .env.production.example).
+# Each service's AppRole credentials come from a mode-0600 file in
+# OPENWIND_SECRETS_DIR, outside the repo. Before `up`, run the check:
+#
+#   pnpm --filter @platform/openbao-deploy check:prod-compose
+#
+# Notes:
+#   - `!override` / `!reset` need Docker Compose 2.24.4 or newer.
+#   - A plain empty list does NOT remove a base `env_file` entry; `!reset []`
+#     does. `depends_on: !reset {}` would drop every dependency, so each
+#     service restates the ones it keeps.
+#   - Novu's pinned images are rebuilt FROM the same digests with the loader
+#     added (docker/novu/Dockerfile). Keep NOVU_*_IMAGE below in step with the
+#     digests in docker-compose.yml.
+
+x-openbao: &openbao
+  OPENBAO_ADDR: ${OPENBAO_ADDR:?set OPENBAO_ADDR in .env (https URL of the OpenBao server)}
+  OPENBAO_NETWORK_CIDR: ${OPENBAO_NETWORK_CIDR:?set OPENBAO_NETWORK_CIDR in .env (subnet of the OpenBao project network)}
+  NODE_ENV: production
+
+# Novu's own start command (read from the pinned images' config), restated
+# because overriding the entrypoint clears it. `$$` stops Compose from
+# interpolating the variables; the image's shell expands them.
+x-novu-command: &novu-command
+  - sh
+  - -c
+  - node dist/dotenvcreate.mjs -s=$$SECRET_NAME -r=$$NOVU_REGION -e=$$NOVU_ENTERPRISE -v=$$NODE_ENV -h=$$IS_SELF_HOSTED && node dist/main.js
+
+x-novu-env: &novu-env
+  OPENBAO_ADDR: ${OPENBAO_ADDR:?set OPENBAO_ADDR in .env (https URL of the OpenBao server)}
+  OPENBAO_NETWORK_CIDR: ${OPENBAO_NETWORK_CIDR:?set OPENBAO_NETWORK_CIDR in .env (subnet of the OpenBao project network)}
+  BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/novu
+  BAO_REQUIRED_KEYS: JWT_SECRET,STORE_ENCRYPTION_KEY
+  # Unchanged from the base file: Novu's own mode, not OpenWind's NODE_ENV.
+  NODE_ENV: local
+  MONGO_URL: mongodb://novu-mongo:27017/novu
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+
+x-node-loader: &node-loader
+  - node
+  - /app/packages/openbao-deploy/src/bao-env-loader.mjs
+
+services:
+  # ── Dev OpenBao: never started, and inert if a profile ever starts it ───────
+  openbao:
+    profiles: [openbao-dev-disabled]
+    ports: !reset []
+    entrypoint: ["/bin/sh", "-c", "echo 'dev OpenBao is disabled in production'"]
+    command: !reset []
+    healthcheck: !reset {}
+    restart: "no"
+  openbao-init:
+    profiles: [openbao-dev-disabled]
+    entrypoint: ["/bin/sh", "-c", "echo 'dev OpenBao is disabled in production'"]
+    depends_on: !reset {}
+    environment: !reset {}
+    restart: "no"
+
+  # ── postgres: superuser password from a server-only file ───────────────────
+  # Only read when the data volume is first created; on an existing server the
+  # role passwords are changed with ALTER ROLE (ADR-023 Decision 6).
+  postgres:
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/postgres.env
+    environment: !override
+      POSTGRES_USER: platform
+      POSTGRES_DB: platform
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+
+  # ── pgbouncer: password from a server-only file (ADR-023 OQ-3) ──────────────
+  pgbouncer:
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/pgbouncer.env
+    environment: !override
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: platform
+      DB_USER: app_user
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
+      SERVER_TLS_SSLMODE: disable
+
+  ow-backend:
+    entrypoint: *node-loader
+    command: ["pnpm", "exec", "tsx", "apps/api/src/index.ts"]
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/backend.env
+    environment: !override
+      <<: *openbao
+      BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/backend
+      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,SUPERSET_SERVICE_ACCOUNT_PASSWORD,SUPERSET_ADMIN_PASSWORD
+      # Backend calls Transit at runtime, so it keeps its AppRole login.
+      BAO_KEEP_LOGIN: "1"
+      OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
+      REDIS_URL: redis://redis:6379
+      ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
+      ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
+      SUPERSET_SITE_URL: ${SUPERSET_SITE_URL:?set SUPERSET_SITE_URL in .env}
+      SUPERSET_INTERNAL_URL: ${SUPERSET_INTERNAL_URL:-http://superset:8088}
+      SUPERSET_DASHBOARD_TENANT_SLUG: ${SUPERSET_DASHBOARD_TENANT_SLUG:-openwind-tenant-overview}
+      SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
+      SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      FILES_STORAGE_PATH: /data/files
+    depends_on: !override
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: !override
+      default: {}
+      openwind_zitadel: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_BACKEND:?set OW_BAO_IP_BACKEND in .env}
+
+  ow-worker:
+    entrypoint: *node-loader
+    command: ["pnpm", "exec", "tsx", "apps/worker/src/index.ts"]
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/worker.env
+    environment: !override
+      <<: *openbao
+      BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/worker
+      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,SUPERSET_SERVICE_ACCOUNT_PASSWORD,SUPERSET_ADMIN_PASSWORD
+      # Worker decrypts connector credentials with Transit at runtime.
+      BAO_KEEP_LOGIN: "1"
+      OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
+      REDIS_URL: redis://redis:6379
+      ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
+      ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
+      FILES_STORAGE_PATH: /data/files
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+    depends_on: !override
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    networks: !override
+      default: {}
+      openwind_zitadel: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_WORKER:?set OW_BAO_IP_WORKER in .env}
+
+  # ── Frontend: no OpenBao role; public values only (ADR-023 Decision 3) ──────
+  ow-frontend:
+    environment: !override
+      VITE_API_PROXY_TARGET: http://ow-backend:3000
+      ZITADEL_ISSUER: ${ZITADEL_ISSUER:?set ZITADEL_ISSUER in .env (public issuer URL)}
+      ZITADEL_OIDC_CLIENT_ID: ${ZITADEL_OIDC_CLIENT_ID:?set ZITADEL_OIDC_CLIENT_ID in .env (public client id)}
+      VITE_IDLE_LOGOUT_ENABLED: ${VITE_IDLE_LOGOUT_ENABLED:-true}
+    volumes: !override
+      - ./apps/admin-ui/src:/app/apps/admin-ui/src
+      - ./apps/admin-ui/index.html:/app/apps/admin-ui/index.html
+      - ./apps/admin-ui/vite.config.ts:/app/apps/admin-ui/vite.config.ts
+      # Same target as the base mount, so the real .env.local never reaches
+      # this container (Vite would load every key in it).
+      - ./packages/openbao-deploy/empty.env:/app/.env.local:ro
+
+  # ── Novu (profile `notifications`): JWT_SECRET and STORE_ENCRYPTION_KEY ─────
+  # come from OpenBao (one role for both services, one address each). Copy the
+  # current values on cutover: STORE_ENCRYPTION_KEY encrypts Novu's saved
+  # provider credentials (ADR-023 Decision 6).
+  novu-api:
+    build:
+      context: .
+      dockerfile: docker/novu/Dockerfile
+      args:
+        NOVU_IMAGE: ghcr.io/novuhq/novu/api@sha256:d9550e949cf469a3124c6859844863c15881c512fcd2cf5ea2147f8b339fb4e7
+    image: openwind-novu-api:openbao
+    entrypoint: ["node", "/opt/openbao/bao-env-loader.mjs"]
+    command: *novu-command
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/novu.env
+    environment: !override
+      <<: *novu-env
+      API_ROOT_URL: ${NOVU_API_ROOT_URL:-http://localhost:3010}
+      FRONT_BASE_URL: ${NOVU_FRONT_BASE_URL:-http://localhost:4200}
+    networks: !override
+      default: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_NOVU_API:?set OW_BAO_IP_NOVU_API in .env}
+
+  novu-worker:
+    build:
+      context: .
+      dockerfile: docker/novu/Dockerfile
+      args:
+        NOVU_IMAGE: ghcr.io/novuhq/novu/worker@sha256:83296878d1b633ca5c9a4e39b10283fa8e2c4d5d341c11847ffd1e4a3897f3b0
+    image: openwind-novu-worker:openbao
+    entrypoint: ["node", "/opt/openbao/bao-env-loader.mjs"]
+    command: *novu-command
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/novu.env
+    environment: !override
+      <<: *novu-env
+    networks: !override
+      default: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_NOVU_WORKER:?set OW_BAO_IP_NOVU_WORKER in .env}
+
+  # Public URL only: no OpenBao role (same rule as the frontend).
+  novu-web:
+    environment: !override
+      REACT_APP_API_URL: ${NOVU_API_ROOT_URL:-http://localhost:3010}
+
+  # ── One-shots ───────────────────────────────────────────────────────────────
+  bootstrap:
+    entrypoint: *node-loader
+    command: ["tsx", "scripts/bootstrap.ts"]
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/bootstrap.env
+    environment: !override
+      <<: *openbao
+      BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/bootstrap
+      BAO_REQUIRED_KEYS: DATABASE_URL,MIGRATION_DATABASE_URL,REPORTING_BINDING_SECRET
+      RUNNING_IN_DOCKER: "true"
+      REDIS_URL: redis://redis:6379
+      ZITADEL_EXTERNAL_DOMAIN: ${ZITADEL_EXTERNAL_DOMAIN:?set ZITADEL_EXTERNAL_DOMAIN in .env}
+      ZITADEL_HOST_PORT: ${ZITADEL_HOST_PORT:-8080}
+      ZITADEL_EXTERNALSECURE: ${ZITADEL_EXTERNALSECURE:-true}
+      APP_URL: ${APP_URL:?set APP_URL in .env}
+      # New secrets go to this 0600 file, never to .env.local (ADR-023 Decision 6).
+      BOOTSTRAP_SECRETS_OUT: /run/bootstrap-out/new-secrets.env
+    volumes: !override
+      - ${OPENWIND_BOOTSTRAP_OUT_DIR:?set OPENWIND_BOOTSTRAP_OUT_DIR in .env}:/run/bootstrap-out
+    restart: on-failure:3
+    networks: !override
+      default: {}
+      openwind_zitadel: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_BOOTSTRAP:?set OW_BAO_IP_BOOTSTRAP in .env}
+
+  superset:
+    entrypoint: ["python3", "/opt/openbao/bao-env-loader.py"]
+    command: ["/app/docker/entrypoints/run-server.sh"]
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/superset.env
+    environment: !override
+      <<: *openbao
+      BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/superset
+      BAO_REQUIRED_KEYS: SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,REPORTING_BINDING_SECRET,DATABASE_URL
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+      SERVER_WORKER_AMOUNT: ${SUPERSET_WORKER_AMOUNT:-2}
+      GUNICORN_TIMEOUT: ${SUPERSET_GUNICORN_TIMEOUT:-120}
+      REDIS_URL: redis://redis:6379/2
+      SUPERSET_OAUTH_ISSUER: ${SUPERSET_OAUTH_ISSUER:?set SUPERSET_OAUTH_ISSUER in .env}
+      SUPERSET_SESSION_MAX_MINUTES: ${SUPERSET_SESSION_MAX_MINUTES:-480}
+      SUPERSET_REPORTING_DB_NAME: ${SUPERSET_REPORTING_DB_NAME:-OpenWind Platform}
+    networks: !override
+      default: {}
+      openwind_zitadel: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_SUPERSET:?set OW_BAO_IP_SUPERSET in .env}
+
+  superset-init:
+    entrypoint: ["python3", "/opt/openbao/bao-env-loader.py", "/bin/bash", "/app/init.sh"]
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/superset-init.env
+    environment: !override
+      <<: *openbao
+      BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/superset-init
+      BAO_REQUIRED_KEYS: SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,REPORTING_BINDING_SECRET,SUPERSET_ADMIN_PASSWORD,SUPERSET_SERVICE_ACCOUNT_PASSWORD,SUPERSET_REPORTING_DB_URI,DATABASE_URL
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+      SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      SUPERSET_DASHBOARD_TENANT_SLUG: ${SUPERSET_DASHBOARD_TENANT_SLUG:-openwind-tenant-overview}
+      SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
+      SUPERSET_EMBED_ORIGIN: ${SUPERSET_EMBED_ORIGIN:?set SUPERSET_EMBED_ORIGIN in .env}
+      REDIS_URL: redis://redis:6379/2
+    restart: on-failure:3
+    networks: !override
+      default: {}
+      openwind_zitadel: {}
+      openbao:
+        ipv4_address: ${OW_BAO_IP_SUPERSET_INIT:?set OW_BAO_IP_SUPERSET_INIT in .env}
+
+networks:
+  openbao:
+    external: true
+    name: ${OPENBAO_NETWORK:-openbao-openwind}
