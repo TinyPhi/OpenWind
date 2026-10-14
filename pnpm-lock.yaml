@@ -39,6 +39,12 @@ importers:
       '@eslint/js':
         specifier: ^9.0.0
         version: 9.39.4
+      '@platform/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@platform/secrets':
+        specifier: workspace:*
+        version: link:packages/secrets
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.0.0
         version: 8.59.3(@typescript-eslint/parser@8.59.3(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
