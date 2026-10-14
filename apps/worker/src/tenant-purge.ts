@@ -32,11 +32,10 @@
  * what list which plugin schemas to purge in the first place.
  *
  * Each DB step uses `withTenantContext` so RLS policies pass for the target tenant.
- * `tenants` has no RLS and uses plain `db`. `admin_audit_log` has RLS (migration 0011)
- * granting app_user INSERT+SELECT only (append-only invariant) -- anonymization uses
- * plain `db` (the worker's privileged connection) because an UPDATE cannot go through
- * app_user; the RLS policy itself never needs to block this write since only the
- * privileged worker role ever updates these rows.
+ * `tenants` has no RLS; its status flip goes through withTenantLifecycleContext (0143).
+ * `admin_audit_log` has RLS (migration 0011) granting app_user INSERT+SELECT only
+ * (append-only invariant) -- anonymization runs in withTenantPurgeContext (0144), whose
+ * role may UPDATE only the person-identifying columns, under this tenant's RLS context.
  * `workflow_states`/`workflow_transitions` gained RLS and a `tenant_id` column in
  * ADR-007 (migration 0037) — their deletes below now filter by `tenant_id` directly
  * (in addition to the pre-existing `inArray(workflowId, wfIds)` filter), matching every
@@ -45,11 +44,12 @@
  * Privileged pre-step (#635): two tables can't be deleted through app_user.
  * `schedule_executions` is append-only (INSERT+SELECT grant, migration 0102),
  * and `saved_views`'s RLS policy also requires `user_id = app.user_id`, which a
- * tenant-wide purge has no single value for. Both are deleted on the worker's
- * privileged `db` connection with an explicit tenant_id filter, before the main
- * transaction (schedule_executions → schedule_rules is ON DELETE RESTRICT) —
- * the same compensating pattern as the audit-log anonymization and the plugin
- * schema purge.
+ * tenant-wide purge has no single value for. Both are deleted in
+ * withTenantPurgeContext (migration 0144) with an explicit tenant_id filter,
+ * before the main transaction (schedule_executions → schedule_rules is ON
+ * DELETE RESTRICT). These once ran on plain `db`, assumed to be privileged; on
+ * an app_user connection they failed or, with no tenant context, RLS made them
+ * match nothing.
  *
  * Coverage is enforced by tests/isolation/tenant-purge-full-coverage and the
  * erasure coverage guard, which read PURGED_TENANT_TABLES and
@@ -67,6 +67,7 @@ import {
   db,
   withTenantContext,
   withTenantLifecycleContext,
+  withTenantPurgeContext,
   purgeTenantDataFromPluginSchema,
 } from "@platform/db";
 import {
@@ -239,22 +240,23 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
     // rules, so no new schedule_executions row can land between this delete
     // and the main transaction's schedule_rules delete (RESTRICT FK). A tick
     // already mid-flight can still race once; the BullMQ retry then converges.
-    await db
-      .update(scheduleRules)
-      .set({ status: "archived" })
-      .where(eq(scheduleRules.tenantId, tenantId));
-    await db
-      .delete(scheduleExecutions)
-      .where(eq(scheduleExecutions.tenantId, tenantId));
-    await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
+    await withTenantPurgeContext(tenantId, async (tx) => {
+      await tx
+        .update(scheduleRules)
+        .set({ status: "archived" })
+        .where(eq(scheduleRules.tenantId, tenantId));
+      await tx
+        .delete(scheduleExecutions)
+        .where(eq(scheduleExecutions.tenantId, tenantId));
+      await tx.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
+    });
 
     // ADR-012 Phase G, spec R9 -- admin_audit_log rows are anonymized in
     // place (person-identifying fields replaced with a placeholder), never
     // deleted: aggregate operational history (action/resourceType/outcome/
     // timestamp) must survive a purge the same way it survives the R8 age-
-    // based sweep. Runs via plain `db` (not withTenantContext): it is an
-    // UPDATE, which app_user is not granted on admin_audit_log -- see
-    // anonymizeAuditLogForTenant's own doc comment.
+    // based sweep. app_user may not UPDATE admin_audit_log, so this runs in
+    // withTenantPurgeContext (0144) -- see anonymizeAuditLogForTenant's doc.
     //
     // Runs BEFORE the delete transaction (#860): it finds the person ids held
     // in the audit rows' JSON by value, and needs the tenant's members
@@ -263,7 +265,9 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
     // G5 audit INSERTs further down are different: app_user may insert, but
     // only under the tenant's RLS context, so those go through
     // withTenantContext.
-    await anonymizeAuditLogForTenant(db, tenantId);
+    await withTenantPurgeContext(tenantId, (tx) =>
+      anonymizeAuditLogForTenant(tx, tenantId),
+    );
 
     await withTenantContext(tenantId, async (tx) => {
       // Notifications (recipients cascade, but are deleted explicitly so the

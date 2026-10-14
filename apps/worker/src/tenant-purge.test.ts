@@ -6,6 +6,11 @@
  *
  * The DB work itself is covered by the tenant-purge isolation tests; this file only checks which
  * connection each audit write goes through, so every query builder is a chainable stub.
+ *
+ * Migration 0144: the privileged pre-steps (schedule_rules archive, schedule_executions and
+ * saved_views deletes, audit-log anonymization) go through withTenantPurgeContext, never plain
+ * db -- on an app_user connection plain db either lacks the grant or, with no tenant context,
+ * RLS makes the statement match nothing.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -45,6 +50,34 @@ function chain(result: unknown): unknown {
 
 const PLAIN_DB = { kind: "plain-db" };
 const TENANT_TX = { kind: "tenant-tx" };
+const PURGE_TX = { kind: "purge-tx" };
+
+// Which tables each connection wrote to (update/delete), recorded by table name.
+const writes: Record<"plain" | "purge", string[]> = { plain: [], purge: [] };
+function recordingConn(
+  base: { kind: string },
+  bucket: "plain" | "purge",
+  onSelect: () => unknown,
+): unknown {
+  return new Proxy(base, {
+    get: (t, p) => {
+      if (p === "kind") return t.kind;
+      if (p === "select") return () => chain(onSelect());
+      if (p === "update" || p === "delete") {
+        return (table: { table?: string }) => {
+          writes[bucket].push(`${String(p)}:${table.table ?? "?"}`);
+          return chain([]);
+        };
+      }
+      return () => chain([]);
+    },
+  });
+}
+
+const mockWithTenantPurgeContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn(recordingConn(PURGE_TX, "purge", () => [])),
+);
 
 const mockWithTenantContext = vi.fn(
   (_tenantId: string, fn: (tx: unknown) => unknown) =>
@@ -57,13 +90,7 @@ const mockWithTenantContext = vi.fn(
 const mockTenantStatus = vi.fn(() => [{ status: "deleted" }]);
 
 vi.mock("@platform/db", () => {
-  const db = new Proxy(PLAIN_DB, {
-    get: (t, p) => {
-      if (p === "kind") return t.kind;
-      if (p === "select") return () => chain(mockTenantStatus());
-      return () => chain([]);
-    },
-  });
+  const db = recordingConn(PLAIN_DB, "plain", () => mockTenantStatus());
   // vitest needs every named export listed; each table only has to be a distinct object.
   const tableNames = [
     "tenants",
@@ -113,6 +140,9 @@ vi.mock("@platform/db", () => {
     withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
       mockWithTenantContext(...args),
     withTenantLifecycleContext: (fn: (tx: unknown) => unknown) => fn(chain([])),
+    withTenantPurgeContext: (
+      ...args: Parameters<typeof mockWithTenantPurgeContext>
+    ) => mockWithTenantPurgeContext(...args),
     purgeTenantDataFromPluginSchema: vi.fn(),
   };
 });
@@ -152,6 +182,8 @@ function auditCall(action: string): unknown[] | undefined {
 beforeEach(() => {
   vi.clearAllMocks();
   mockTenantStatus.mockReturnValue([{ status: "deleted" }]);
+  writes.plain.length = 0;
+  writes.purge.length = 0;
 });
 
 describe("tenant-purge audit writes", () => {
@@ -171,14 +203,39 @@ describe("tenant-purge audit writes", () => {
     );
   });
 
-  it("still anonymizes the audit log on plain db (an UPDATE app_user is not granted)", async () => {
+  it("anonymizes the audit log inside the purge role's context for this tenant", async () => {
     await captured.processor?.({
       id: "job-1",
       attemptsMade: 0,
       data: { tenantId: TENANT_ID },
     });
 
-    expect(mockAnonymize).toHaveBeenCalledWith(PLAIN_DB, TENANT_ID);
+    expect(mockAnonymize).toHaveBeenCalledTimes(1);
+    const [conn, tenantId] = mockAnonymize.mock.calls[0] as [
+      { kind?: string },
+      string,
+    ];
+    expect(conn.kind).toBe("purge-tx");
+    expect(tenantId).toBe(TENANT_ID);
+    expect(mockWithTenantPurgeContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
+  });
+
+  it("runs the privileged pre-steps through the purge role, never plain db", async () => {
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 0,
+      data: { tenantId: TENANT_ID },
+    });
+
+    expect(writes.purge).toEqual([
+      "update:scheduleRules",
+      "delete:scheduleExecutions",
+      "delete:savedViews",
+    ]);
+    expect(writes.plain).toEqual([]);
   });
 
   it("writes purge.failed inside the tenant's context on the final attempt", async () => {

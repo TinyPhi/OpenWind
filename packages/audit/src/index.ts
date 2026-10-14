@@ -34,7 +34,7 @@ import {
   inArray,
   sql,
 } from "drizzle-orm";
-import type { Db, DbOrTx } from "@platform/db";
+import type { DbOrTx } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { logger } from "@platform/logger";
 import { scrubAuditLogPersonIdentifiers } from "./person-identifiers.js";
@@ -475,19 +475,20 @@ const PURGED_PERSON_PLACEHOLDER = "[REDACTED]";
  * is always a real person identifier whenever set (ADR-012 Phase B,
  * GAP-05), regardless of actorType, so it's always anonymized when present.
  *
- * Called from apps/worker/src/tenant-purge.ts via plain `db` (not
- * withTenantContext) -- admin_audit_log's RLS grants app_user INSERT+SELECT
- * only (append-only invariant, migration 0011), so this UPDATE must run
- * under the worker's own privileged connection, the same way every other
- * admin_audit_log write in that file already does.
+ * app_user may only INSERT+SELECT admin_audit_log (append-only invariant,
+ * migration 0011), so tenant-purge.ts calls this inside withTenantPurgeContext
+ * (migration 0144): tenant_purge_role may UPDATE only the person-identifying
+ * columns, and app.tenant_id confines RLS to this tenant. A connection with no
+ * tenant context (a superuser, as in the isolation tests) also works.
  */
 export async function anonymizeAuditLogForTenant(
-  db: Db,
+  db: DbOrTx,
   tenantId: string,
 ): Promise<void> {
-  // Runtime assertion: ensure we are not running inside a tenant RLS transaction context.
-  // Any failure of the check itself — not just "tenant is active" — must abort the function:
-  // failing open here would silently run the UPDATE in exactly the scenario the guard prevents.
+  // Runtime assertion: never run under ANOTHER tenant's RLS context -- RLS would hide this
+  // tenant's rows and the purge would "succeed" having anonymized nothing. The purging
+  // tenant's own context (withTenantPurgeContext) is the intended path. Any failure of the
+  // check itself must abort: failing open would run the UPDATE in exactly that scenario.
   let tenantSetting: string | null;
   try {
     const rlsContext = await db.execute<{ current_setting: string | null }>(
@@ -499,9 +500,9 @@ export async function anonymizeAuditLogForTenant(
       `anonymizeAuditLogForTenant: failed to verify RLS context before UPDATE: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (tenantSetting) {
+  if (tenantSetting && tenantSetting !== tenantId) {
     throw new Error(
-      `anonymizeAuditLogForTenant: cannot execute UPDATE under active tenant RLS context (tenant: ${tenantSetting})`,
+      `anonymizeAuditLogForTenant: cannot execute UPDATE under another tenant's RLS context (tenant: ${tenantSetting})`,
     );
   }
 

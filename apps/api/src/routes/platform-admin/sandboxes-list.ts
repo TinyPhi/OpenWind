@@ -6,7 +6,7 @@ import {
   withPlatformAdminContext,
   toPlatformAdminSandboxView,
 } from "@platform/db";
-import { desc, eq, and } from "drizzle-orm";
+import { desc, eq, and, inArray } from "drizzle-orm";
 import { platformAdminFactory } from "./factory.js";
 
 /**
@@ -15,7 +15,9 @@ import { platformAdminFactory } from "./factory.js";
  * no route reading through it until now -- see that function's own doc comment for why its
  * output shape is the only thing platform_admin-reachable routes may ever return (R2, no
  * business data). Both handlers select only the columns platform_admin_role is actually
- * granted (migration 0135): id, name, isSandbox, trialEndsAt, createdAt.
+ * granted (migration 0135): id, name, isSandbox, trialEndsAt, createdAt. The list also
+ * filters on status (granted in 0144) so deleted sandboxes, still waiting on or done with their
+ * purge, drop out of the dashboard.
  */
 const SANDBOX_VIEW_COLUMNS = {
   id: tenants.id,
@@ -32,7 +34,12 @@ export const sandboxListHandler = platformAdminFactory.createHandlers(
       tx
         .select(SANDBOX_VIEW_COLUMNS)
         .from(tenants)
-        .where(eq(tenants.isSandbox, true))
+        .where(
+          and(
+            eq(tenants.isSandbox, true),
+            inArray(tenants.status, ["active", "suspended"]),
+          ),
+        )
         .orderBy(desc(tenants.createdAt)),
     );
 
