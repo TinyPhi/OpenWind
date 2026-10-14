@@ -12,8 +12,12 @@ interface ProvisioningProgress {
 
 interface SandboxHandover {
   tenantId: string;
-  seededAccounts: { username: string; email: string; role: "admin" | "user" }[];
-  defaultPassword: string;
+  seededAccounts: {
+    username: string;
+    email: string;
+    role: "admin" | "user";
+    password: string;
+  }[];
 }
 
 export interface CreateSandboxModalProps {
@@ -24,6 +28,13 @@ export interface CreateSandboxModalProps {
 }
 
 const POLL_INTERVAL_MS = 2_000;
+
+const cellStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "6px 8px",
+  borderBottom: "1px solid var(--border-color, #e5e7eb)",
+  verticalAlign: "top",
+};
 
 /**
  * T17 (docs/specs/multi-org-sandbox.md R5). Create -> poll progress -> one-time handover
@@ -174,29 +185,38 @@ export function CreateSandboxModal({
             <p className="page-subtitle">
               Copy these credentials now — they cannot be shown again.
             </p>
-            <p style={{ fontWeight: 600, marginTop: 16 }}>Default password</p>
-            <pre
-              style={{
-                padding: "12px",
-                background: "var(--surface-2, #f3f4f6)",
-                borderRadius: "8px",
-                wordBreak: "break-all",
-                userSelect: "all",
-              }}
-            >
-              {handover.defaultPassword}
-            </pre>
             <p style={{ fontWeight: 600, marginTop: 16 }}>Seeded accounts</p>
             <p style={{ color: "var(--text-muted)", margin: "0 0 6px" }}>
-              Sign in with either the username or the email.
+              Each account has its own password. Sign in with either the
+              username or the email.
             </p>
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {handover.seededAccounts.map((a) => (
-                <li key={a.email}>
-                  <strong>{a.username}</strong> — {a.email} ({a.role})
-                </li>
-              ))}
-            </ul>
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={cellStyle}>Username</th>
+                    <th style={cellStyle}>Role</th>
+                    <th style={cellStyle}>Password</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {handover.seededAccounts.map((a) => (
+                    <tr key={a.email}>
+                      <td style={cellStyle}>
+                        <strong>{a.username}</strong>
+                        <div style={{ color: "var(--text-muted)" }}>
+                          {a.email}
+                        </div>
+                      </td>
+                      <td style={cellStyle}>{a.role}</td>
+                      <td style={cellStyle}>
+                        <code style={{ userSelect: "all" }}>{a.password}</code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <Button
               variant="primary"
               style={{ marginTop: 20 }}
