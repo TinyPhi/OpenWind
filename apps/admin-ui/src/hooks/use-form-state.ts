@@ -34,6 +34,11 @@ export interface UseFormStateReturn<TForm extends object> {
   readonly reset: (nextValues?: TForm) => void;
 }
 
+interface FormStateContainer<TForm> {
+  readonly initialSnapshot: TForm;
+  readonly values: TForm;
+}
+
 export function useFormState<TForm extends object>(
   options: UseFormStateOptions<TForm>,
 ): UseFormStateReturn<TForm> {
@@ -46,10 +51,16 @@ export function useFormState<TForm extends object>(
       : optionsRef.current.initialValues;
   }, []);
 
-  const [initialSnapshot, setInitialSnapshot] = useState<TForm>(getInitial);
-  const [values, setFormValues] = useState<TForm>(initialSnapshot);
+  const [formState, setFormState] = useState<FormStateContainer<TForm>>(() => {
+    const initial = getInitial();
+    return { initialSnapshot: initial, values: initial };
+  });
+
+  const valuesRef = useRef(formState.values);
+  valuesRef.current = formState.values;
 
   const isDirty = useMemo((): boolean => {
+    const { values, initialSnapshot } = formState;
     const currentKeys = Object.keys(values) as Array<keyof TForm>;
     const snapshotKeys = Object.keys(initialSnapshot) as Array<keyof TForm>;
 
@@ -62,20 +73,23 @@ export function useFormState<TForm extends object>(
     }
 
     return false;
-  }, [values, initialSnapshot]);
+  }, [formState]);
 
   const setFieldValue = useCallback(
     <K extends keyof TForm>(
       field: K,
       value: TForm[K] | ((prev: TForm[K]) => TForm[K]),
     ): void => {
-      setFormValues((prev) => {
+      setFormState((prev) => {
         const nextVal =
           typeof value === "function"
-            ? (value as (prevVal: TForm[K]) => TForm[K])(prev[field])
+            ? (value as (prevVal: TForm[K]) => TForm[K])(prev.values[field])
             : value;
-        if (prev[field] === nextVal) return prev;
-        return { ...prev, [field]: nextVal };
+        if (prev.values[field] === nextVal) return prev;
+        return {
+          ...prev,
+          values: { ...prev.values, [field]: nextVal },
+        };
       });
     },
     [],
@@ -83,14 +97,17 @@ export function useFormState<TForm extends object>(
 
   const setValues = useCallback(
     (next: Partial<TForm> | ((prev: TForm) => TForm)): void => {
-      setFormValues((prev) => {
-        const incoming = typeof next === "function" ? next(prev) : next;
+      setFormState((prev) => {
+        const incoming = typeof next === "function" ? next(prev.values) : next;
         const hasChanges = Object.keys(incoming).some((k) => {
           const key = k as keyof TForm;
-          return prev[key] !== incoming[key];
+          return prev.values[key] !== incoming[key];
         });
         if (!hasChanges) return prev;
-        return { ...prev, ...incoming };
+        return {
+          ...prev,
+          values: { ...prev.values, ...incoming },
+        };
       });
     },
     [],
@@ -118,25 +135,24 @@ export function useFormState<TForm extends object>(
     [setFieldValue],
   );
 
-  const handleSubmit = useCallback(
-    async (event?: FormEvent): Promise<void> => {
-      event?.preventDefault();
-      await optionsRef.current.onSubmit?.(values);
-    },
-    [values],
-  );
+  const handleSubmit = useCallback(async (event?: FormEvent): Promise<void> => {
+    event?.preventDefault();
+    await optionsRef.current.onSubmit?.(valuesRef.current);
+  }, []);
 
   const reset = useCallback(
     (nextValues?: TForm): void => {
       const target = nextValues ?? getInitial();
-      setInitialSnapshot(target);
-      setFormValues(target);
+      setFormState({
+        initialSnapshot: target,
+        values: target,
+      });
     },
     [getInitial],
   );
 
   return {
-    values,
+    values: formState.values,
     isDirty,
     setFieldValue,
     setValues,

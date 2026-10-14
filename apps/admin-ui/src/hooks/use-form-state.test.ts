@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useFormState } from "./use-form-state.js";
 
@@ -157,5 +157,45 @@ describe("useFormState", () => {
 
     expect(result.current.values.nickname).toBeUndefined();
     expect(result.current.isDirty).toBe(true);
+  });
+
+  it("maintains stable handleSubmit reference across field edits", () => {
+    const onSubmit = vi.fn();
+    const { result } = renderHook(() =>
+      useFormState<TestForm>({ initialValues: INITIAL_FORM, onSubmit }),
+    );
+
+    const initialHandleSubmit = result.current.handleSubmit;
+
+    act(() => {
+      result.current.setFieldValue("name", "Bob");
+    });
+
+    expect(result.current.handleSubmit).toBe(initialHandleSubmit);
+  });
+
+  it("atomically resets initialSnapshot and values", () => {
+    const { result } = renderHook(() =>
+      useFormState<TestForm>({ initialValues: INITIAL_FORM }),
+    );
+
+    act(() => {
+      result.current.setFieldValue("name", "Changed");
+    });
+    expect(result.current.isDirty).toBe(true);
+
+    const updatedForm: TestForm = {
+      name: "ResetName",
+      email: "reset@example.com",
+      isActive: true,
+      age: 40,
+    };
+
+    act(() => {
+      result.current.reset(updatedForm);
+    });
+
+    expect(result.current.values).toEqual(updatedForm);
+    expect(result.current.isDirty).toBe(false);
   });
 });
