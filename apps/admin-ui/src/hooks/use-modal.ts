@@ -30,7 +30,9 @@ export function useModal<TItem = void>(
   const [isOpen, setIsOpen] = useState(options?.initialOpen ?? false);
   const [item, setItem] = useState<TItem | null>(options?.initialItem ?? null);
   const [mode, setMode] = useState<ModalMode>(
-    options?.initialItem ? "edit" : "create",
+    options?.initialItem !== undefined && options.initialItem !== null
+      ? "edit"
+      : "create",
   );
 
   const open = useCallback((targetItem?: TItem): void => {

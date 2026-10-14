@@ -32,9 +32,11 @@ describe("useAsyncAction", () => {
   it("handles failed execution and extracts error message", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("Network failure"));
     const onError = vi.fn();
-    const { result } = renderHook(() => useAsyncAction(fn, { onError }));
+    const { result } = renderHook(() =>
+      useAsyncAction<{ readonly id: string }>(fn, { onError }),
+    );
 
-    let res: unknown = null;
+    let res: { readonly id: string } | null = null;
     await act(async () => {
       res = await result.current.execute();
     });

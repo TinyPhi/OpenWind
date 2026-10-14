@@ -151,14 +151,26 @@ export function useFormState<TForm extends object>(
     [getInitial],
   );
 
-  return {
-    values: formState.values,
-    isDirty,
-    setFieldValue,
-    setValues,
-    handleChange,
-    handleCheckboxChange,
-    handleSubmit,
-    reset,
-  };
+  return useMemo(
+    () => ({
+      values: formState.values,
+      isDirty,
+      setFieldValue,
+      setValues,
+      handleChange,
+      handleCheckboxChange,
+      handleSubmit,
+      reset,
+    }),
+    [
+      formState.values,
+      isDirty,
+      setFieldValue,
+      setValues,
+      handleChange,
+      handleCheckboxChange,
+      handleSubmit,
+      reset,
+    ],
+  );
 }
