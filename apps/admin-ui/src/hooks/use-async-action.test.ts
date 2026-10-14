@@ -138,4 +138,77 @@ describe("useAsyncAction", () => {
     // Still clean after reset
     expect(result.current.data).toBeNull();
   });
+
+  it("does not update state if unmounted during in-flight execution", async () => {
+    let resolveFn!: (val: string) => void;
+    const fn = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((res) => {
+          resolveFn = res;
+        }),
+    );
+    const { result, unmount } = renderHook(() => useAsyncAction<string>(fn));
+
+    let p: Promise<string | null>;
+    act(() => {
+      p = result.current.execute();
+    });
+    expect(result.current.isLoading).toBe(true);
+
+    unmount();
+
+    await act(async () => {
+      resolveFn("late after unmount");
+      await p;
+    });
+
+    expect(result.current.data).toBeNull();
+  });
+
+  it("falls back to errorMessageFallback when error message cannot be extracted", async () => {
+    const fn = vi.fn().mockRejectedValue(42);
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      useAsyncAction(fn, {
+        onError,
+        errorMessageFallback: "Custom fallback error",
+      }),
+    );
+
+    await act(async () => {
+      await result.current.execute();
+    });
+
+    expect(result.current.error).toBe("Custom fallback error");
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Custom fallback error" }),
+      undefined,
+    );
+  });
+
+  it("correctly passes required arguments to action and callbacks", async () => {
+    interface ActionArgs {
+      readonly id: string;
+      readonly count: number;
+    }
+    const fn = vi.fn(
+      async (args: ActionArgs): Promise<string> =>
+        `Result: ${args.id} - ${args.count}`,
+    );
+    const onSuccess = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAsyncAction<string, ActionArgs>(fn, { onSuccess }),
+    );
+
+    const testArgs: ActionArgs = { id: "item-123", count: 5 };
+    let res: string | null = null;
+    await act(async () => {
+      res = await result.current.execute(testArgs);
+    });
+
+    expect(res).toBe("Result: item-123 - 5");
+    expect(fn).toHaveBeenCalledWith(testArgs);
+    expect(onSuccess).toHaveBeenCalledWith("Result: item-123 - 5", testArgs);
+  });
 });

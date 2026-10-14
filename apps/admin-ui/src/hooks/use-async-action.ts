@@ -50,20 +50,20 @@ export function useAsyncAction<TResult, TArgs = void>(
     setData(null);
   }, []);
 
-  const execute = useCallback(async (args?: TArgs): Promise<TResult | null> => {
+  const execute = useCallback(async (args: TArgs): Promise<TResult | null> => {
     const currentId = ++executionIdRef.current;
     setIsLoading(true);
     setError(null);
     try {
-      const result = await actionRef.current(args as TArgs);
+      const result = await actionRef.current(args);
       if (isMountedRef.current && currentId === executionIdRef.current) {
         setData(result);
         setIsLoading(false);
-        optionsRef.current?.onSuccess?.(result, args as TArgs);
+        optionsRef.current?.onSuccess?.(result, args);
         return result;
       }
       return null;
-    } catch (err: unknown) {
+    } catch (err) {
       if (!isMountedRef.current || currentId !== executionIdRef.current) {
         return null;
       }
@@ -76,14 +76,15 @@ export function useAsyncAction<TResult, TArgs = void>(
                 : typeof err === "object" &&
                     err !== null &&
                     "message" in err &&
-                    typeof (err as { message: unknown }).message === "string"
-                  ? (err as { message: string }).message
+                    typeof (err as { readonly message: string }).message ===
+                      "string"
+                  ? (err as { readonly message: string }).message
                   : (optionsRef.current?.errorMessageFallback ??
                     "An unexpected error occurred"),
             );
       setError(normalizedError.message);
       setIsLoading(false);
-      optionsRef.current?.onError?.(normalizedError, args as TArgs);
+      optionsRef.current?.onError?.(normalizedError, args);
       return null;
     }
   }, []) as UseAsyncActionExecute<TResult, TArgs>;
