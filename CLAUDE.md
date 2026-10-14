@@ -42,6 +42,7 @@ TypeScript in `modules/` (ADR-004). Full architecture: `docs/architecture-brief.
 | New modules, module ownership / placement (3H)                                                       | ADR-020 (Proposed), ADR-004, ADR-005                                                 |
 | Ticket relations, child tickets, `__accessUsers` grants, access requests                             | ADR-021 (Proposed), ADR-006                                                          |
 | Platform admin, multi-org sandboxes (provision, reset, delete, handover)                             | ADR-022 (Proposed), `docs/specs/multi-org-sandbox.md`                                |
+| `packages/secrets`, OpenBao (startup loader, Transit, AppRole), production secrets delivery          | ADR-023 (Proposed), ADR-009, `docs/deployment-hardening.md`                          |
 | Org directory (`packages/org-directory`, org chart, sync)                                            | `docs/specs/org-directory.md`                                                        |
 | Parallel approval                                                                                    | Off-limits — `.claude/context/parallel-approval-pattern.md`, #65                     |
 
