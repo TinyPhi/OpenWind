@@ -1275,3 +1275,87 @@ export function invalidateUserCache(): void {
   _userRolesCache.clear();
   _orgMetadataCache.clear();
 }
+
+// ── Machine keys (expiry check) ───────────────────────────────────────────────
+
+export interface MachineKeyInfo {
+  id: string;
+  /** null when Zitadel reports no expiration date for the key. */
+  expirationDate: Date | null;
+}
+
+export type ListMachineKeysResult =
+  | { ok: true; keys: MachineKeyInfo[] }
+  | {
+      ok: false;
+      reason:
+        | "no_token"
+        | "forbidden"
+        | "http_error"
+        | "bad_response"
+        | "network_error";
+    };
+
+const ListKeysResponseSchema = z.object({
+  result: z
+    .array(
+      z.object({
+        id: z.string(),
+        expirationDate: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * The keys Zitadel holds for one machine user, with their expiry (UserService ListKeys, Zitadel
+ * v4: POST /zitadel.user.v2.UserService/ListKeys, permission user.read). Read-only, through
+ * the general management credential. Filtered by user only; callers match their key id
+ * themselves. Never returns or logs key material -- Zitadel's answer carries none.
+ */
+export async function listMachineKeys(
+  userId: string,
+): Promise<ListMachineKeysResult> {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, reason: "no_token" };
+
+  try {
+    const result = await httpPost(
+      `${internalBase()}/zitadel.user.v2.UserService/ListKeys`,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({
+        pagination: { limit: 100 },
+        filters: [{ userIdFilter: { id: userId } }],
+      }),
+    );
+    if (result.status === 401 || result.status === 403) {
+      return { ok: false, reason: "forbidden" };
+    }
+    if (result.status < 200 || result.status >= 300) {
+      logger.warn(
+        { status: result.status },
+        "listMachineKeys: Zitadel refused",
+      );
+      return { ok: false, reason: "http_error" };
+    }
+    const parsed = ListKeysResponseSchema.safeParse(JSON.parse(result.text));
+    if (!parsed.success) return { ok: false, reason: "bad_response" };
+    const keys: MachineKeyInfo[] = [];
+    for (const k of parsed.data.result ?? []) {
+      const exp = k.expirationDate ? new Date(k.expirationDate) : null;
+      // A date we can't read is not "no expiry": report the lookup as failed instead.
+      if (exp && Number.isNaN(exp.getTime())) {
+        return { ok: false, reason: "bad_response" };
+      }
+      keys.push({ id: k.id, expirationDate: exp });
+    }
+    return { ok: true, keys };
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.name : "unknown" },
+      "listMachineKeys: request failed",
+    );
+    return { ok: false, reason: "network_error" };
+  }
+}
