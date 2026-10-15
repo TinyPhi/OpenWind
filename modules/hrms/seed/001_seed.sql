@@ -8,14 +8,18 @@ WHERE NOT EXISTS (
   SELECT 1 FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'
 );
 
+-- Mandatory-field rule (2026-10-14): title is the only required custom field; every other
+-- field is optional and shows in the create form's Others tab. Due date, assignee, remark
+-- and severity are built-in ticket columns, required at the API layer.
 INSERT INTO entity_fields (id, entity_type_id, tenant_id, name, label, field_type, is_required, is_indexed, sort_order, config)
 VALUES
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'employee_name', 'Employee Name', 'text',     true,  false, 0, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'leave_type',   'Leave Type',    'enum',     true,  false, 1, '{"options":[{"value":"annual","label":"Annual Leave"},{"value":"sick","label":"Sick Leave"},{"value":"unpaid","label":"Unpaid Leave"},{"value":"maternity","label":"Maternity/Paternity"}]}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'start_date',   'Start Date',    'date',     true,  false, 2, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'end_date',     'End Date',      'date',     true,  false, 3, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'days',         'Number of Days','number',   false, false, 4, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'reason',       'Reason',        'longtext', false, false, 5, '{}'::jsonb)
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', true, true, 0, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'employee_name', 'Employee Name', 'text',     false, false, 1, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'leave_type',   'Leave Type',    'enum',     false, false, 2, '{"options":[{"value":"annual","label":"Annual Leave"},{"value":"sick","label":"Sick Leave"},{"value":"unpaid","label":"Unpaid Leave"},{"value":"maternity","label":"Maternity/Paternity"}]}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'start_date',   'Start Date',    'date',     false, false, 3, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'end_date',     'End Date',      'date',     false, false, 4, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'days',         'Number of Days','number',   false, false, 5, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Leave Request' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'reason',       'Reason',        'longtext', false, false, 6, '{}'::jsonb)
 ON CONFLICT (entity_type_id, name) DO NOTHING;
 
 -- Idempotency keyed on entity_type_id, not name — see

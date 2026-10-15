@@ -39,10 +39,12 @@
  *     as sandbox-provisioning-worker.ts's auditOutcome.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import {
   db,
   withTenantContext,
+  withTenantPurgeContext,
+  orgEmployees,
   tenants,
   acquireTenantAdvisoryLock,
   recordPlatformAdminAction,
@@ -214,14 +216,17 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
         "sandbox reset: jobs cancelled",
       );
 
-      // Privileged pre-step, same reasoning as tenant-purge.ts: schedule_executions is
-      // append-only (INSERT+SELECT grant) and saved_views' RLS policy requires
-      // user_id = app.user_id, which a tenant-wide reset has no single value for. Both are
-      // deleted on the worker's privileged `db` connection with an explicit tenant_id filter.
-      await db
-        .delete(scheduleExecutions)
-        .where(eq(scheduleExecutions.tenantId, tenantId));
-      await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
+      // Privileged pre-step, same as tenant-purge.ts: schedule_executions is append-only
+      // for app_user and saved_views' RLS policy requires user_id = app.user_id, which a
+      // tenant-wide reset has no single value for. tenant_purge_role (migration 0144) may
+      // delete both, under this tenant's RLS context. On plain `db` (app_user under compose)
+      // the first delete was refused, so every reset failed before wiping anything.
+      await withTenantPurgeContext(tenantId, async (tx) => {
+        await tx
+          .delete(scheduleExecutions)
+          .where(eq(scheduleExecutions.tenantId, tenantId));
+        await tx.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
+      });
 
       await withTenantContext(tenantId, async (tx) => {
         await tx
@@ -284,7 +289,21 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
       const installedModules = Array.isArray(config["installed_modules"])
         ? (config["installed_modules"] as string[])
         : [];
-      await seedAllModulesData(tenantId, installedModules);
+      // Reseeded records are assigned across the sandbox's people, as at provisioning. The
+      // org chart holds their Zitadel ids (user_id is NULL only for the synthetic root).
+      const people = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ userId: orgEmployees.userId })
+          .from(orgEmployees)
+          .where(
+            and(
+              eq(orgEmployees.tenantId, tenantId),
+              isNotNull(orgEmployees.userId),
+            ),
+          ),
+      );
+      const assigneeIds = people.flatMap((p) => (p.userId ? [p.userId] : []));
+      await seedAllModulesData(tenantId, installedModules, assigneeIds);
       logger.info(
         { tenantId, installedModules },
         "sandbox reset: module data reseeded",
