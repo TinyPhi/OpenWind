@@ -19,6 +19,8 @@ vi.mock("./session-expiry.js", async (importOriginal) => ({
 }));
 
 const { fetchRawWithAuth, fetchWithAuth } = await import("./api.js");
+const { setPlatformAdminMfaSession, clearPlatformAdminMfaSession } =
+  await import("./platform-admin-mfa-session.js");
 
 function jsonResponse(status: number, body: unknown = {}): Response {
   const res = {
@@ -212,5 +214,41 @@ describe("cross-origin URL rejection (CodeQL: server-side request forgery)", () 
       /cross-origin/i,
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("platform-admin MFA session header", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue({ access_token: "t" });
+    fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+    setPlatformAdminMfaSession("mfa-tok");
+  });
+
+  afterEach(() => {
+    clearPlatformAdminMfaSession();
+    vi.unstubAllGlobals();
+  });
+
+  function sentHeader(call: number): string | null {
+    const init = fetchMock.mock.calls[call]?.[1] as { headers: Headers };
+    return init.headers.get("X-Platform-Admin-Mfa");
+  }
+
+  it("is sent on platform-admin requests by both fetch helpers", async () => {
+    await fetchWithAuth("/api/platform-admin/sandboxes");
+    await fetchRawWithAuth("/api/platform-admin/session");
+
+    expect(sentHeader(0)).toBe("mfa-tok");
+    expect(sentHeader(1)).toBe("mfa-tok");
+  });
+
+  it("is never sent to other API routes", async () => {
+    await fetchWithAuth("/api/entity-types");
+
+    expect(sentHeader(0)).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { userManager } from "../authProvider.js";
 import { emitSessionEnd } from "./session-events.js";
+import { clearPlatformAdminMfaSession } from "./platform-admin-mfa-session.js";
 
 const NOTICE_KEY = "ow:auth-notice";
 const SESSION_EXPIRED = "session_expired";
@@ -36,6 +37,10 @@ export function endSessionAndRedirectToLogin(): void {
   redirecting = true;
 
   emitSessionEnd();
+  // The sign-in is over, so its platform-admin verification goes with it. The server can't be
+  // told (it no longer accepts this session), so its marker lapses on its own; dropping the
+  // token here leaves no copy in this browser that could be replayed until then.
+  clearPlatformAdminMfaSession();
   try {
     window.sessionStorage.setItem(NOTICE_KEY, SESSION_EXPIRED);
   } catch {

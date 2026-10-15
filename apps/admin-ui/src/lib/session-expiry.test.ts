@@ -16,6 +16,8 @@ const {
   consumeSessionExpiredNotice,
   resetSessionExpiryForTests,
 } = await import("./session-expiry.js");
+const { setPlatformAdminMfaSession, getPlatformAdminMfaSession } =
+  await import("./platform-admin-mfa-session.js");
 
 const mockReplace = vi.fn((_url: string): void => {});
 const originalLocation = window.location;
@@ -78,6 +80,16 @@ describe("endSessionAndRedirectToLogin", () => {
     await flush();
 
     expect(mockReplace).toHaveBeenCalledWith("/platform-admin/login");
+  });
+
+  it("drops the platform-admin MFA session token with the sign-in", async () => {
+    setPlatformAdminMfaSession("mfa-tok");
+    setPath("/platform-admin/dashboard");
+
+    endSessionAndRedirectToLogin();
+    await flush();
+
+    expect(getPlatformAdminMfaSession()).toBeNull();
   });
 
   it("redirects only once when many requests fail together", async () => {

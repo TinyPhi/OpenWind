@@ -105,8 +105,13 @@ export {
   verifyMfaCode,
   isMfaVerified,
   isMfaFresh,
+  endMfaSession,
+  maskEmail,
   MfaResendTooSoonError,
+  PLATFORM_ADMIN_MFA_SESSION_HEADER,
+  MFA_CODE_TTL_SECONDS,
 } from "./platform-admin-mfa.js";
+export type { MfaVerifyResult } from "./platform-admin-mfa.js";
 export {
   storeSandboxHandoverCredentials,
   getSandboxHandoverCredentials,

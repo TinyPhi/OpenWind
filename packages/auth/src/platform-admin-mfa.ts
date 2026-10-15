@@ -1,4 +1,10 @@
-import { randomInt, createHash, timingSafeEqual } from "node:crypto";
+import {
+  randomBytes,
+  randomInt,
+  createHash,
+  timingSafeEqual,
+} from "node:crypto";
+import { z } from "zod";
 import { getRedis, withRedisTimeout } from "@platform/redis";
 import { sendDirectNotification } from "@platform/notifications";
 import { logger } from "@platform/logger";
@@ -21,10 +27,19 @@ import { env } from "@platform/config";
  * so a timeout/error denies access rather than granting it; requestMfaCode/verifyMfaCode do
  * not use withRedisTimeout at all and let a Redis error propagate as a clear failure instead
  * of silently reporting success.
+ *
+ * Verification belongs to one sign-in, not to the account: a correct code returns a random
+ * MFA session token, and the verified/fresh markers are keyed by the user id AND that token's
+ * hash. The client drops the token on every completed sign-in and on sign-out, so each sign-in
+ * needs its own code, and a second browser or device holding only the account's password (or
+ * an access token) never inherits another session's verification.
  */
 
-const OTP_TTL_SECONDS = 600; // 10 minutes to enter the code
-const VERIFIED_TTL_SECONDS = 12 * 60 * 60; // re-prompt for a fresh code after 12h
+/** Request header carrying the MFA session token verifyMfaCode issued to this sign-in. */
+export const PLATFORM_ADMIN_MFA_SESSION_HEADER = "X-Platform-Admin-Mfa";
+
+export const MFA_CODE_TTL_SECONDS = 600; // 10 minutes to enter the code
+const VERIFIED_TTL_SECONDS = 12 * 60 * 60; // a single sign-in's verification lasts at most 12h
 const MAX_VERIFY_ATTEMPTS = 5; // guards the 6-digit code against brute force within its TTL
 
 function otpKey(userId: string): string {
@@ -33,11 +48,11 @@ function otpKey(userId: string): string {
 function attemptsKey(userId: string): string {
   return `platform-admin:mfa:attempts:${userId}`;
 }
-function verifiedKey(userId: string): string {
-  return `platform-admin:mfa:verified:${userId}`;
+function verifiedKey(userId: string, sessionToken: string): string {
+  return `platform-admin:mfa:verified:${userId}:${sha256(sessionToken)}`;
 }
-function freshKey(userId: string): string {
-  return `platform-admin:mfa:fresh:${userId}`;
+function freshKey(userId: string, sessionToken: string): string {
+  return `platform-admin:mfa:fresh:${userId}:${sha256(sessionToken)}`;
 }
 function resendKey(userId: string): string {
   return `platform-admin:mfa:resend:${userId}`;
@@ -54,9 +69,30 @@ export class MfaResendTooSoonError extends Error {
   }
 }
 
-function hashCode(code: string): string {
-  return createHash("sha256").update(code).digest("hex");
+// Exactly what verifyMfaCode issues: 32 random bytes, base64url. Anything else in the header is
+// treated as "no session" before it reaches Redis.
+const SessionTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+function sessionTokenFrom(raw: string | undefined): string | undefined {
+  const parsed = SessionTokenSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/** "pat.smith@example.com" -> "p***@example.com" -- enough to recognise the inbox, not more. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return "***";
+  return `${email[0]}***${email.slice(at)}`;
+}
+
+export type MfaVerifyResult =
+  | { ok: true; sessionToken: string }
+  | { ok: false; reason: "invalid"; attemptsRemaining: number }
+  | { ok: false; reason: "expired" | "locked" };
 
 function generateCode(): string {
   // 6-digit, zero-padded -- randomInt's upper bound is exclusive.
@@ -72,7 +108,7 @@ function generateCode(): string {
 export async function requestMfaCode(
   userId: string,
   email: string,
-): Promise<void> {
+): Promise<{ sentTo: string }> {
   const redis = getRedis();
   // Cooldown first, before a code is generated or stored: a refused resend must leave the
   // code the admin already has valid. NX so concurrent requests cannot both pass.
@@ -91,7 +127,7 @@ export async function requestMfaCode(
   }
 
   const code = generateCode();
-  await redis.set(otpKey(userId), hashCode(code), "EX", OTP_TTL_SECONDS);
+  await redis.set(otpKey(userId), sha256(code), "EX", MFA_CODE_TTL_SECONDS);
   await redis.del(attemptsKey(userId));
 
   try {
@@ -108,22 +144,26 @@ export async function requestMfaCode(
     throw err;
   }
 
-  logger.info({ userId }, "platform-admin-mfa: code sent");
+  const sentTo = maskEmail(email);
+  logger.info({ userId, sentTo }, "platform-admin-mfa: code sent");
+  return { sentTo };
 }
 
 /**
  * Verifies a submitted code against the stored hash. A correct code consumes it (deletes the
- * otp/attempts keys) and sets the verified flag; an incorrect code increments the attempt
- * counter and, past MAX_VERIFY_ATTEMPTS, invalidates the code outright (the admin must request
- * a new one) rather than allowing unlimited guesses within the 10-minute window.
+ * otp/attempts keys), ends the session token the client presented (a step-up replaces it), and
+ * starts a new MFA session. An incorrect code increments the attempt counter; the last allowed
+ * wrong guess invalidates the code outright (the admin must request a new one) rather than
+ * allowing unlimited guesses within the 10-minute window.
  */
 export async function verifyMfaCode(
   userId: string,
   submittedCode: string,
-): Promise<boolean> {
+  previousSessionToken?: string,
+): Promise<MfaVerifyResult> {
   const redis = getRedis();
   const storedHash = await redis.get(otpKey(userId));
-  if (!storedHash) return false;
+  if (!storedHash) return { ok: false, reason: "expired" };
 
   // Review finding (PR #803): INCR is atomic so concurrent calls always get distinct,
   // strictly-increasing counts -- no two requests can ever read the same attempt number.
@@ -137,45 +177,86 @@ export async function verifyMfaCode(
   // is not worth the added complexity here.
   const attempts = await redis.incr(attemptsKey(userId));
   if (attempts === 1) {
-    await redis.expire(attemptsKey(userId), OTP_TTL_SECONDS);
+    await redis.expire(attemptsKey(userId), MFA_CODE_TTL_SECONDS);
   }
+  // On lockout only the code is deleted. The attempts counter stays until it expires, so a burst
+  // of parallel guesses that already read the code still lands over the limit instead of
+  // restarting the count at 1.
   if (attempts > MAX_VERIFY_ATTEMPTS) {
-    await redis.del(otpKey(userId), attemptsKey(userId));
+    await redis.del(otpKey(userId));
     logger.warn({ userId }, "platform-admin-mfa: max verify attempts exceeded");
-    return false;
+    return { ok: false, reason: "locked" };
   }
 
   // Constant-time comparison -- both are sha256 hex digests, always 64 bytes, so this never
   // takes the length-mismatch branch in practice; timingSafeEqual still requires equal-length
   // buffers, hence the explicit check first.
-  const submittedHash = Buffer.from(hashCode(submittedCode));
+  const submittedHash = Buffer.from(sha256(submittedCode));
   const storedHashBuf = Buffer.from(storedHash);
   if (
     submittedHash.length !== storedHashBuf.length ||
     !timingSafeEqual(submittedHash, storedHashBuf)
   ) {
-    return false;
+    const attemptsRemaining = MAX_VERIFY_ATTEMPTS - attempts;
+    if (attemptsRemaining <= 0) {
+      await redis.del(otpKey(userId));
+      logger.warn(
+        { userId },
+        "platform-admin-mfa: max verify attempts exceeded",
+      );
+      return { ok: false, reason: "locked" };
+    }
+    return { ok: false, reason: "invalid", attemptsRemaining };
   }
 
   await redis.del(otpKey(userId), attemptsKey(userId));
-  await redis.set(verifiedKey(userId), "1", "EX", VERIFIED_TTL_SECONDS);
+  await endMfaSession(userId, previousSessionToken);
+  const sessionToken = randomBytes(32).toString("base64url");
+  await redis.set(
+    verifiedKey(userId, sessionToken),
+    "1",
+    "EX",
+    VERIFIED_TTL_SECONDS,
+  );
   // Step-up marker (ADR-022 Decision 10, #865): this code was just entered, so the admin is
   // "fresh" for the configured window -- what reset and delete require on top of the
   // 12-hour verified flag.
   await redis.set(
-    freshKey(userId),
+    freshKey(userId, sessionToken),
     "1",
     "EX",
     env.PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS,
   );
   logger.info({ userId }, "platform-admin-mfa: verified");
-  return true;
+  return { ok: true, sessionToken };
 }
 
-/** Fails closed: a Redis timeout/error denies access, never grants it. */
-export async function isMfaVerified(userId: string): Promise<boolean> {
+/** Sign-out: this session's verification ends now instead of when its markers expire. */
+export async function endMfaSession(
+  userId: string,
+  rawSessionToken: string | undefined,
+): Promise<void> {
+  const sessionToken = sessionTokenFrom(rawSessionToken);
+  if (!sessionToken) return;
+  await getRedis().del(
+    verifiedKey(userId, sessionToken),
+    freshKey(userId, sessionToken),
+  );
+}
+
+/**
+ * Fails closed: a Redis timeout/error denies access, never grants it. No session token (a
+ * request from a browser that never entered a code) is never verified.
+ */
+export async function isMfaVerified(
+  userId: string,
+  rawSessionToken: string | undefined,
+): Promise<boolean> {
+  const sessionToken = sessionTokenFrom(rawSessionToken);
+  if (!sessionToken) return false;
   return withRedisTimeout(
-    async () => (await getRedis().get(verifiedKey(userId))) !== null,
+    async () =>
+      (await getRedis().get(verifiedKey(userId, sessionToken))) !== null,
     false,
     { userId, op: "platform-admin-mfa:isMfaVerified" },
   );
@@ -185,9 +266,14 @@ export async function isMfaVerified(userId: string): Promise<boolean> {
  * True only if a code was verified within PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS. Fails
  * closed like isMfaVerified: a Redis timeout/error is "not fresh", never "fresh".
  */
-export async function isMfaFresh(userId: string): Promise<boolean> {
+export async function isMfaFresh(
+  userId: string,
+  rawSessionToken: string | undefined,
+): Promise<boolean> {
+  const sessionToken = sessionTokenFrom(rawSessionToken);
+  if (!sessionToken) return false;
   return withRedisTimeout(
-    async () => (await getRedis().get(freshKey(userId))) !== null,
+    async () => (await getRedis().get(freshKey(userId, sessionToken))) !== null,
     false,
     { userId, op: "platform-admin-mfa:isMfaFresh" },
   );

@@ -3,6 +3,7 @@ import {
   isSessionEndingUnauthorized,
   endSessionAndRedirectToLogin,
 } from "./session-expiry.js";
+import { addPlatformAdminMfaHeader } from "./platform-admin-mfa-session.js";
 
 export const API_URL = "/api";
 
@@ -39,6 +40,7 @@ async function doFetch(
   }
   const headers = new Headers(options.headers as HeadersInit | undefined);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  addPlatformAdminMfaHeader(resolved, headers);
   if (
     options.method &&
     options.method !== "GET" &&
@@ -156,6 +158,7 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
   let token = user?.access_token;
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  addPlatformAdminMfaHeader(resolved, headers);
   // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
   let response = await fetch(resolved.href, { headers });
 
@@ -167,6 +170,7 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
       token = newToken;
       const retryHeaders = new Headers();
       retryHeaders.set("Authorization", `Bearer ${token}`);
+      addPlatformAdminMfaHeader(resolved, retryHeaders);
       // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
       response = await fetch(resolved.href, { headers: retryHeaders });
     }
