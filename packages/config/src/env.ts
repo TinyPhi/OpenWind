@@ -217,6 +217,25 @@ const EnvSchema = z
     // outbound worker logs and marks the notification 'sent' as a no-op
     // rather than retrying forever against a service that doesn't exist yet.
     NOTIFICATION_SERVICE_URL: z.string().url().optional(),
+    // Where operational alerts go (today: the daily Zitadel machine-key expiry digest,
+    // docs/deployment-hardening.md). A comma-separated list of addresses; unset or empty
+    // means alerts are only logged and exposed as metrics, never emailed.
+    OPS_ALERT_EMAIL: z
+      .string()
+      .optional()
+      .refine(
+        (v) =>
+          v === undefined ||
+          v
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .every((e) => z.string().email().safeParse(e).success),
+        {
+          message:
+            "OPS_ALERT_EMAIL must be a comma-separated list of email addresses",
+        },
+      ),
     // S2S auth for the outbound handoff (docs/notification-outbound-contract.md's
     // auth section) — a DEDICATED Zitadel machine user/key, deliberately
     // separate from ZITADEL_SERVICE_ACCOUNT_KEY/ZITADEL_KEY_JSON (which
