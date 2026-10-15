@@ -8,7 +8,7 @@
     "title": "Welcome back",
     "description": "Continue with your organisation's identity provider to access your workspace.",
     "signInTag": "Sign in",
-    "signInButton": "Continue with SSO",
+    "signInButton": "Login",
     "redirecting": "Redirecting…",
     "signInFailed": "Sign-in failed. If this continues, please contact support.",
     "securityNote": "Encrypted session · access is scoped to your organisation",

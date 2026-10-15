@@ -50,6 +50,7 @@
   "OpenWind" wordmark, same classes), so the two always match; on phones only the icon shows,
   as in the navbar.
 - **Flat card.** The sign-in card's large drop shadow is removed; its border frames it.
+- **Button label.** The sign-in button reads "Login" instead of "Continue with SSO".
 - **Footer removed.** The "© 2026 OpenWind · GitHub · Docs · Privacy" bar (Docs and Privacy were
   dead `#` links) is gone, with its CSS and strings.
 - **Sandbox handover CSV.** The platform-admin handover dialog (already reviewed, held back
