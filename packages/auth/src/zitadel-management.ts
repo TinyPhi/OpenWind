@@ -1072,18 +1072,37 @@ async function _fetchUserRolesByUserId(
 
 // ── Get single user by ID ─────────────────────────────────────────────────────
 
+const FRESH_FALLBACK_MAX_AGE_MS = 60 * 60 * 1000;
+
 const _userByIdCache = new Map<
   string,
   { user: OrgUser | null; expiresAt: number }
 >();
 
-export async function getUserById(userId: string): Promise<OrgUser | null> {
+/**
+ * One Zitadel user, cached for CACHE_TTL_MS. `fresh: true` skips the cache read (still
+ * refreshing it) -- for outbound email, where a changed address must be used right away rather
+ * than up to five minutes later. If that fresh lookup can't reach Zitadel (no token, network
+ * error, 5xx), a cached value no older than FRESH_FALLBACK_MAX_AGE_MS is returned instead, so a
+ * blip never loses a recipient. A 4xx is an answer, not an outage: a deleted user must not be
+ * resurrected from the cache and emailed at their old address.
+ */
+export async function getUserById(
+  userId: string,
+  options: { fresh?: boolean } = {},
+): Promise<OrgUser | null> {
   const now = Date.now();
   const cached = _userByIdCache.get(userId);
-  if (cached && now < cached.expiresAt) return cached.user;
+  if (!options.fresh && cached && now < cached.expiresAt) return cached.user;
+  // Only used when the lookup itself failed (no token, 5xx, network/parse error).
+  const cachedAt = cached ? cached.expiresAt - CACHE_TTL_MS : 0;
+  const fallback =
+    options.fresh && cached && now - cachedAt <= FRESH_FALLBACK_MAX_AGE_MS
+      ? cached.user
+      : null;
 
   const token = await getAccessToken();
-  if (!token) return null;
+  if (!token) return fallback;
 
   try {
     const url = `${internalBase()}/zitadel.user.v2.UserService/GetUserByID`;
@@ -1094,7 +1113,11 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
       JSON.stringify({ userId }),
     );
 
-    if (result.status < 200 || result.status >= 300) return null;
+    if (result.status >= 500) return fallback;
+    if (result.status < 200 || result.status >= 300) {
+      if (options.fresh) _userByIdCache.delete(userId);
+      return null;
+    }
 
     interface ZitadelGetUserResponse {
       user?: {
@@ -1141,7 +1164,7 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
     });
     return orgUser;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
@@ -1251,4 +1274,88 @@ export function invalidateUserCache(): void {
   _userByIdCache.clear();
   _userRolesCache.clear();
   _orgMetadataCache.clear();
+}
+
+// ── Machine keys (expiry check) ───────────────────────────────────────────────
+
+export interface MachineKeyInfo {
+  id: string;
+  /** null when Zitadel reports no expiration date for the key. */
+  expirationDate: Date | null;
+}
+
+export type ListMachineKeysResult =
+  | { ok: true; keys: MachineKeyInfo[] }
+  | {
+      ok: false;
+      reason:
+        | "no_token"
+        | "forbidden"
+        | "http_error"
+        | "bad_response"
+        | "network_error";
+    };
+
+const ListKeysResponseSchema = z.object({
+  result: z
+    .array(
+      z.object({
+        id: z.string(),
+        expirationDate: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * The keys Zitadel holds for one machine user, with their expiry (UserService ListKeys, Zitadel
+ * v4: POST /zitadel.user.v2.UserService/ListKeys, permission user.read). Read-only, through
+ * the general management credential. Filtered by user only; callers match their key id
+ * themselves. Never returns or logs key material -- Zitadel's answer carries none.
+ */
+export async function listMachineKeys(
+  userId: string,
+): Promise<ListMachineKeysResult> {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, reason: "no_token" };
+
+  try {
+    const result = await httpPost(
+      `${internalBase()}/zitadel.user.v2.UserService/ListKeys`,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({
+        pagination: { limit: 100 },
+        filters: [{ userIdFilter: { id: userId } }],
+      }),
+    );
+    if (result.status === 401 || result.status === 403) {
+      return { ok: false, reason: "forbidden" };
+    }
+    if (result.status < 200 || result.status >= 300) {
+      logger.warn(
+        { status: result.status },
+        "listMachineKeys: Zitadel refused",
+      );
+      return { ok: false, reason: "http_error" };
+    }
+    const parsed = ListKeysResponseSchema.safeParse(JSON.parse(result.text));
+    if (!parsed.success) return { ok: false, reason: "bad_response" };
+    const keys: MachineKeyInfo[] = [];
+    for (const k of parsed.data.result ?? []) {
+      const exp = k.expirationDate ? new Date(k.expirationDate) : null;
+      // A date we can't read is not "no expiry": report the lookup as failed instead.
+      if (exp && Number.isNaN(exp.getTime())) {
+        return { ok: false, reason: "bad_response" };
+      }
+      keys.push({ id: k.id, expirationDate: exp });
+    }
+    return { ok: true, keys };
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.name : "unknown" },
+      "listMachineKeys: request failed",
+    );
+    return { ok: false, reason: "network_error" };
+  }
 }

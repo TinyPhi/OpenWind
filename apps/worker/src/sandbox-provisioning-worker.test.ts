@@ -37,7 +37,17 @@ const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
 const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 // Stands in for the transaction withTenantContext opens, so tests can tell an audit write
 // made inside the tenant context from one made on the plain connection.
-const mockTenantTx = { tenantTx: true };
+// tenant_users rows written inside the tenant context (seeded accounts registered as members).
+const tenantUserInserts: unknown[] = [];
+const mockTenantTx = {
+  tenantTx: true,
+  insert: () => ({
+    values: (rows: unknown) => {
+      tenantUserInserts.push(rows);
+      return { onConflictDoNothing: () => Promise.resolve(undefined) };
+    },
+  }),
+};
 const mockWithTenantContext = vi.fn(
   (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTenantTx),
 );
@@ -50,6 +60,7 @@ vi.mock("@platform/db", () => ({
   withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
     mockWithTenantContext(...args),
   tenants: {},
+  tenantUsers: {},
   sandboxProvisioningJobs: {},
   recordPlatformAdminAction: (...args: unknown[]) =>
     mockRecordPlatformAdminAction(...args),
@@ -139,6 +150,7 @@ function makeTemplate(memberCount: number) {
 }
 
 beforeEach(() => {
+  tenantUserInserts.length = 0;
   vi.clearAllMocks();
   mockReturning.mockResolvedValue([{ id: "tenant-1" }]);
   mockWhere.mockResolvedValue(undefined);
@@ -316,6 +328,46 @@ describe("processSandboxProvisioningJob", () => {
     expect(mockRunOrgDirectorySync).toHaveBeenCalled();
     const finalUpdate = lastProgressUpdate();
     expect(finalUpdate.status).toBe("completed");
+  });
+
+  it("registers every seeded account as a tenant member, so they can be mentioned before signing in", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(2));
+    let n = 0;
+    mockCreateHumanUser.mockImplementation(() =>
+      Promise.resolve({ ok: true, userId: `user-${++n}` }),
+    );
+
+    await processSandboxProvisioningJob({
+      id: "job-members",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(tenantUserInserts).toHaveLength(1);
+    expect(tenantUserInserts[0]).toEqual([
+      expect.objectContaining({
+        userId: "user-1",
+        displayName: "Olivia Smith",
+      }),
+      expect.objectContaining({ userId: "user-2", displayName: "Member0 Doe" }),
+      expect.objectContaining({ userId: "user-3", displayName: "Member1 Doe" }),
+    ]);
+  });
+
+  it("still completes when registering the members fails (membership checks fall back to the Zitadel org)", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "user-x" });
+    mockWithTenantContext.mockImplementationOnce(() =>
+      Promise.reject(new Error("db blip")),
+    );
+
+    await processSandboxProvisioningJob({
+      id: "job-members-fail",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(lastProgressUpdate().status).toBe("completed");
+    // The failed insert's error (which carries the seeded emails) is never logged.
+    expect(JSON.stringify(mockLoggerWarn.mock.calls)).not.toContain("@");
   });
 
   it("retries a seeded account's email on a Zitadel uniqueness conflict", async () => {

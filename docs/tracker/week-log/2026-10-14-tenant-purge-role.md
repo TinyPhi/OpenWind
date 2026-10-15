@@ -3,6 +3,7 @@
 **Session type:** Bug found in manual testing (sandbox delete never finished)
 **Spec:** `docs/specs/multi-org-sandbox.md` R8 (delete) / T14
 **Branch:** `fix/tenant-purge-role`
+**Issues closed:** #903 (`anonymizeAuditLogForTenant runs on plain db — app_user not granted UPDATE on admin_audit_log`)
 
 - **Symptom.** Deleting a sandbox flipped it to `deleted` and queued a purge, but the purge
   failed on `delete from schedule_executions`. The row stayed on the dashboard, and a second
