@@ -56,6 +56,7 @@ import {
   withTenantLifecycleContext,
   recordPlatformAdminAction,
   withTenantContext,
+  tenantUsers,
 } from "@platform/db";
 import { eq } from "drizzle-orm";
 import { writeAuditEntry } from "@platform/audit";
@@ -175,6 +176,39 @@ async function createAccountWithRetry(
     if (!result.conflict) return null;
   }
   return null;
+}
+
+/**
+ * Registers the seeded accounts as members of the new tenant. tenant_users is otherwise only
+ * filled when someone first signs in, so until then @mentions, access grants and anything else
+ * that checks membership would skip them. (Those checks also consult the tenant's Zitadel org,
+ * so a failure here is logged, not fatal.)
+ */
+async function registerTenantMembers(
+  tenantId: string,
+  members: { userId: string; email: string; displayName: string }[],
+): Promise<void> {
+  try {
+    await withTenantContext(tenantId, (tx) =>
+      tx
+        .insert(tenantUsers)
+        .values(members.map((m) => ({ tenantId, ...m })))
+        .onConflictDoNothing(),
+    );
+  } catch (err) {
+    // Not `err` itself: a failed insert's error carries its bound parameters -- the seeded
+    // accounts' email addresses.
+    const cause =
+      err instanceof Error ? (err.cause as { code?: unknown }) : null;
+    logger.warn(
+      {
+        tenantId,
+        memberCount: members.length,
+        errorCode: typeof cause?.code === "string" ? cause.code : "unknown",
+      },
+      "sandbox provisioning: could not register seeded accounts as tenant members -- they are still found through the Zitadel org",
+    );
+  }
 }
 
 async function createOrgWithRetry(
@@ -340,6 +374,13 @@ export async function processSandboxProvisioningJob(
         password: admin.password,
       },
     ];
+    const members = [
+      {
+        userId: admin.userId,
+        email: admin.email,
+        displayName: `${template.admin.givenName} ${template.admin.familyName}`,
+      },
+    ];
     let seededAccountCount = 1;
     let failedAccountCount = 0;
     for (const [index, member] of template.members.entries()) {
@@ -352,6 +393,11 @@ export async function processSandboxProvisioningJob(
         (await authorizeUser(account.userId, org.orgId, ["user"]));
       if (account && authorized) {
         seededAccountCount++;
+        members.push({
+          userId: account.userId,
+          email: account.email,
+          displayName: `${member.givenName} ${member.familyName}`,
+        });
         seededAccounts.push({
           username: account.username,
           email: account.email,
@@ -375,6 +421,8 @@ export async function processSandboxProvisioningJob(
         completedSteps: 2 + index + 1,
       });
     }
+
+    await registerTenantMembers(tenantId, members);
 
     await updateJobProgress(jobId, {
       currentStep: "seeding_modules",

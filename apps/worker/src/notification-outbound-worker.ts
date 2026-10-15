@@ -64,6 +64,14 @@ function toAbsoluteLink(link: string | null): string | null {
  * function's internals turn out to need; only this function changes once the
  * real contract is known.
  */
+/** "tusharsh@gmail.com" -> "t***@gmail.com": enough to tell which address was used, without
+ * logging the address itself. */
+export function maskEmail(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.indexOf("@");
+  return at > 0 ? `${email[0]}***${email.slice(at)}` : "***";
+}
+
 async function dispatchOutbound(payload: OutboundPayload): Promise<void> {
   if (!env.NOTIFICATION_SERVICE_URL) {
     logger.info(
@@ -166,11 +174,24 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
         ),
     );
 
+    // Fresh from Zitadel, not the 5-minute user cache: an address changed moments ago must be
+    // used right away. getUserById falls back to the cached value if Zitadel is unreachable.
     const recipients = await Promise.all(
       recipientRows.map(async (r) => {
-        const user = await getUserById(r.userId);
+        const user = await getUserById(r.userId, { fresh: true });
         return { userId: r.userId, email: user?.email ?? null };
       }),
+    );
+    logger.info(
+      {
+        tenantId,
+        notificationId,
+        recipients: recipients.map((r) => ({
+          userId: r.userId,
+          email: maskEmail(r.email),
+        })),
+      },
+      "Notification outbound: dispatching",
     );
 
     await dispatchOutbound({

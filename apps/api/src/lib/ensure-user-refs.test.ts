@@ -26,7 +26,8 @@ vi.mock("./zitadel-management.js", () => ({
   listOrgUsers: (...args: unknown[]) => mockListOrgUsers(...args),
 }));
 
-const { ensureUserRefsKnown } = await import("./ensure-user-refs.js");
+const { ensureUserRefsKnown, ensureTenantMembers } =
+  await import("./ensure-user-refs.js");
 
 // ── Test double ───────────────────────────────────────────────────────────────
 
@@ -160,5 +161,85 @@ describe("ensureUserRefsKnown", () => {
 
     expect(mockListOrgUsers).not.toHaveBeenCalled();
     expect(insertedValues).toEqual([]);
+  });
+});
+
+describe("ensureTenantMembers", () => {
+  const orgUser = (userId: string): Record<string, string> => ({
+    userId,
+    email: `${userId}@example.com`,
+    displayName: userId,
+    loginName: userId,
+  });
+
+  it("returns existing members and adds org members who never signed in", async () => {
+    const { tx, insertedValues } = makeMockTx([[{ userId: "u-known" }]]);
+    mockListOrgUsers.mockResolvedValue([orgUser("u-new")]);
+
+    const members = await ensureTenantMembers(
+      tx,
+      TENANT_ID,
+      ["u-known", "u-new"],
+      ORG_ID,
+    );
+
+    expect([...members].sort()).toEqual(["u-known", "u-new"]);
+    expect(insertedValues).toEqual([
+      {
+        tenantId: TENANT_ID,
+        userId: "u-new",
+        email: "u-new@example.com",
+        displayName: "u-new",
+      },
+    ]);
+  });
+
+  it("never adds or returns an id outside the tenant's org", async () => {
+    const { tx, insertedValues } = makeMockTx([[]]);
+    mockListOrgUsers.mockResolvedValue([orgUser("u-member")]);
+
+    const members = await ensureTenantMembers(
+      tx,
+      TENANT_ID,
+      ["u-outsider"],
+      ORG_ID,
+    );
+
+    expect(members.size).toBe(0);
+    expect(insertedValues).toEqual([]);
+  });
+
+  it("without an orgId, counts only existing rows and never calls Zitadel", async () => {
+    const { tx, insertedValues } = makeMockTx([[{ userId: "u-known" }]]);
+
+    const members = await ensureTenantMembers(
+      tx,
+      TENANT_ID,
+      ["u-known", "u-new"],
+      undefined,
+    );
+
+    expect([...members]).toEqual(["u-known"]);
+    expect(mockListOrgUsers).not.toHaveBeenCalled();
+    expect(insertedValues).toEqual([]);
+  });
+
+  it("treats a Zitadel failure as 'not a member' rather than throwing", async () => {
+    const { tx, insertedValues } = makeMockTx([[]]);
+    mockListOrgUsers.mockRejectedValue(new Error("zitadel down"));
+
+    const members = await ensureTenantMembers(tx, TENANT_ID, ["u-new"], ORG_ID);
+
+    expect(members.size).toBe(0);
+    expect(insertedValues).toEqual([]);
+  });
+
+  it("does nothing for an empty list", async () => {
+    const { tx } = makeMockTx([]);
+
+    const members = await ensureTenantMembers(tx, TENANT_ID, [], ORG_ID);
+
+    expect(members.size).toBe(0);
+    expect(tx.select).not.toHaveBeenCalled();
   });
 });
