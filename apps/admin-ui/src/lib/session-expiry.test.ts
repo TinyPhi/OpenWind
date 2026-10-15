@@ -13,7 +13,8 @@ vi.mock("./session-events.js", () => ({
 const {
   isSessionEndingUnauthorized,
   endSessionAndRedirectToLogin,
-  consumeSessionExpiredNotice,
+  consumeSessionEndNotice,
+  tenantAccessEndedReason,
   resetSessionExpiryForTests,
 } = await import("./session-expiry.js");
 const { setPlatformAdminMfaSession, getPlatformAdminMfaSession } =
@@ -70,8 +71,22 @@ describe("endSessionAndRedirectToLogin", () => {
     expect(mockEmitSessionEnd).toHaveBeenCalledTimes(1);
     expect(mockRemoveUser).toHaveBeenCalledTimes(1);
     expect(mockReplace).toHaveBeenCalledWith("/login");
-    expect(consumeSessionExpiredNotice()).toBe(true);
+    expect(consumeSessionEndNotice()).toBe("session_expired");
   });
+
+  it.each(["trial_ended", "suspended"] as const)(
+    "records why the session ended (%s) for the login page",
+    async (reason) => {
+      setPath("/dashboard");
+
+      endSessionAndRedirectToLogin(reason);
+      await flush();
+
+      expect(mockRemoveUser).toHaveBeenCalledTimes(1);
+      expect(mockReplace).toHaveBeenCalledWith("/login");
+      expect(consumeSessionEndNotice()).toBe(reason);
+    },
+  );
 
   it("sends a platform-admin page to /platform-admin/login", async () => {
     setPath("/platform-admin/dashboard");
@@ -114,7 +129,7 @@ describe("endSessionAndRedirectToLogin", () => {
 
       expect(mockRemoveUser).not.toHaveBeenCalled();
       expect(mockReplace).not.toHaveBeenCalled();
-      expect(consumeSessionExpiredNotice()).toBe(false);
+      expect(consumeSessionEndNotice()).toBeNull();
     },
   );
 
@@ -129,15 +144,35 @@ describe("endSessionAndRedirectToLogin", () => {
   });
 });
 
-describe("consumeSessionExpiredNotice", () => {
+describe("consumeSessionEndNotice", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
   });
 
-  it("returns true once, then false", () => {
-    window.sessionStorage.setItem("ow:auth-notice", "session_expired");
+  it("returns the reason once, then null", () => {
+    window.sessionStorage.setItem("ow:auth-notice", "trial_ended");
 
-    expect(consumeSessionExpiredNotice()).toBe(true);
-    expect(consumeSessionExpiredNotice()).toBe(false);
+    expect(consumeSessionEndNotice()).toBe("trial_ended");
+    expect(consumeSessionEndNotice()).toBeNull();
+  });
+
+  it("ignores an unknown stored value", () => {
+    window.sessionStorage.setItem("ow:auth-notice", "something-else");
+
+    expect(consumeSessionEndNotice()).toBeNull();
+  });
+});
+
+describe("tenantAccessEndedReason", () => {
+  it.each([
+    [403, "TENANT_TRIAL_EXPIRED", "trial_ended"],
+    [403, "TENANT_SUSPENDED", "suspended"],
+    [403, "FORBIDDEN", null],
+    [403, "PLATFORM_ADMIN_TENANT_ACCESS_DENIED", null],
+    [403, "MFA_REQUIRED", null],
+    [403, undefined, null],
+    [401, "TENANT_TRIAL_EXPIRED", null],
+  ] as const)("status %i with %s -> %s", (status, code, expected) => {
+    expect(tenantAccessEndedReason(status, code)).toBe(expected);
   });
 });

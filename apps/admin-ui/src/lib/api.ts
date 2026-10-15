@@ -2,6 +2,7 @@ import { userManager, silentRefresh, waitForAuth } from "../authProvider.js";
 import {
   isSessionEndingUnauthorized,
   endSessionAndRedirectToLogin,
+  tenantAccessEndedReason,
 } from "./session-expiry.js";
 import { addPlatformAdminMfaHeader } from "./platform-admin-mfa-session.js";
 
@@ -121,6 +122,8 @@ export async function fetchWithAuth(
       err.isAuthError = true;
       throw err;
     }
+    const accessEnded = tenantAccessEndedReason(response.status, body.error);
+    if (accessEnded) endSessionAndRedirectToLogin(accessEnded);
     if (response.status >= 500) {
       dispatchApiError("server", message);
     }
@@ -176,7 +179,7 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
     }
   }
 
-  if (response.status === 401) {
+  if (response.status === 401 || response.status === 403) {
     // Clone: callers read this same response's body themselves.
     const body = (await response
       .clone()
@@ -185,6 +188,8 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
     if (isSessionEndingUnauthorized(response.status, body.error)) {
       endSessionAndRedirectToLogin();
     }
+    const accessEnded = tenantAccessEndedReason(response.status, body.error);
+    if (accessEnded) endSessionAndRedirectToLogin(accessEnded);
   }
 
   return response;

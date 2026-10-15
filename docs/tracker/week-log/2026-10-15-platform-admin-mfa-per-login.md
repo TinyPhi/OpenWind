@@ -55,3 +55,16 @@
   dead `#` links) is gone, with its CSS and strings.
 - **Sandbox handover CSV.** The platform-admin handover dialog (already reviewed, held back
   while #926 was open) is included: a Download CSV button and a wider dialog.
+
+## Also in this PR: an ended trial now actually signs the user out
+
+- **Symptom.** After "End trial", the sandbox's admin could still sign in and land in the app.
+- **Cause.** The server side worked: from the next request (within the 30 s tenant-status
+  cache) every call answered `403 TENANT_TRIAL_EXPIRED`. But sign-in itself happens at Zitadel,
+  which knows nothing about trials, and admin-ui had no handling for that code (or for
+  `TENANT_SUSPENDED`), so it drew an empty app shell whose every request was refused.
+- **Fix (admin-ui only).** `fetchWithAuth` and `fetchRawWithAuth` treat a `403` with
+  `TENANT_TRIAL_EXPIRED` or `TENANT_SUSPENDED` as the end of the session. They reuse the
+  session-expiry flow (once, however many requests fail together), which now records why. The
+  `/login` banner reads "Your trial has ended. Contact us to continue using OpenWind." or the
+  suspension message. Any other `403` (a forbidden action) still signs no one out.

@@ -182,6 +182,13 @@ tenant-scoped resource checks "is now past this tenant's `trial_ends_at`?" direc
 separate scheduled job flips a precomputed status flag.
 ✓ Past expiry: login is refused; background jobs for that tenant (sync, schedule-rule ticket
 creation, SLA timers, notification dispatch) no-op.
+✓ **(2026-10-15)** "Login is refused" has two halves. Zitadel's password step knows nothing about
+trials and still succeeds; OpenWind then answers every request with `403 TENANT_TRIAL_EXPIRED`
+(`TENANT_SUSPENDED` for a suspended tenant). admin-ui treats either code as the end of the
+session: it signs the user out at once and `/login` says why ("Your trial has ended. Contact us
+to continue using OpenWind."), rather than showing an app shell whose every request fails. The
+tenant's status and trial date are cached for up to 30 s, so ending a trial takes effect within
+that window.
 ✓ Sandbox data is never auto-deleted on expiry — it persists until an explicit delete action.
 
 R6a **(added 2026-10-12, extended 2026-10-13; owner decisions)**: The platform admin can extend a

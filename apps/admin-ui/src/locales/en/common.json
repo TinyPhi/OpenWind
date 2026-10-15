@@ -23,6 +23,8 @@
   "network": {
     "regionLabel": "Notifications",
     "sessionExpired": "Your session has expired. Please sign in again.",
+    "trialEnded": "Your trial has ended. Contact us to continue using OpenWind.",
+    "tenantSuspended": "This account has been suspended. Please contact support.",
     "dismiss": "Dismiss",
     "offline": "You're offline",
     "reconnecting": "Reconnecting…",

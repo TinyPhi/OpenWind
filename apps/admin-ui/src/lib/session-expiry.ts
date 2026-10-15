@@ -3,7 +3,23 @@ import { emitSessionEnd } from "./session-events.js";
 import { clearPlatformAdminMfaSession } from "./platform-admin-mfa-session.js";
 
 const NOTICE_KEY = "ow:auth-notice";
-const SESSION_EXPIRED = "session_expired";
+
+/** Why a session was ended -- the login page tells the user which. */
+export type SessionEndReason = "session_expired" | "trial_ended" | "suspended";
+
+const REASONS: readonly SessionEndReason[] = [
+  "session_expired",
+  "trial_ended",
+  "suspended",
+];
+
+// The auth layer's answers for a tenant that may no longer be used at all. Sign-in itself goes
+// through Zitadel, which knows nothing about OpenWind trials, so without this the user lands in
+// an app whose every request is refused.
+const TENANT_ACCESS_ENDED: Readonly<Record<string, SessionEndReason>> = {
+  TENANT_TRIAL_EXPIRED: "trial_ended",
+  TENANT_SUSPENDED: "suspended",
+};
 
 const LOGIN_PATHS = new Set(["/login", "/platform-admin/login"]);
 
@@ -25,12 +41,26 @@ export function isSessionEndingUnauthorized(
 }
 
 /**
+ * The reason to end the session for a 403 that says the tenant itself is closed (trial over,
+ * suspended), or null for any other 403 -- a forbidden action must not sign anyone out.
+ */
+export function tenantAccessEndedReason(
+  status: number,
+  errorCode: string | undefined,
+): SessionEndReason | null {
+  if (status !== 403 || errorCode === undefined) return null;
+  return TENANT_ACCESS_ENDED[errorCode] ?? null;
+}
+
+/**
  * Ends the local session and hard-navigates to the matching login page, leaving a one-shot
- * notice for GlobalErrorBanner to show there. A full page load (not a router navigate) is
- * deliberate: it drops every in-flight request and cached tenant state at once. Runs once,
+ * notice (why) for GlobalErrorBanner to show there. A full page load (not a router navigate)
+ * is deliberate: it drops every in-flight request and cached tenant state at once. Runs once,
  * however many requests fail together.
  */
-export function endSessionAndRedirectToLogin(): void {
+export function endSessionAndRedirectToLogin(
+  reason: SessionEndReason = "session_expired",
+): void {
   if (redirecting) return;
   const path = window.location.pathname;
   if (LOGIN_PATHS.has(path) || path.startsWith("/auth/callback")) return;
@@ -42,7 +72,7 @@ export function endSessionAndRedirectToLogin(): void {
   // token here leaves no copy in this browser that could be replayed until then.
   clearPlatformAdminMfaSession();
   try {
-    window.sessionStorage.setItem(NOTICE_KEY, SESSION_EXPIRED);
+    window.sessionStorage.setItem(NOTICE_KEY, reason);
   } catch {
     // Storage blocked (private mode etc.): the redirect still happens, just without the notice.
   }
@@ -58,14 +88,14 @@ export function endSessionAndRedirectToLogin(): void {
 }
 
 /** Reads and clears the one-shot notice, so it shows exactly once. */
-export function consumeSessionExpiredNotice(): boolean {
+export function consumeSessionEndNotice(): SessionEndReason | null {
   try {
     const value = window.sessionStorage.getItem(NOTICE_KEY);
-    if (value === null) return false;
+    if (value === null) return null;
     window.sessionStorage.removeItem(NOTICE_KEY);
-    return value === SESSION_EXPIRED;
+    return REASONS.find((r) => r === value) ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 

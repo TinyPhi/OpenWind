@@ -23,8 +23,10 @@ const { GlobalErrorBanner } = await import("./global-error-banner.js");
 
 // The notice is consumed once when the module loads, so a test that wants it
 // present stages sessionStorage first and loads a fresh copy of the module.
-async function loadBannerWithNotice(): Promise<typeof GlobalErrorBanner> {
-  window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
+async function loadBannerWithNotice(
+  reason = "session_expired",
+): Promise<typeof GlobalErrorBanner> {
+  window.sessionStorage.setItem(NOTICE_KEY, reason);
   vi.resetModules();
   return (await import("./global-error-banner.js")).GlobalErrorBanner;
 }
@@ -107,6 +109,19 @@ describe("GlobalErrorBanner", () => {
       screen.getByText("Your session has expired. Please sign in again."),
     ).toBeDefined();
     expect(screen.queryByText("Log in again")).toBeNull();
+  });
+
+  it.each([
+    [
+      "trial_ended",
+      "Your trial has ended. Contact us to continue using OpenWind.",
+    ],
+    ["suspended", "This account has been suspended. Please contact support."],
+  ])("explains a %s sign-out on the login page", async (reason, message) => {
+    const Banner = await loadBannerWithNotice(reason);
+    render(<Banner />);
+
+    expect(screen.getByText(message)).toBeDefined();
   });
 
   it("consumes the session-expired notice from storage so a reload does not show it again", async () => {
