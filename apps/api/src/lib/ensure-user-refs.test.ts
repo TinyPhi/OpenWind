@@ -9,7 +9,12 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn(),
 }));
 
+const mockTenantTx = vi.hoisted(() => ({ current: undefined as unknown }));
 vi.mock("@platform/db", () => ({
+  withTenantContext: (
+    _tenantId: string,
+    fn: (tx: unknown) => Promise<unknown>,
+  ) => fn(mockTenantTx.current),
   entityFields: {
     name: "entity_fields.name",
     entityTypeId: "entity_fields.entity_type_id",
@@ -26,7 +31,7 @@ vi.mock("./zitadel-management.js", () => ({
   listOrgUsers: (...args: unknown[]) => mockListOrgUsers(...args),
 }));
 
-const { ensureUserRefsKnown, ensureTenantMembers } =
+const { ensureUserRefsKnown, ensureTenantMembers, resolveTenantMembers } =
   await import("./ensure-user-refs.js");
 
 // ── Test double ───────────────────────────────────────────────────────────────
@@ -241,5 +246,59 @@ describe("ensureTenantMembers", () => {
 
     expect(members.size).toBe(0);
     expect(tx.select).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveTenantMembers", () => {
+  it("calls Zitadel with no tenant context open, between two short ones", async () => {
+    const events: string[] = [];
+    const { tx } = makeMockTx([[], []]);
+    mockTenantTx.current = new Proxy(tx as object, {
+      get(target, prop, receiver) {
+        if (prop === "select") events.push("read");
+        if (prop === "insert") events.push("write");
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    mockListOrgUsers.mockImplementation(() => {
+      events.push("zitadel");
+      return Promise.resolve([
+        {
+          userId: "u-new",
+          email: "u-new@example.com",
+          displayName: "New",
+          loginName: "u-new",
+        },
+      ]);
+    });
+
+    const members = await resolveTenantMembers(
+      TENANT_ID,
+      ["u-new", "u-stranger"],
+      ORG_ID,
+    );
+
+    expect(events).toEqual(["read", "zitadel", "write"]);
+    expect([...members]).toEqual(["u-new"]);
+  });
+
+  it("makes no Zitadel call when everyone is already a member", async () => {
+    const { tx } = makeMockTx([[{ userId: "u-1" }]]);
+    mockTenantTx.current = tx;
+
+    const members = await resolveTenantMembers(TENANT_ID, ["u-1"], ORG_ID);
+
+    expect(mockListOrgUsers).not.toHaveBeenCalled();
+    expect([...members]).toEqual(["u-1"]);
+  });
+
+  it("fails closed without an orgId: only existing rows count, no Zitadel call", async () => {
+    const { tx } = makeMockTx([[]]);
+    mockTenantTx.current = tx;
+
+    const members = await resolveTenantMembers(TENANT_ID, ["u-x"], undefined);
+
+    expect(mockListOrgUsers).not.toHaveBeenCalled();
+    expect(members.size).toBe(0);
   });
 });

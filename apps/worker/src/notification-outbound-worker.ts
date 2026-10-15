@@ -14,6 +14,8 @@ import { connection } from "./queues.js";
 import { getNotificationOutboundToken } from "./notification-outbound-auth.js";
 import { validateActiveTenant } from "./tenant-guard.js";
 
+const LOOKUP_CONCURRENCY = 5;
+
 interface OutboundJobData {
   notificationId: string;
   tenantId: string;
@@ -176,12 +178,20 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
 
     // Fresh from Zitadel, not the 5-minute user cache: an address changed moments ago must be
     // used right away. getUserById falls back to the cached value if Zitadel is unreachable.
-    const recipients = await Promise.all(
-      recipientRows.map(async (r) => {
-        const user = await getUserById(r.userId, { fresh: true });
-        return { userId: r.userId, email: user?.email ?? null };
-      }),
-    );
+    // A bounded number at a time: a notification with many recipients must not fire one
+    // uncached Zitadel lookup per recipient at once (a 429 falls back to the cached profile).
+    const recipients: { userId: string; email: string | null }[] = [];
+    for (let i = 0; i < recipientRows.length; i += LOOKUP_CONCURRENCY) {
+      const batch = recipientRows.slice(i, i + LOOKUP_CONCURRENCY);
+      recipients.push(
+        ...(await Promise.all(
+          batch.map(async (r) => {
+            const user = await getUserById(r.userId, { fresh: true });
+            return { userId: r.userId, email: user?.email ?? null };
+          }),
+        )),
+      );
+    }
     logger.info(
       {
         tenantId,
