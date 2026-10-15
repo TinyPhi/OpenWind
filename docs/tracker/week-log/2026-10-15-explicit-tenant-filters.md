@@ -13,3 +13,5 @@
   (tenant-less) type the unfiltered count is the safer guard; a filtered count would hide other tenants'
   instances and let the delete run into the foreign key. Not exploitable under RLS either way.
 - **Behaviour.** Unchanged under `withTenantContext`; existing tests pass.
+- **Test.** `apps/api/tests/isolation/entity-workflow-state-tenant-filter.isolation.test.ts` pins the initial-state
+  lookup, valid and unknown explicit states, and a cross-tenant create being rejected (added after independent review).
