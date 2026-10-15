@@ -174,7 +174,7 @@ A worker job (`apps/worker/src/zitadel-key-expiry.ts`) runs daily at 06:00 and o
 worker start. It reads each configured key's id and machine user, asks Zitadel for that key's
 live expiry and classifies it. The lookup is UserService `ListKeys`, made with the management
 machine user, which needs `user.read` in each machine user's organization; it was confirmed
-against Zitadel v4.15.1. The classes are:
+against the hosted Zitadel this deployment uses. The classes are:
 
 - ok: more than 30 days left;
 - a warning at 30, 14, 7, 3 and 1 day(s);
@@ -191,6 +191,12 @@ It emails one digest covering every key to `OPS_ALERT_EMAIL` (comma-separated ad
 when a key's state changed since the last digest. Expired, missing and unknown keys repeat daily;
 long-lived and never-expiring keys repeat weekly. A first run where every key is fine sends nothing. Without
 `OPS_ALERT_EMAIL` the job only logs.
+
+The notification service treats an email body as one line of plain text: it doesn't render HTML
+or keep line breaks. So the digest is a paragraph of plain sentences, most urgent first, for
+example: "The provisioning key (...887810) never expires. Please swap it for a key with an
+expiry date. The management key (...793090) expires in 2,999 days, on 1 January 2035. That is
+more than a year away, so please swap it for a key with a shorter expiry."
 
 Nothing about a key's expiry is stored in configuration. The check always follows whichever key
 is configured, so after a rotation the next run reports the new dates.

@@ -21,13 +21,18 @@
     MFA-code path) and recorded only after a successful send. It also writes a log summary
     and two gauges, so the notification key expiring (which stops email) stays visible.
   - The runbook in `docs/deployment-hardening.md`, and a go-live checklist item.
-- **Checked against the local Zitadel (v4.15.1).** ListKeys answers 200 for all three keys
+- **Checked against the hosted Zitadel the stack uses** (owzitadel.rokkalabs.com; v4.15.1 is
+  only what the separate local compose file pins). ListKeys answers 200 for all three keys
   with the current request shape, so the management user already has `user.read`. The
   management key expires 2035-01-01; provisioning and notification report 9999-12-31, so they
   never expire. That 2035 date added a "long-lived" status (over a year left), flagged weekly
   like never-expires.
-- **To confirm on a live stack:** that the management machine user has `user.read` on the key
-  owners. If it doesn't, the digest says "unknown [forbidden]".
+- **Email format.** The first digest arrived as one run-on block: the notification service treats
+  `body` as one line of plain text. A test with an HTML table arrived the same way, so the
+  service doesn't render HTML either. The owner chose plain sentences that read well as a
+  paragraph, one per key and most urgent first, e.g. "The management key (...793090) expires in
+  2,999 days, on 1 January 2035. ... please swap it for a key with a shorter expiry." Richer
+  formatting would need a change to the notification service itself, which isn't planned.
 - **Tests.**
   - Config validation.
   - The ListKeys request and response mapping against a fake Zitadel.

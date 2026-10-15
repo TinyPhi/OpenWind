@@ -51,6 +51,7 @@ const {
   toRow,
   shouldSendDigest,
   buildDigest,
+  keySentence,
   digestFingerprint,
   runZitadelKeyExpiryCheck,
   scheduleZitadelKeyExpiryCheck,
@@ -196,44 +197,67 @@ describe("shouldSendDigest", () => {
 });
 
 describe("buildDigest", () => {
-  it("lists every key in one message, with expiry, days left and what to do", () => {
+  const row = (r: MachineKeyExpiry) => toRow(r, NOW);
+
+  it("writes one paragraph of plain sentences, most urgent first, ending with where the steps are", () => {
     const rows = [
-      toRow(expiring("management", 10.5), NOW),
-      toRow(
-        { name: "provisioning", keyIdSuffix: "pro001", state: "never_expires" },
-        NOW,
-      ),
-      toRow(
-        {
-          name: "notification",
-          keyIdSuffix: "not001",
-          state: "unknown",
-          reason: "forbidden",
-        },
-        NOW,
-      ),
+      row(expiring("management", 3000.5)),
+      row({
+        name: "provisioning",
+        keyIdSuffix: "pro001",
+        state: "never_expires",
+      }),
+      row(expiring("notification", 12.5)),
     ];
 
-    const { title, body } = buildDigest(rows, NOW);
+    const { title, body } = buildDigest(rows);
 
     expect(title).toBe("OpenWind: 3 of 3 Zitadel machine keys need attention");
-    expect(body).toContain(
-      "- management (key ...man001): expires 2026-10-25 (10 days left). Expires within 14 days",
+    expect(body).toBe(
+      "The provisioning key (...pro001) never expires. Please swap it for a key with an expiry date. " +
+        "The notification key (...not001) expires in 12 days, on 27 October 2026. Please swap it before then. " +
+        "The management key (...man001) expires in 3,000 days, on 1 January 2035. That is more than a year away, so please swap it for a key with a shorter expiry. " +
+        'The steps to swap keys are in docs/deployment-hardening.md, under "Zitadel machine-key rotation".',
     );
-    expect(body).toContain(
-      "- provisioning (key ...pro001): no expiry date. Never expires",
-    );
-    expect(body).toContain("Could not be checked [forbidden]");
-    expect(body).toContain("Zitadel machine-key rotation");
+    // A paragraph: no line breaks or list markers that the service would mangle.
+    expect(body).not.toContain("\n");
+    expect(body).not.toMatch(/^- /);
   });
 
-  it("says so when every key is OK", () => {
-    expect(
-      buildDigest(
-        allThree(90).map((r) => toRow(r, NOW)),
-        NOW,
-      ).title,
-    ).toBe("OpenWind: all Zitadel machine keys are OK");
+  it.each([
+    [
+      row(expiring("management", -0.5)),
+      "The management key (...man001) expired on 14 October 2026. Please swap it now.",
+    ],
+    [
+      row(expiring("management", 1.5)),
+      "The management key (...man001) expires in 1 day, on 16 October 2026. Please swap it before then.",
+    ],
+    [
+      row({ name: "management", keyIdSuffix: "abc", state: "missing" }),
+      "The management key (...abc) was not found in Zitadel. Please check that the configured key still exists.",
+    ],
+    [
+      row({
+        name: "management",
+        keyIdSuffix: "abc",
+        state: "unknown",
+        reason: "forbidden",
+      }),
+      "The management key (...abc) could not be checked (forbidden).",
+    ],
+  ])("phrases each case plainly (%#)", (r, sentence) => {
+    expect(keySentence(r)).toBe(sentence);
+  });
+
+  it("confirms every key is fine after a rotation, with nothing to do", () => {
+    const { title, body } = buildDigest(allThree(90.5).map(row));
+
+    expect(title).toBe("OpenWind: all Zitadel machine keys are OK");
+    expect(body).toContain(
+      "The management key (...man001) is fine: it expires in 90 days, on 13 January 2027.",
+    );
+    expect(body).not.toContain("steps to swap");
   });
 });
 
@@ -254,7 +278,7 @@ describe("runZitadelKeyExpiryCheck", () => {
       "ops@example.com",
       "oncall@example.com",
     ]);
-    expect(payload.body.match(/^- /gm)).toHaveLength(3);
+    expect(payload.body.match(/The \w+ key/g)).toHaveLength(3);
   });
 
   it("does not send the same digest twice", async () => {

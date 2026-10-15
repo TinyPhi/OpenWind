@@ -162,47 +162,76 @@ export function shouldSendDigest(
   });
 }
 
-const STATUS_LABEL: Record<KeyStatus, string> = {
-  ok: "OK",
-  warn_30: "Expires within 30 days",
-  warn_14: "Expires within 14 days",
-  warn_7: "Expires within 7 days",
-  warn_3: "Expires within 3 days",
-  warn_1: "Expires within 1 day",
-  expired: "EXPIRED",
-  long_lived: "Expires in more than a year: rotate it with a shorter expiry",
-  never_expires: "Never expires: rotate it and set an expiry",
-  missing: "Not found in Zitadel: deleted or stale configuration",
-  unknown: "Could not be checked",
-};
+// Most urgent first, so the paragraph leads with what needs doing.
+const URGENCY: KeyStatus[] = [
+  "expired",
+  "unknown",
+  "missing",
+  "never_expires",
+  "warn_1",
+  "warn_3",
+  "warn_7",
+  "warn_14",
+  "warn_30",
+  "long_lived",
+  "ok",
+];
 
-export function buildDigest(
-  rows: KeyRow[],
-  now: Date,
-): { title: string; body: string } {
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatDays(days: number): string {
+  return `${days.toLocaleString("en-US")} ${days === 1 ? "day" : "days"}`;
+}
+
+/** One plain sentence (or two) per key: what's true and what to do. */
+export function keySentence(r: KeyRow): string {
+  const key = `The ${r.name} key (...${r.keyIdSuffix})`;
+  const date = r.expiresAt ? formatDate(r.expiresAt) : "";
+  const days = r.daysLeft === null ? "" : formatDays(Math.max(r.daysLeft, 0));
+  switch (r.status) {
+    case "expired":
+      return `${key} expired on ${date}. Please swap it now.`;
+    case "never_expires":
+      return `${key} never expires. Please swap it for a key with an expiry date.`;
+    case "missing":
+      return `${key} was not found in Zitadel. Please check that the configured key still exists.`;
+    case "unknown":
+      return `${key} could not be checked (${r.reason ?? "unknown reason"}).`;
+    case "long_lived":
+      return `${key} expires in ${days}, on ${date}. That is more than a year away, so please swap it for a key with a shorter expiry.`;
+    case "ok":
+      return `${key} is fine: it expires in ${days}, on ${date}.`;
+    default:
+      return `${key} expires in ${days}, on ${date}. Please swap it before then.`;
+  }
+}
+
+/**
+ * The notification service treats `body` as one line of plain text (it neither renders HTML
+ * nor keeps line breaks), so the digest is written as a paragraph of plain sentences.
+ */
+export function buildDigest(rows: KeyRow[]): { title: string; body: string } {
   const attention = rows.filter((r) => r.status !== "ok").length;
   const title =
     attention === 0
       ? "OpenWind: all Zitadel machine keys are OK"
       : `OpenWind: ${attention} of ${rows.length} Zitadel machine keys need attention`;
-  const lines = rows.map((r) => {
-    const when =
-      r.expiresAt === null
-        ? "no expiry date"
-        : `expires ${r.expiresAt.slice(0, 10)} (${r.daysLeft === null || r.daysLeft < 0 ? "expired" : `${r.daysLeft} days left`})`;
-    const reason = r.reason ? ` [${r.reason}]` : "";
-    return `- ${r.name} (key ...${r.keyIdSuffix}): ${when}. ${STATUS_LABEL[r.status]}${reason}`;
-  });
-  const body = [
-    `Zitadel machine-key check, ${now.toISOString().slice(0, 10)}:`,
-    "",
-    ...lines,
-    "",
-    attention === 0
-      ? "Nothing to do."
-      : 'Rotate all keys together, with an expiry date: docs/deployment-hardening.md, "Zitadel machine-key rotation".',
-  ].join("\n");
-  return { title, body };
+  const sentences = [...rows]
+    .sort((a, b) => URGENCY.indexOf(a.status) - URGENCY.indexOf(b.status))
+    .map(keySentence);
+  if (attention > 0) {
+    sentences.push(
+      'The steps to swap keys are in docs/deployment-hardening.md, under "Zitadel machine-key rotation".',
+    );
+  }
+  return { title, body: sentences.join(" ") };
 }
 
 function alertRecipients(): string[] {
@@ -251,7 +280,7 @@ export async function runZitadelKeyExpiryCheck(
   }
 
   const fingerprint = digestFingerprint(rows);
-  const { title, body } = buildDigest(rows, now);
+  const { title, body } = buildDigest(rows);
   await sendDirectNotification({
     notificationId: `ops-zitadel-key-expiry:${fingerprint}:${now.getTime()}`,
     title,
