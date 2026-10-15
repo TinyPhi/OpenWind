@@ -41,11 +41,11 @@ vi.mock("@platform/auth", () => ({
 
 // mock redis
 const mockRedisSet = vi.fn().mockResolvedValue("OK");
-const mockRedisDel = vi.fn().mockResolvedValue(1);
+const mockRedisEval = vi.fn().mockResolvedValue(1);
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
     set: mockRedisSet,
-    del: mockRedisDel,
+    eval: mockRedisEval,
   }),
 }));
 
@@ -91,5 +91,29 @@ describe("Retention Archival Sweep", () => {
     await runRetentionArchivalSweep();
 
     expect(mockSweepTenant).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases the sweep lock only with the token it acquired it with", async () => {
+    mockWhereSelect.mockResolvedValueOnce([]);
+
+    await runRetentionArchivalSweep();
+
+    const token = mockRedisSet.mock.calls[0]?.[1];
+    expect(token).not.toBe("locked");
+    expect(mockRedisEval).toHaveBeenCalledTimes(1);
+    expect(mockRedisEval.mock.calls[0]?.slice(1)).toEqual([
+      1,
+      "lock:retention-archival-sweep",
+      token,
+    ]);
+  });
+
+  it("does not sweep or release when another instance holds the lock", async () => {
+    mockRedisSet.mockResolvedValueOnce(null);
+
+    await runRetentionArchivalSweep();
+
+    expect(mockSweepTenant).not.toHaveBeenCalled();
+    expect(mockRedisEval).not.toHaveBeenCalled();
   });
 });

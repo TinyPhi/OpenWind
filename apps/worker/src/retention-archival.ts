@@ -7,6 +7,7 @@
  * retention-sweep.ts (docs/specs/retention-classes.md).
  */
 
+import { randomUUID } from "node:crypto";
 import { ne } from "drizzle-orm";
 import { db, tenants } from "@platform/db";
 import { logger } from "@platform/logger";
@@ -19,10 +20,14 @@ import { sweepTenant } from "./retention-sweep.js";
 
 const QUEUE_NAME = "retention-archival";
 
+const RELEASE_LOCK_SCRIPT =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
+
 export async function runRetentionArchivalSweep(): Promise<void> {
   const redis = getRedis();
   const lockKey = "lock:retention-archival-sweep";
-  const acquired = await redis.set(lockKey, "locked", "EX", 3600, "NX");
+  const lockToken = randomUUID();
+  const acquired = await redis.set(lockKey, lockToken, "EX", 3600, "NX");
   if (!acquired) {
     logger.info(
       {},
@@ -83,7 +88,9 @@ export async function runRetentionArchivalSweep(): Promise<void> {
 
     logger.info({}, "retention-archival: daily cleanup sweep complete");
   } finally {
-    await redis.del(lockKey);
+    // Only the owner releases: a sweep that outlived the TTL must not delete the lock a
+    // later instance took over.
+    await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, lockToken);
   }
 }
 
