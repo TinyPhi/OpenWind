@@ -24,6 +24,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Read by the telemetry gauges (packages/telemetry/src/metrics.ts). */
 export const KEY_EXPIRY_REPORT_KEY = "ops:zitadel-key-expiry:report";
 const LAST_DIGEST_KEY = "ops:zitadel-key-expiry:last-digest";
+// Held while a run decides and sends, so the daily job and the on-start job cannot both email.
+const RUN_LOCK_KEY = "ops:zitadel-key-expiry:lock";
+const RUN_LOCK_TTL_SECONDS = 300;
+// A failed send is safe to retry: the last-digest key is written only after a successful send.
+const RETRY_OPTS = {
+  attempts: 3,
+  backoff: { type: "exponential", delay: 60_000 },
+} as const;
 // The report outlives a missed run or two, then disappears, so a check that stopped running
 // shows up as an absent metric rather than a frozen, healthy-looking one.
 const REPORT_TTL_SECONDS = 3 * 24 * 60 * 60;
@@ -266,6 +274,27 @@ export async function runZitadelKeyExpiryCheck(
   );
 
   if (rows.length === 0) return;
+  const locked = await redis.set(
+    RUN_LOCK_KEY,
+    "1",
+    "EX",
+    RUN_LOCK_TTL_SECONDS,
+    "NX",
+  );
+  if (!locked) {
+    logger.info({}, "zitadel-key-expiry: another run is sending, skipping");
+    return;
+  }
+  try {
+    await sendDigestIfDue(rows, now);
+  } finally {
+    await redis.del(RUN_LOCK_KEY);
+  }
+}
+
+async function sendDigestIfDue(rows: KeyRow[], now: Date): Promise<void> {
+  const redis = getRedis();
+
   const lastRaw = await redis.get(LAST_DIGEST_KEY);
   const last = parseLastDigest(lastRaw, now);
   if (!shouldSendDigest(rows, last, now)) return;
@@ -290,7 +319,7 @@ export async function runZitadelKeyExpiryCheck(
       email,
     })),
   });
-  // Recorded only after a successful send, so a failed send is retried on the next run.
+  // Recorded only after a successful send, so a failed send is retried by the queue.
   await redis.set(
     LAST_DIGEST_KEY,
     JSON.stringify({ fingerprint, sentAt: now.getTime() }),
@@ -322,12 +351,16 @@ export async function scheduleZitadelKeyExpiryCheck(): Promise<void> {
   await queue.add(
     "check",
     {},
-    { repeat: { pattern: "0 6 * * *" }, jobId: "zitadel-key-expiry-recurring" },
+    {
+      repeat: { pattern: "0 6 * * *" },
+      jobId: "zitadel-key-expiry-recurring",
+      ...RETRY_OPTS,
+    },
   );
   await queue.add(
     "check-on-start",
     {},
-    { removeOnComplete: true, removeOnFail: 50 },
+    { removeOnComplete: true, removeOnFail: 50, ...RETRY_OPTS },
   );
   await queue.close();
   logger.info({}, "zitadel-key-expiry: scheduled (daily 06:00 and on start)");

@@ -32,9 +32,14 @@ const store = new Map<string, string>();
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
     get: (k: string) => Promise.resolve(store.get(k) ?? null),
-    set: (k: string, v: string) => {
+    set: (k: string, v: string, ...flags: unknown[]) => {
+      if (flags.includes("NX") && store.has(k)) return Promise.resolve(null);
       store.set(k, v);
       return Promise.resolve("OK");
+    },
+    del: (k: string) => {
+      store.delete(k);
+      return Promise.resolve(1);
     },
   }),
 }));
@@ -330,6 +335,31 @@ describe("runZitadelKeyExpiryCheck", () => {
   });
 });
 
+describe("overlapping runs", () => {
+  it("lets only one of two concurrent runs send, and frees the lock afterwards", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+
+    await Promise.all([
+      runZitadelKeyExpiryCheck(NOW),
+      runZitadelKeyExpiryCheck(NOW),
+    ]);
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+  });
+
+  it("frees the lock when the send fails, so the retry can send", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+    mockSend.mockRejectedValueOnce(new Error("novu down"));
+
+    await expect(runZitadelKeyExpiryCheck(NOW)).rejects.toThrow("novu down");
+    expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+
+    await runZitadelKeyExpiryCheck(NOW);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("stored state", () => {
   it("reads the previous digest, and treats unreadable or future-dated state as none", () => {
     const ok = JSON.stringify({
@@ -390,5 +420,11 @@ describe("scheduleZitadelKeyExpiryCheck", () => {
       repeat: { pattern: "0 6 * * *" },
     });
     expect(queueAdds[1]?.[0]).toBe("check-on-start");
+    for (const add of queueAdds) {
+      expect(add[2]).toMatchObject({
+        attempts: 3,
+        backoff: { type: "exponential" },
+      });
+    }
   });
 });

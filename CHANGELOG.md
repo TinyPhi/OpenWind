@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — Zitadel machine-key expiry digest follow-ups (#953)]
+
+### Added
+
+- **Daily email digest of Zitadel machine-key expiry** (#948). Set `OPS_ALERT_EMAIL` (comma-separated) to
+  receive one digest at 06:00 and after a worker start, only when a key crossed a threshold, was replaced or
+  went missing; expired, missing and unknown keys repeat daily, never-expiring ones weekly.
+
+### Fixed
+
+- Two overlapping key-expiry runs can no longer both send the digest (short Redis lock), and a failed send is
+  retried by the queue (3 attempts, exponential backoff) instead of waiting for the next day.
+
+---
+
 ## [Unreleased — step-up MFA for sandbox reset and delete (#865, #801)]
 
 ### Added
