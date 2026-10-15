@@ -1016,6 +1016,13 @@
       "when": 1791967469781,
       "tag": "0144_tenant_purge_role",
       "breakpoints": false
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1791967470781,
+      "tag": "0145_admin_audit_log_transition_conditions_action",
+      "breakpoints": false
     }
   ]
 }

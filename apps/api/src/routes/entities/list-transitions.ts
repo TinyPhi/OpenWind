@@ -40,7 +40,7 @@ export const listTransitionsHandler = factory.createHandlers(
       }
 
       const transitions = await withTenantContext(tenantId, (tx) =>
-        getAvailableTransitions(tx, tenantId, instanceId, actorRoles),
+        getAvailableTransitions(tx, tenantId, instanceId, actorRoles, userId),
       );
       return c.json({ data: transitions });
     } catch (err) {

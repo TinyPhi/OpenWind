@@ -79,7 +79,7 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           {
             error: err.code,
             message:
-              "Cannot delete: state is in use (has a live entity instance or is referenced by a transition)",
+              "Cannot change this state: it is in use (has a live entity instance, is referenced by a transition, or is named by a segregation-of-duties rule)",
           },
           409,
         ) as Response;
@@ -92,6 +92,17 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
               "This entity type already has a workflow — a second workflow cannot be created for the same entity type",
           },
           409,
+        ) as Response;
+
+      case "WORKFLOW_CONDITION_STATE_UNKNOWN":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "A segregation-of-duties rule names a step this workflow does not have",
+            meta: { unknown: err.meta?.["unknown"] },
+          },
+          422,
         ) as Response;
 
       case "WORKFLOW_STATE_NAME_TAKEN":

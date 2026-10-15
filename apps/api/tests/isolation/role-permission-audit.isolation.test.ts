@@ -30,6 +30,7 @@ const NEW_ACTIONS: readonly AuditAction[] = [
   "access.revoked",
   "workflow.admins_updated",
   "workflow.transition_roles_updated",
+  "workflow.transition_conditions_updated",
 ];
 
 function insertEntry(tenantId: string, action: string): Promise<void> {

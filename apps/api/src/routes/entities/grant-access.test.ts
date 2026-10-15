@@ -3,17 +3,33 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-// Captures the last `eq(tenantUsers.userId, <value>)` call so the mock tx
-// below can prove the tenant-membership lookup targets the grant's target
-// userId, not the actor's — a mock that ignores this argument would still
-// pass even if the handler queried `actorId` instead of the target `userId`.
-let lastTenantUsersUserIdQueried: unknown;
+// Membership is decided by resolveTenantMembers (tenant_users, or the tenant's Zitadel org --
+// covered by its own tests). This records what the handler asked it about, so the tests can
+// prove the check targets the grant's target userId, not the actor's, and passes the orgId.
+let tenantUserExists: boolean;
+let expectedTargetUserId: string;
+const mockResolveTenantMembers = vi.fn(
+  (_tenantId: string, userIds: string[], _orgId?: string) =>
+    Promise.resolve(
+      new Set(
+        tenantUserExists
+          ? userIds.filter((id) => id === expectedTargetUserId)
+          : [],
+      ),
+    ),
+);
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  resolveTenantMembers: (
+    ...args: Parameters<typeof mockResolveTenantMembers>
+  ) => mockResolveTenantMembers(...args),
+}));
+
+function membershipQueriedFor(): string[] | undefined {
+  return mockResolveTenantMembers.mock.calls.at(-1)?.[1];
+}
 
 vi.mock("drizzle-orm", () => {
-  const eqFn = vi.fn((col: unknown, val: unknown) => {
-    if (col === "tenant_users.user_id") lastTenantUsersUserIdQueried = val;
-    return "sql";
-  });
+  const eqFn = vi.fn(() => "sql");
   const andFn = vi.fn(() => "sql");
   const sqlFn = Object.assign(
     (_strings: TemplateStringsArray, ..._vals: unknown[]) => "sql",
@@ -66,37 +82,19 @@ const entityInstancesTable = {
   id: "entity_instances.id",
   tenantId: "entity_instances.tenant_id",
 };
-const tenantUsersTable = {
-  userId: "tenant_users.user_id",
-  tenantId: "tenant_users.tenant_id",
-};
 
 const INST_ID = "00000000-0000-0000-0000-000000000002";
 
 let instanceExists: boolean;
 let instanceWorkflowId: string | null;
 let instanceFields: Record<string, unknown>;
-let tenantUserExists: boolean;
-let currentFromTable: unknown;
-let expectedTargetUserId: string;
 
 const mockTx = {
   select: () => mockTx,
-  from: (table: unknown) => {
-    currentFromTable = table;
-    return mockTx;
-  },
+  from: () => mockTx,
   where: () => mockTx,
-  limit: () => {
-    if (currentFromTable === tenantUsersTable) {
-      // Only "found" when the lookup actually queried the expected target
-      // userId — proves the handler validates input.userId, not the actor's.
-      const found =
-        tenantUserExists &&
-        lastTenantUsersUserIdQueried === expectedTargetUserId;
-      return Promise.resolve(found ? [{ userId: expectedTargetUserId }] : []);
-    }
-    return Promise.resolve(
+  limit: () =>
+    Promise.resolve(
       instanceExists
         ? [
             {
@@ -106,8 +104,7 @@ const mockTx = {
             },
           ]
         : [],
-    );
-  },
+    ),
   update: () => ({
     set: () => ({ where: () => Promise.resolve(undefined) }),
   }),
@@ -115,7 +112,6 @@ const mockTx = {
 
 vi.mock("@platform/db", () => ({
   entityInstances: entityInstancesTable,
-  tenantUsers: tenantUsersTable,
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(mockTx),
 }));
@@ -139,13 +135,11 @@ describe("POST /entities/:id/access", () => {
       roles: ["admin"],
       email: "admin@example.com",
     };
-    currentFromTable = undefined;
     instanceExists = true;
     instanceWorkflowId = null;
     instanceFields = {};
     tenantUserExists = true;
     expectedTargetUserId = "target-user";
-    lastTenantUsersUserIdQueried = undefined;
     vi.mocked(isWorkflowAdmin).mockReturnValue(false);
   });
 
@@ -158,7 +152,24 @@ describe("POST /entities/:id/access", () => {
 
     expect(res.status).toBe(201);
     expect(mockEmitAccessEvent).toHaveBeenCalledTimes(1);
-    expect(lastTenantUsersUserIdQueried).toBe("target-user");
+    expect(membershipQueriedFor()).toEqual(["target-user"]);
+  });
+
+  it("checks membership against the tenant's Zitadel org too, so a member who never signed in can be granted", async () => {
+    currentAuth = { ...currentAuth, orgId: "org-1" };
+
+    const res = await makeApp().request(`/${INST_ID}/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockResolveTenantMembers).toHaveBeenCalledWith(
+      "t-aaa",
+      ["target-user"],
+      "org-1",
+    );
   });
 
   it("rejects a userId that is not a member of this tenant", async () => {
@@ -186,8 +197,8 @@ describe("POST /entities/:id/access", () => {
       body: JSON.stringify({ userId: "target-user", level: "read_write" }),
     });
 
-    expect(lastTenantUsersUserIdQueried).toBe("target-user");
-    expect(lastTenantUsersUserIdQueried).not.toBe(currentAuth.userId);
+    expect(membershipQueriedFor()).toEqual(["target-user"]);
+    expect(membershipQueriedFor()).not.toContain(currentAuth.userId);
     expect(res.status).toBe(201);
   });
 

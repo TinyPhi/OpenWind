@@ -143,6 +143,12 @@ live, seeded workflow; unselected ones remain visible/forkable by the prospect b
 just one or two records.
 ✓ Selected modules' automation rules (SLA escalation, notification triggers) are also seeded —
 acknowledged as requiring real per-module design, not a generic/free extension of ticket seeding.
+✓ **(added 2026-10-14)** Seeded workflows follow the platform's mandatory-field rule: `title` is
+the only required custom field, every other field is optional (the create form's Others tab), and
+due date / assignee / remark / severity are the built-in ticket fields. Every seeded record has a
+realistic title, a due date, a severity, an assignee from the sandbox's seeded accounts and a
+remark. The rule lives in the core modules' seed SQL, so it applies to every new install, and a
+guard test (`apps/worker/src/core-module-mandatory-fields.test.ts`) keeps it that way.
 
 R5: Provisioning is visible and resumable, not a single fragile long request.
 ✓ The platform admin sees a wait screen with a live progress indicator (e.g. "creating user
