@@ -121,6 +121,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "workflow.admins_updated": true,
   "workflow.transition_roles_updated": true,
   "workflow.transition_conditions_updated": true,
+  "workflow.state_overridden": true,
+  "workflow.override_policy_updated": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

@@ -4,6 +4,7 @@ export { isWorkflowAdmin, isWorkflowAdminListEditor } from "./authorization.js";
 export {
   executeTransition,
   getAvailableTransitions,
+  overrideWorkflowState,
   getWorkflowEventLog,
 } from "./engine.js";
 export {

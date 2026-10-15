@@ -105,6 +105,44 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           422,
         ) as Response;
 
+      case "OVERRIDE_NOT_ENABLED":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "State override is not enabled for this workflow; a workflow admin can switch it on",
+          },
+          409,
+        ) as Response;
+
+      case "OVERRIDE_FORBIDDEN":
+        return c.json(
+          {
+            error: err.code,
+            message: "You are not allowed to override this record's state",
+          },
+          403,
+        ) as Response;
+
+      case "OVERRIDE_REASON_REQUIRED":
+        return c.json(
+          {
+            error: err.code,
+            message: "A reason is required to override a record's state",
+            meta: { min: err.meta?.["min"], max: err.meta?.["max"] },
+          },
+          422,
+        ) as Response;
+
+      case "OVERRIDE_NO_CHANGE":
+        return c.json(
+          {
+            error: err.code,
+            message: "The record is already in that step",
+          },
+          409,
+        ) as Response;
+
       case "WORKFLOW_STATE_NAME_TAKEN":
         return c.json(
           {

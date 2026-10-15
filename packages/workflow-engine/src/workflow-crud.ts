@@ -40,6 +40,7 @@ function rowToWorkflow(r: typeof workflows.$inferSelect): WorkflowDefinition {
     maxChildDepth: r.maxChildDepth,
     maxChildrenPerParent: r.maxChildrenPerParent,
     allowAutoGrantOnMention: r.allowAutoGrantOnMention,
+    allowStateOverride: r.allowStateOverride,
     createdAt: r.createdAt,
   };
 }
@@ -431,6 +432,8 @@ export async function updateWorkflow(
     updates.initialState = input.initialState;
   if (input.allowAutoGrantOnMention !== undefined)
     updates.allowAutoGrantOnMention = input.allowAutoGrantOnMention;
+  if (input.allowStateOverride !== undefined)
+    updates.allowStateOverride = input.allowStateOverride;
 
   if (Object.keys(updates).length === 0) {
     const [current] = await db
