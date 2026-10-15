@@ -57,6 +57,16 @@ function fieldRows(
   }));
 }
 
+/** Field rows in the INSERT INTO entity_fields statements, parsed or not -- each starts with
+ * the entity-type subquery and the tenant placeholder. */
+function entityFieldRowCount(sql: string): number {
+  const rowStart = new RegExp(String.raw`${ENTITY}, '\{TENANT_ID\}', '`, "g");
+  return [...sql.matchAll(/INSERT INTO entity_fields[\s\S]*?;/g)].reduce(
+    (n, stmt) => n + [...stmt[0].matchAll(rowStart)].length,
+    0,
+  );
+}
+
 describe("core-module workflows follow the mandatory-field rule", () => {
   it.each(CORE_MODULES)("%s", (slug) => {
     const sql = moduleSql(slug);
@@ -66,6 +76,16 @@ describe("core-module workflows follow the mandatory-field rule", () => {
     );
 
     const rows = fieldRows(sql);
+    // Fail loudly if the parser misses a row (a reordered column, a new shape): a skipped row
+    // could hide a required field and let this test pass on nothing.
+    expect(
+      rows.length,
+      `${slug}: no entity_fields rows parsed`,
+    ).toBeGreaterThan(0);
+    expect(
+      rows.length,
+      `${slug}: some entity_fields rows were not parsed -- update fieldRows() for the new shape`,
+    ).toBe(entityFieldRowCount(sql));
     for (const entityType of workflowTypes) {
       const fields = rows.filter((r) => r.entityType === entityType);
       expect(

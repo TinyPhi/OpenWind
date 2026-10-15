@@ -51,3 +51,18 @@
   - **Scope.** Reset still only replaces records: it never reinstalls entity types or fields,
     so a sandbox created before the field-rule fix keeps its old fields. Reset never touches
     Zitadel.
+
+## 2026-10-15 — PR #934 review follow-ups (PrabhuVijit, R1)
+
+- **[1] `app_user` UPDATE on `outbox_events`.** Already granted: migration 0019 gives `app_user`
+  SELECT/INSERT/UPDATE/DELETE on `outbox_events`, and the tenant RLS policy
+  (`outbox_events_tenant_isolation`) admits the tenant set by `withTenantContext`; both were
+  confirmed on the local database. The suppression now says so in a comment, and new tests pin
+  its filter (this tenant, undelivered, created since seeding began, with the cut-off taken
+  before the first record) and show a refusal throws rather than updating nothing.
+- **[2] Guard test.** It already failed when a workflow lacked a required `title`. It now also
+  fails when the parser misses an `entity_fields` row: per module, the parsed row count must
+  equal the rows in its `INSERT INTO entity_fields` statements, so a new row shape can't let a
+  required field slip past unseen.
+- **[3] Sample names.** Globex, Initech and Umbrella Corp in the sample deal and invoice titles
+  are now made-up neutral names (Brightwater Logistics, Halcyon Foods, Kestrel Manufacturing).

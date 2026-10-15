@@ -100,9 +100,9 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
     ],
     titles: [
       "Northwind Traders: initial enquiry",
-      "Globex: annual platform licence",
-      "Initech: support plan upgrade",
-      "Umbrella Corp: multi-site rollout",
+      "Brightwater Logistics: annual platform licence",
+      "Halcyon Foods: support plan upgrade",
+      "Kestrel Manufacturing: multi-site rollout",
       "Acme Ltd: renewal and expansion",
     ],
   },
@@ -171,10 +171,10 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["sent", "viewed", "paid"],
     ],
     titles: [
-      "INV-1001: Globex consulting, October",
-      "INV-1002: Initech support retainer",
+      "INV-1001: Brightwater Logistics consulting, October",
+      "INV-1002: Halcyon Foods support retainer",
       "INV-1003: Northwind training workshop",
-      "INV-1004: Umbrella Corp licence renewal",
+      "INV-1004: Kestrel Manufacturing licence renewal",
       "INV-1005: Acme Ltd implementation",
     ],
   },
@@ -424,6 +424,10 @@ export async function seedAllModulesData(
     }
   }
 
+  // Runs as app_user inside the tenant context, like the rest of this file: migration 0019
+  // grants app_user SELECT/INSERT/UPDATE/DELETE on outbox_events, and the table's tenant RLS
+  // policy (outbox_events_tenant_isolation) admits rows of the tenant set here. A refusal
+  // throws rather than updating nothing, so it cannot fail silently.
   await withTenantContext(tenantId, (tx) =>
     tx
       .update(outboxEvents)

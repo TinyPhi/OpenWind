@@ -16,7 +16,20 @@ const entityTypesTable = { table: "entityTypes" };
 const workflowsTable = { table: "workflows" };
 const entityFieldsTable = { table: "entityFields" };
 const workflowTransitionsTable = { table: "workflowTransitions" };
-const outboxEventsTable = { table: "outboxEvents" };
+const outboxEventsTable = {
+  table: "outboxEvents",
+  tenantId: "outbox.tenantId",
+  deliveredAt: "outbox.deliveredAt",
+  createdAt: "outbox.createdAt",
+};
+
+// Filter helpers return plain descriptions, so a test can read the exact WHERE clause.
+vi.mock("drizzle-orm", () => ({
+  and: (...conds: unknown[]) => ({ and: conds }),
+  eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
+  isNull: (col: unknown) => ({ isNull: col }),
+  gte: (col: unknown, val: unknown) => ({ gte: [col, val] }),
+}));
 
 // Query results by table -- set per test.
 let entityTypeRows: unknown[] = [];
@@ -47,13 +60,19 @@ function selectChain(): unknown {
 }
 
 const mockUpdateSet = vi.fn();
+const mockUpdateWhere = vi.fn();
 const TENANT_TX = {
   kind: "tenant-tx",
   select: selectChain,
   update: (table: unknown) => ({
     set: (values: unknown) => {
       mockUpdateSet(table, values);
-      return { where: () => Promise.resolve(undefined) };
+      return {
+        where: (cond: unknown) => {
+          mockUpdateWhere(cond);
+          return Promise.resolve(undefined);
+        },
+      };
     },
   }),
 };
@@ -255,5 +274,54 @@ describe("seedAllModulesData", () => {
         notifiedDeliveredAt: expect.any(Date),
       }),
     );
+  });
+
+  it("only suppresses this tenant's undelivered rows created since seeding began", async () => {
+    const before = Date.now();
+    let firstRecordAt = 0;
+    mockCreateEntity.mockImplementation(async () => {
+      firstRecordAt ||= Date.now();
+      return { id: "entity-x", currentState: "backlog", fields: {} };
+    });
+    await seedAllModulesData("tenant-1", ["projects"], ["u-1"]);
+
+    expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
+    const where = mockUpdateWhere.mock.calls[0]?.[0] as {
+      and: [
+        { eq: [string, string] },
+        { isNull: string },
+        { gte: [string, Date] },
+      ];
+    };
+    expect(where.and[0]).toEqual({ eq: ["outbox.tenantId", "tenant-1"] });
+    expect(where.and[1]).toEqual({ isNull: "outbox.deliveredAt" });
+    expect(where.and[2].gte[0]).toBe("outbox.createdAt");
+    // The cut-off is taken before the first record, so rows from before seeding are left alone
+    // and every row seeding produced is covered.
+    const cutOff = where.and[2].gte[1].getTime();
+    expect(cutOff).toBeGreaterThanOrEqual(before);
+    expect(cutOff).toBeLessThanOrEqual(firstRecordAt);
+  });
+
+  it("propagates a refused suppression instead of failing silently", async () => {
+    mockWithTenantContext.mockImplementationOnce(() =>
+      Promise.reject(new Error("permission denied for table outbox_events")),
+    );
+
+    await expect(seedAllModulesData("tenant-1", [])).rejects.toThrow(
+      "permission denied",
+    );
+  });
+
+  it("uses neutral, made-up company names in sample titles", async () => {
+    entityTypeRows = [{ id: "entity-type-1" }];
+    transitionRows = [];
+    await seedAllModulesData("tenant-1", ["crm", "invoicing"], []);
+
+    const titles = createInputs().map((i) => String(i.fields.title));
+    expect(titles.length).toBeGreaterThan(0);
+    for (const t of titles) {
+      expect(t).not.toMatch(/Globex|Initech|Umbrella/);
+    }
   });
 });
