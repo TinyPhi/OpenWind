@@ -21,6 +21,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   step that a rule names can no longer be renamed or deleted until the rule is changed.
 - **Changes to a transition's conditions are audited** (`workflow.transition_conditions_updated`, migration 0145) on create, update, delete and canvas save, so a segregation rule cannot be removed without a record.
 
+### Known limits
+
+- **Not a complete control until #941 merges.** A direct state write (`PATCH /entities/:id` with `currentState`,
+  or the child-status route) does not run transition guards, so the record's creator can bypass
+  `actor_not_creator`. Do not enable these rules on a real workflow before the guarded override lands.
+
 ### Changed
 
 - **Transition conditions are validated when saved.** The create and update transition routes now reject an

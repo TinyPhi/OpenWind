@@ -64,6 +64,12 @@ is evaluated by the same engine path that checks roles and conditions, under the
 - **Scope.** These rules guard transitions executed through the workflow engine. Other ways of changing
   a record's state are covered by the guarded-override follow-up (hardening PR 2), and the seed workflow that
   relies on these rules (T7) deliberately waits for it.
+- **Direct state writes bypass these rules until the override lands.** `PATCH /entities/:id` with
+  `currentState` (open to the record's creator) and the child-status route write a state without running
+  transition guards, so a creator can move their own record past an `actor_not_creator` step. Do not enable
+  these rules on a real workflow until the guarded override (#941) has merged.
+- A record with no user creator (created by the scheduler or an automation) has no conflict for
+  `actor_not_creator`: any identified actor passes. Pinned by a unit test in `condition-evaluator.test.ts`.
 - A transition that does not change state (a self-loop) never counts as acting, so a workflow that uses
   a self-loop as an approval step lets the same person repeat it.
 - Two transitions between the same pair of steps, one with a rule and one without, let the caller pick the
