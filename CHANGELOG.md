@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — mention and notification follow-ups (#952)]
+
+### Fixed
+
+- **@mention and grant lookups no longer drop org members past the first 500.** `listOrgUsers` now pages
+  through the whole Zitadel org (capped at 10,000 members, logged when truncated).
+- Adding a comment or granting access no longer holds a database connection while it waits on Zitadel:
+  membership is read, Zitadel is called, then the new members are recorded in a second short step.
+- A failed Zitadel org-member lookup (for example a rate limit) is no longer cached as an empty org until the
+  process restarts; the next mention or grant retries.
+- A Zitadel rate limit (429) while resolving a notification recipient now falls back to the cached profile
+  instead of treating the user as not found, and recipient lookups run five at a time.
+
+### Changed
+
+- A comment may mention at most 50 people.
+
+---
+
 ## [Unreleased — step-up MFA for sandbox reset and delete (#865, #801)]
 
 ### Added
