@@ -101,3 +101,72 @@ export async function auditTransitionRoleChanges(
     },
   });
 }
+
+/** Key-order-insensitive deep comparison of two JSON values (condition trees). */
+function canonicalJson(value: unknown): string {
+  if (value === undefined || value === null) return "null";
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`)
+    .join(",")}}`;
+}
+
+export function sameJson(a: unknown, b: unknown): boolean {
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+export type TransitionConditionChange = {
+  transitionId: string;
+  fromState: string;
+  toState: string;
+  /** null when the transition is being created or had no conditions. */
+  before: unknown;
+  /** null when the transition is being deleted or its conditions are cleared. */
+  after: unknown;
+};
+
+/**
+ * Records changes to a transition's `conditions`, where the segregation-of-duties rules live:
+ * adding, changing or removing one changes who may approve what. One entry per request covering
+ * every transition whose conditions changed (a transition deleted with conditions counts as
+ * removing them). Writes nothing when nothing changed. Call on the same transaction as the write.
+ */
+export async function auditTransitionConditionChanges(
+  tx: AuditDb,
+  input: {
+    tenantId: string;
+    actorId: string;
+    workflowId: string;
+    changes: readonly TransitionConditionChange[];
+  },
+): Promise<void> {
+  const changed = input.changes.filter((ch) => !sameJson(ch.before, ch.after));
+  if (changed.length === 0) return;
+
+  await writeAuditEntry(tx, {
+    tenantId: input.tenantId,
+    actorId: input.actorId,
+    actorType: "user",
+    resourceType: "workflow",
+    resourceId: input.workflowId,
+    action: "workflow.transition_conditions_updated",
+    beforeSnapshot: Object.fromEntries(
+      changed.map((ch) => [ch.transitionId, ch.before ?? null]),
+    ),
+    afterSnapshot: Object.fromEntries(
+      changed.map((ch) => [ch.transitionId, ch.after ?? null]),
+    ),
+    metadata: {
+      transitions: changed.map((ch) => ({
+        transitionId: ch.transitionId,
+        fromState: ch.fromState,
+        toState: ch.toState,
+        created: ch.before === null || ch.before === undefined,
+        deleted: ch.after === null || ch.after === undefined,
+      })),
+    },
+  });
+}

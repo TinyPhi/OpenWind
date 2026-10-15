@@ -65,6 +65,7 @@ vi.mock("@platform/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
   and: vi.fn((...args) => ({ args, op: "and" })),
+  or: vi.fn((...args) => ({ args, op: "or" })),
   isNotNull: vi.fn((col) => ({ col, op: "isNotNull" })),
   isNull: vi.fn((col) => ({ col, op: "isNull" })),
   inArray: vi.fn((col, vals) => ({ col, vals, op: "inArray" })),

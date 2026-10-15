@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — segregation-of-duties transition conditions]
+
+### Added
+
+- **Three actor-aware transition conditions**: `actor_not_creator` ("the requester cannot approve"),
+  `actor_is_creator` ("only the requester may withdraw") and `actor_not_prior_actor` ("each stage needs a
+  different person", optionally limited to people who left given states). The engine evaluates them inside
+  the transition lock and fails closed: an unidentified actor, an API-key or system identity satisfies none,
+  and an actor rule under `not` is never satisfied. No schema change; they live in a transition's existing `conditions`.
+  `getAvailableTransitions` takes the actor id, so the list matches the guard.
+
+- **A segregation rule's `states` are checked and protected.** Saving a rule that names a step the workflow does
+  not have is rejected with 422 `WORKFLOW_CONDITION_STATE_UNKNOWN` (a typo would otherwise block nobody), and a
+  step that a rule names can no longer be renamed or deleted until the rule is changed.
+- **Changes to a transition's conditions are audited** (`workflow.transition_conditions_updated`, migration 0145) on create, update, delete and canvas save, so a segregation rule cannot be removed without a record.
+
+### Known limits
+
+- **Not a complete control until #941 merges.** A direct state write (`PATCH /entities/:id` with `currentState`,
+  or the child-status route) does not run transition guards, so the record's creator can bypass
+  `actor_not_creator`. Do not enable these rules on a real workflow before the guarded override lands.
+
+### Changed
+
+- **Transition conditions are validated when saved.** The create and update transition routes now reject an
+  unknown operator or a malformed tree with 400 instead of storing it. A condition nested deeper than 8 levels, or
+  a group of more than 20, is rejected.
+
+---
+
 ## [Unreleased — mention and notification follow-ups (#952)]
 
 ### Fixed

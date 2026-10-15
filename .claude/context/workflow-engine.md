@@ -39,6 +39,14 @@ explicitly defined in the workflow config. See ADR-002 (WE-02).
 **`workflow_events` is append-only.** Rows are never updated or deleted. It is an immutable
 audit log. Do not add UPDATE or DELETE paths to this table.
 
+**Segregation-of-duties rules live in `conditions`.** `actor_not_creator`, `actor_is_creator` and
+`actor_not_prior_actor` (optional `states`) are transition-only operators (`TransitionConditionTree`)
+evaluated against an actor context that `executeTransition` loads inside the row lock. They fail closed:
+an unidentified actor, an API-key (`apikey:`) or `system` identity satisfies none, and an actor rule under
+`not` is never satisfied. "Acted" is a real state change (`from_state <> to_state`), never caller-written
+`metadata`. `getAvailableTransitions` takes the actor id so the list matches the guard. Automation rules
+cannot use them. Changes to a transition's conditions are audited. See `docs/specs/segregation-of-duties.md`.
+
 **Idempotency via `idempotencyKey`.** If the same key has already been used, the existing
 event is returned immediately — no guards re-evaluated, no state written. Safe to retry.
 
