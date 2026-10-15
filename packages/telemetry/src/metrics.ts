@@ -412,4 +412,14 @@ export const mentionRecordFailureTotal = meter.createCounter(
   },
 );
 
+// docs/specs/retention-classes.md — rows removed by the retention sweep, so a
+// sweep that deletes nothing (the pre-fix silent no-op) is visible on a dashboard.
+export const retentionDeletedRowsTotal = meter.createCounter(
+  "openwind_retention_deleted_rows_total",
+  {
+    description:
+      "Rows deleted by the retention sweep, by table and retention class",
+  },
+);
+
 export { meter };

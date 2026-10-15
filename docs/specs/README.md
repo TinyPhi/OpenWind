@@ -20,46 +20,47 @@ Last reconciled: 2026-09-28 (#694).
 
 ## Implemented
 
-| Spec                                                                                        | Tasks | Shipped via                                                                      |
-| ------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
-| [advisory-lock-direct-connection](advisory-lock-direct-connection.md)                       | —     | #853                                                                             |
-| [audit-log-json-anonymization](audit-log-json-anonymization.md)                             | —     | #860                                                                             |
-| [automation-trigger-config-scoping](automation-trigger-config-scoping.md)                   | —     | see header                                                                       |
-| [backup-dr-runbook](backup-dr-runbook.md)                                                   | —     | #482                                                                             |
-| [export-audit-trail](export-audit-trail.md)                                                 | —     | #687                                                                             |
-| [gdpr-erasure-coverage](gdpr-erasure-coverage.md)                                           | ✓     | #681                                                                             |
-| [hosted-ticket-create-handoff](hosted-ticket-create-handoff.md)                             | —     | #542                                                                             |
-| [modal-a11y-wave2](modal-a11y-wave2.md)                                                     | —     | #298                                                                             |
-| [network-status-awareness](network-status-awareness.md)                                     | —     | #486                                                                             |
-| [oncall-routing](oncall-routing.md)                                                         | —     | 3E Phases 1–4 (ADR-016; design: `docs/oncall-routing-design.md`); gaps #570 #571 |
-| [outbound-notifications-kill-switch](outbound-notifications-kill-switch.md)                 | ✓     | `isOutboundNotificationsEnabled` (worker)                                        |
-| [outbox-automation-idempotent-consumption](outbox-automation-idempotent-consumption.md)     | ✓     | #372 / #380                                                                      |
-| [plugin-system](plugin-system.md)                                                           | ✓     | #397 (3B; gaps in #644)                                                          |
-| [pool-load-test-tooling](pool-load-test-tooling.md)                                         | ✓     | T1–T3 shipped; T4–T5 (real run + results) deferred                               |
-| [reporting-metadata-masking-repair](reporting-metadata-masking-repair.md)                   | —     | migrations 0117–0119 (3G)                                                        |
-| [schedule-rules-mandate-fields](schedule-rules-mandate-fields.md)                           | ✓     | #659                                                                             |
-| [segregation-of-duties](segregation-of-duties.md)                                           | —     | hardening                                                                        |
-| [superset-embedded-dashboarding](superset-embedded-dashboarding.md)                         | —     | 3G Stage 1 (#663–#671)                                                           |
-| [superset-standalone-with-zitadel](superset-standalone-with-zitadel.md)                     | —     | 3G Stage 2 (#663–#671)                                                           |
-| [superset-gdpr-erasure](superset-gdpr-erasure.md)                                           | —     | 3G Stage 2 gate (#728, #709, #716, #729, #731); draft                            |
-| [team-assign-oncall-fallback](team-assign-oncall-fallback.md)                               | —     | #659                                                                             |
-| [temporal-scheduler](temporal-scheduler.md)                                                 | —     | 3F Phases 1–4 (ADR-017; design: `docs/temporal-scheduler-design.md`); gap #580   |
-| [tender-management](tender-management.md)                                                   | —     | `modules/tender` (ADR-005)                                                       |
-| [third-party-api-list-my-tickets](third-party-api-list-my-tickets.md)                       | —     | see header                                                                       |
-| [third-party-api-origin-tagging](third-party-api-origin-tagging.md)                         | —     | #556                                                                             |
-| [third-party-api-phase-a-key-management](third-party-api-phase-a-key-management.md)         | —     | #439 / #440 / #449                                                               |
-| [third-party-api-phase-b-core-ticket-api](third-party-api-phase-b-core-ticket-api.md)       | —     | #461 / #484                                                                      |
-| [third-party-api-phase-d-attachments](third-party-api-phase-d-attachments.md)               | —     | #472 / #475                                                                      |
-| [third-party-api-phase-e-status-transitions](third-party-api-phase-e-status-transitions.md) | —     | #484                                                                             |
-| [third-party-api-phase-f-access-logs](third-party-api-phase-f-access-logs.md)               | —     | #489 / #546                                                                      |
-| [third-party-api-phase-g-hardening](third-party-api-phase-g-hardening.md)                   | —     | #495 / #499 / #500                                                               |
-| [third-party-api-workflow-fields-schema](third-party-api-workflow-fields-schema.md)         | —     | #521                                                                             |
-| [third-party-key-external-org-mapping](third-party-key-external-org-mapping.md)             | —     | #545                                                                             |
-| [third-party-transition-role-mapping](third-party-transition-role-mapping.md)               | —     | #514                                                                             |
-| [ticket-severity-and-tags](ticket-severity-and-tags.md)                                     | ✓     | see header                                                                       |
-| [user-erasure-anonymization](user-erasure-anonymization.md)                                 | —     | #690                                                                             |
-| [vendor-approval](vendor-approval.md)                                                       | ✓     | #680 (live walk-through #691)                                                    |
-| [workflow-ownership-admin](workflow-ownership-admin.md)                                     | —     | retroactive spec (ADR-006)                                                       |
+| Spec                                                                                        | Tasks       | Shipped via                                                                      |
+| ------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------- |
+| [advisory-lock-direct-connection](advisory-lock-direct-connection.md)                       | —           | #853                                                                             |
+| [audit-log-json-anonymization](audit-log-json-anonymization.md)                             | —           | #860                                                                             |
+| [automation-trigger-config-scoping](automation-trigger-config-scoping.md)                   | —           | see header                                                                       |
+| [backup-dr-runbook](backup-dr-runbook.md)                                                   | —           | #482                                                                             |
+| [export-audit-trail](export-audit-trail.md)                                                 | —           | #687                                                                             |
+| [gdpr-erasure-coverage](gdpr-erasure-coverage.md)                                           | ✓           | #681                                                                             |
+| [hosted-ticket-create-handoff](hosted-ticket-create-handoff.md)                             | —           | #542                                                                             |
+| [modal-a11y-wave2](modal-a11y-wave2.md)                                                     | —           | #298                                                                             |
+| [network-status-awareness](network-status-awareness.md)                                     | —           | #486                                                                             |
+| [oncall-routing](oncall-routing.md)                                                         | —           | 3E Phases 1–4 (ADR-016; design: `docs/oncall-routing-design.md`); gaps #570 #571 |
+| [outbound-notifications-kill-switch](outbound-notifications-kill-switch.md)                 | ✓           | `isOutboundNotificationsEnabled` (worker)                                        |
+| [outbox-automation-idempotent-consumption](outbox-automation-idempotent-consumption.md)     | ✓           | #372 / #380                                                                      |
+| [plugin-system](plugin-system.md)                                                           | ✓           | #397 (3B; gaps in #644)                                                          |
+| [pool-load-test-tooling](pool-load-test-tooling.md)                                         | ✓           | T1–T3 shipped; T4–T5 (real run + results) deferred                               |
+| [reporting-metadata-masking-repair](reporting-metadata-masking-repair.md)                   | —           | migrations 0117–0119 (3G)                                                        |
+| [schedule-rules-mandate-fields](schedule-rules-mandate-fields.md)                           | ✓           | #659                                                                             |
+| [segregation-of-duties](segregation-of-duties.md)                                           | —           | hardening                                                                        |
+| [superset-embedded-dashboarding](superset-embedded-dashboarding.md)                         | —           | 3G Stage 1 (#663–#671)                                                           |
+| [superset-standalone-with-zitadel](superset-standalone-with-zitadel.md)                     | —           | 3G Stage 2 (#663–#671)                                                           |
+| [superset-gdpr-erasure](superset-gdpr-erasure.md)                                           | —           | 3G Stage 2 gate (#728, #709, #716, #729, #731); draft                            |
+| [team-assign-oncall-fallback](team-assign-oncall-fallback.md)                               | —           | #659                                                                             |
+| [temporal-scheduler](temporal-scheduler.md)                                                 | —           | 3F Phases 1–4 (ADR-017; design: `docs/temporal-scheduler-design.md`); gap #580   |
+| [tender-management](tender-management.md)                                                   | —           | `modules/tender` (ADR-005)                                                       |
+| [third-party-api-list-my-tickets](third-party-api-list-my-tickets.md)                       | —           | see header                                                                       |
+| [third-party-api-origin-tagging](third-party-api-origin-tagging.md)                         | —           | #556                                                                             |
+| [third-party-api-phase-a-key-management](third-party-api-phase-a-key-management.md)         | —           | #439 / #440 / #449                                                               |
+| [third-party-api-phase-b-core-ticket-api](third-party-api-phase-b-core-ticket-api.md)       | —           | #461 / #484                                                                      |
+| [third-party-api-phase-d-attachments](third-party-api-phase-d-attachments.md)               | —           | #472 / #475                                                                      |
+| [third-party-api-phase-e-status-transitions](third-party-api-phase-e-status-transitions.md) | —           | #484                                                                             |
+| [third-party-api-phase-f-access-logs](third-party-api-phase-f-access-logs.md)               | —           | #489 / #546                                                                      |
+| [third-party-api-phase-g-hardening](third-party-api-phase-g-hardening.md)                   | —           | #495 / #499 / #500                                                               |
+| [third-party-api-workflow-fields-schema](third-party-api-workflow-fields-schema.md)         | —           | #521                                                                             |
+| [third-party-key-external-org-mapping](third-party-key-external-org-mapping.md)             | —           | #545                                                                             |
+| [third-party-transition-role-mapping](third-party-transition-role-mapping.md)               | —           | #514                                                                             |
+| [ticket-severity-and-tags](ticket-severity-and-tags.md)                                     | ✓           | see header                                                                       |
+| [user-erasure-anonymization](user-erasure-anonymization.md)                                 | —           | #690                                                                             |
+| [vendor-approval](vendor-approval.md)                                                       | ✓           | #680 (live walk-through #691)                                                    |
+| [workflow-ownership-admin](workflow-ownership-admin.md)                                     | —           | retroactive spec (ADR-006)                                                       |
+| [retention-classes](retention-classes.md)                                                   | in-progress | Retention classes for workflow_events; sweeps run under tenant context; hold     |
 
 The third-party API specs are per-phase delivery detail. The cross-cutting rules and index live
 in [`docs/third-party-api-design.md`](../third-party-api-design.md), and the decision is ADR-012.

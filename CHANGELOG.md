@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — retention classes and tenant-context sweeps]
+
+### Fixed
+
+- **The daily retention sweep now actually deletes.** It ran outside tenant context, so under the
+  default database role it matched no rows. Both it and the usage-metering sweep now run each
+  tenant's work inside the tenant context.
+
+### Added
+
+- **Retention classes for the workflow event log**: state-change history is kept for
+  `RETENTION_EVIDENCE_DAYS` (default 2555) and never swept while its case is open or recently
+  active; comments use `RETENTION_COMMENT_DAYS` (365); other events use `RETENTION_DEFAULT_DAYS`
+  (90). Per-tenant overrides: `retention_days`, `retention_comment_days`, `retention_evidence_days`.
+  The comment and evidence defaults are placeholders pending confirmation.
+- `tenants.config.retention_hold: true` pauses all retention sweeps for a tenant.
+- Batched deletes (`RETENTION_BATCH_SIZE`, `RETENTION_BATCH_PAUSE_MS`) and the
+  `openwind_retention_deleted_rows_total{table,class}` metric.
+
+---
+
 ## [Unreleased — segregation-of-duties transition conditions]
 
 ### Added

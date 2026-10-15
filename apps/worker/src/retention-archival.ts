@@ -2,31 +2,32 @@
  * retention-archival.ts
  *
  * Stage 3 - Compliance (observability-compliance track, Issue #506)
- * Sweeps the database daily at 04:00 to delete old workflow_events, outbox_events,
- * and tenant_usage_daily records older than tenant_config.retention_days (default 90).
+ * Daily 04:00 sweep. Per-tenant windows and holds are resolved in
+ * retention-policy.ts; deletes run per tenant under withTenantContext in
+ * retention-sweep.ts (docs/specs/retention-classes.md).
  */
 
-import { and, eq, lt, ne, sql, isNotNull } from "drizzle-orm";
-import {
-  db,
-  tenants,
-  workflowEvents,
-  outboxEvents,
-  tenantUsageDaily,
-} from "@platform/db";
+import { randomUUID } from "node:crypto";
+import { ne } from "drizzle-orm";
+import { db, tenants } from "@platform/db";
 import { logger } from "@platform/logger";
 import { Worker, Queue } from "bullmq";
 import { connection } from "./queues.js";
 import { getRedis } from "@platform/redis";
 import { isTenantTrialActive } from "@platform/auth";
+import { resolveRetentionPolicy } from "./retention-policy.js";
+import { sweepTenant } from "./retention-sweep.js";
 
 const QUEUE_NAME = "retention-archival";
-const DEFAULT_RETENTION_DAYS = 90;
+
+const RELEASE_LOCK_SCRIPT =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
 
 export async function runRetentionArchivalSweep(): Promise<void> {
   const redis = getRedis();
   const lockKey = "lock:retention-archival-sweep";
-  const acquired = await redis.set(lockKey, "locked", "EX", 3600, "NX");
+  const lockToken = randomUUID();
+  const acquired = await redis.set(lockKey, lockToken, "EX", 3600, "NX");
   if (!acquired) {
     logger.info(
       {},
@@ -61,77 +62,35 @@ export async function runRetentionArchivalSweep(): Promise<void> {
 
     for (const tenant of activeTenants) {
       const tenantId = tenant.id;
-      const config = tenant.config as Record<string, unknown> | undefined;
-      const retentionDays =
-        typeof config?.retention_days === "number" && config.retention_days >= 1
-          ? config.retention_days
-          : DEFAULT_RETENTION_DAYS;
+      const policy = resolveRetentionPolicy(tenant.config);
+
+      if (policy.hold) {
+        logger.info(
+          { tenantId },
+          "retention-archival: tenant is under retention hold, skipping",
+        );
+        continue;
+      }
 
       try {
+        const result = await sweepTenant(tenantId, policy);
         logger.info(
-          { tenantId, retentionDays },
-          `retention-archival: sweeping data for tenant ${tenantId} older than ${retentionDays} days`,
-        );
-
-        // Delete old workflow events
-        await db
-          .delete(workflowEvents)
-          .where(
-            and(
-              eq(workflowEvents.tenantId, tenantId),
-              lt(
-                workflowEvents.createdAt,
-                sql`now() - (${retentionDays} || ' days')::interval`,
-              ),
-            ),
-          );
-
-        // Delete old outbox events (only if successfully delivered and notified)
-        await db
-          .delete(outboxEvents)
-          .where(
-            and(
-              eq(outboxEvents.tenantId, tenantId),
-              isNotNull(outboxEvents.deliveredAt),
-              isNotNull(outboxEvents.notifiedDeliveredAt),
-              lt(
-                outboxEvents.createdAt,
-                sql`now() - (${retentionDays} || ' days')::interval`,
-              ),
-            ),
-          );
-
-        // Delete old usage logs
-        await db
-          .delete(tenantUsageDaily)
-          .where(
-            and(
-              eq(tenantUsageDaily.tenantId, tenantId),
-              lt(
-                tenantUsageDaily.usageDate,
-                sql`(current_date - (${retentionDays} || ' days')::interval)::date`,
-              ),
-            ),
-          );
-
-        logger.info(
-          {
-            tenantId,
-            retentionDays,
-          },
-          `retention-archival: successfully swept data for tenant ${tenantId}`,
+          { tenantId, ...policy, ...result },
+          "retention-archival: swept tenant",
         );
       } catch (err) {
         logger.error(
           { err, tenantId },
-          `retention-archival: failed to process sweep for tenant ${tenantId}`,
+          "retention-archival: failed to process sweep for tenant",
         );
       }
     }
 
     logger.info({}, "retention-archival: daily cleanup sweep complete");
   } finally {
-    await redis.del(lockKey);
+    // Only the owner releases: a sweep that outlived the TTL must not delete the lock a
+    // later instance took over.
+    await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, lockToken);
   }
 }
 
