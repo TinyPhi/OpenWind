@@ -13,13 +13,7 @@
     "signInFailed": "Sign-in failed. If this continues, please contact support.",
     "securityNote": "Encrypted session · access is scoped to your organisation",
     "helpPrompt": "Need access?",
-    "contactAdmin": "Contact your admin",
-    "footer": {
-      "copyright": "© 2026 OpenWind. Open-source platform.",
-      "github": "GitHub",
-      "docs": "Docs",
-      "privacy": "Privacy"
-    }
+    "contactUs": "Contact us"
   },
   "authCallback": {
     "errorTitle": "Authentication Error",

@@ -65,7 +65,31 @@ describe("Login", () => {
     expect(
       screen.getByRole("button", { name: /Continue with SSO/ }),
     ).toBeDefined();
-    expect(screen.getByText("Contact your admin")).toBeDefined();
+    expect(screen.getByText("Contact us")).toBeDefined();
+  });
+
+  it("'Contact us' opens a Gmail trial-request draft to info@rokkalabs.com in a new tab", () => {
+    renderAt("/login");
+
+    const link = screen.getByRole("link", { name: "Contact us" });
+    const href = new URL(link.getAttribute("href") ?? "");
+    expect(href.origin).toBe("https://mail.google.com");
+    expect(href.searchParams.get("to")).toBe("info@rokkalabs.com");
+    expect(href.searchParams.get("su")).toMatch(/trial/i);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("shows the navbar's logo (icon + wordmark) and no footer", () => {
+    const { container } = renderAt("/login");
+
+    const logo = container.querySelector(".lp-float-logo");
+    expect(logo?.querySelector("img.logo-icon")?.getAttribute("src")).toBe(
+      "/favicon.svg",
+    );
+    expect(logo?.querySelector(".logo-text")?.textContent).toBe("OpenWind");
+    expect(container.querySelector("footer")).toBeNull();
+    expect(screen.queryByText(/© 2026/)).toBeNull();
   });
 
   // Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md,

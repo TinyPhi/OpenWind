@@ -37,3 +37,20 @@
   routes (token returned, 422 mapping, `/mfa/end`), config (`false`, `0`, empty, `TRUE` stay
   off; production refusal), and admin-ui (digit boxes, paste, backspace, countdowns, resend,
   each error, header sent only to platform-admin routes, cleared on sign-in, sign-out order).
+
+## Also in this PR: tenant login page polish
+
+- **Contact link.** The `/login` help link ("Need access? Contact us", previously "Contact
+  your admin" pointing at `mailto:support@openwind.io`) opens a Gmail compose window in a new
+  tab, addressed to info@rokkalabs.com with a product-trial request already filled in (subject,
+  greeting, and blanks for name, company, role, team size, phone and use case). The address and
+  template live in one module, `apps/admin-ui/src/pages/login-contact.ts`. It's Gmail rather
+  than `mailto:` by request, so a visitor who isn't signed in to Gmail lands on Google's sign-in.
+- **Logo.** The placeholder "W" box is replaced by the navbar's own logo (`/favicon.svg` and the
+  "OpenWind" wordmark, same classes), so the two always match; on phones only the icon shows,
+  as in the navbar.
+- **Flat card.** The sign-in card's large drop shadow is removed; its border frames it.
+- **Footer removed.** The "© 2026 OpenWind · GitHub · Docs · Privacy" bar (Docs and Privacy were
+  dead `#` links) is gone, with its CSS and strings.
+- **Sandbox handover CSV.** The platform-admin handover dialog (already reviewed, held back
+  while #926 was open) is included: a Download CSV button and a wider dialog.
