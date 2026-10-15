@@ -60,6 +60,7 @@ Last reconciled: 2026-09-28 (#694).
 | [vendor-approval](vendor-approval.md)                                                       | ✓           | #680 (live walk-through #691)                                                    |
 | [workflow-ownership-admin](workflow-ownership-admin.md)                                     | —           | retroactive spec (ADR-006)                                                       |
 | [retention-classes](retention-classes.md)                                                   | in-progress | Retention classes for workflow_events; sweeps run under tenant context; hold     |
+| [event-log-protection](event-log-protection.md)                                             | in-progress | Column-level UPDATE and a maintenance role for DELETE on workflow_events         |
 
 The third-party API specs are per-phase delivery detail. The cross-cutting rules and index live
 in [`docs/third-party-api-design.md`](../third-party-api-design.md), and the decision is ADR-012.

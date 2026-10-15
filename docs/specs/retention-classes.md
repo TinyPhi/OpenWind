@@ -23,8 +23,7 @@ deleted case history by age alone.
    - _comment_ — `from_state = to_state` and `metadata->>'type' = 'comment'`.
    - _noise_ — a same-state event with no `metadata.type`. Same-state events with any other type
      (record updates, access grants, attachment and severity records) are evidence.
-     A caller-written `metadata.type` can only move an event between the two same-state classes
-     (a longer or shorter window); it can never turn evidence into something deletable.
+     The class is read from the state columns and `metadata.type` at sweep time.
 3. **Windows**, in days. Defaults come from validated env settings and can be overridden per tenant
    in `tenants.config`. An invalid override falls back to the default for that field only. A config that is not an object is treated as a hold.
 

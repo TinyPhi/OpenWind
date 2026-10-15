@@ -24,6 +24,9 @@ const mockTx = { delete: mockDelete };
 const mockWithTenantContext = vi.fn(
   (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTx),
 );
+const mockWithEventLogMaintenanceContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTx),
+);
 const mockLockRelease = vi.fn().mockResolvedValue(undefined);
 const mockAcquireTenantAdvisoryLock = vi
   .fn()
@@ -37,6 +40,9 @@ vi.mock("@platform/db", () => ({
   },
   withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
     mockWithTenantContext(...args),
+  withEventLogMaintenanceContext: (
+    ...args: Parameters<typeof mockWithEventLogMaintenanceContext>
+  ) => mockWithEventLogMaintenanceContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
   recordPlatformAdminAction: (...args: unknown[]) =>
@@ -158,6 +164,10 @@ describe("processSandboxResetJob", () => {
       expect.any(Function),
     );
     expect(mockDelete).toHaveBeenCalled();
+    expect(mockWithEventLogMaintenanceContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
     expect(mockSeedAllModulesData).toHaveBeenCalledWith(TENANT_ID, [
       "helpdesk",
       "crm",

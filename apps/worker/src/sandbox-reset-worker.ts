@@ -43,6 +43,7 @@ import { eq } from "drizzle-orm";
 import {
   db,
   withTenantContext,
+  withEventLogMaintenanceContext,
   tenants,
   acquireTenantAdvisoryLock,
   recordPlatformAdminAction,
@@ -223,6 +224,12 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
         .where(eq(scheduleExecutions.tenantId, tenantId));
       await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
 
+      // Workflow events are an FK child of entity_instances; app_user cannot DELETE them
+      // (migration 0147), so they go first through the maintenance context.
+      await withEventLogMaintenanceContext(tenantId, (tx) =>
+        tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, tenantId)),
+      );
+
       await withTenantContext(tenantId, async (tx) => {
         await tx
           .delete(notificationRecipients)
@@ -249,10 +256,7 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
         await tx.delete(attachments).where(eq(attachments.tenantId, tenantId));
         await tx.delete(files).where(eq(files.tenantId, tenantId));
 
-        // workflow_events / entity_relations are FK children of entity_instances
-        await tx
-          .delete(workflowEvents)
-          .where(eq(workflowEvents.tenantId, tenantId));
+        // entity_relations is an FK child of entity_instances
         await tx
           .delete(entityRelations)
           .where(eq(entityRelations.tenantId, tenantId));
