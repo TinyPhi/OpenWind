@@ -24,6 +24,9 @@ const OverrideStateSchema = z.object({
  * workflow's transitions (docs/specs/state-override.md). Admin only; the workflow must have
  * switched `allowStateOverride` on; the record's creator cannot use it on their own record.
  * The admin audit entry is written in the same transaction as the state change.
+ *
+ * Rate limit: the default per-tenant limiter applies and is deliberately not tightened. The
+ * route is admin-only, needs a per-workflow switch and a reason, and every call is audited.
  */
 export const overrideStateHandler = factory.createHandlers(
   requireAuth(),
