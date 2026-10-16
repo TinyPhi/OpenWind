@@ -17,6 +17,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Two overlapping key-expiry runs can no longer both send the digest (short Redis lock, released only by the run
   that took it), and a failed send is retried by the queue (3 attempts, exponential backoff) instead of waiting for the next day.
+
 ## [Unreleased — event-log protection (#777)]
 
 ### Changed
