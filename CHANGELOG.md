@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — deleting the last attachment of a comment]
+
+### Fixed
+
+- **Deleting the last attachment of a comment no longer fails.** Removing the only file id from a comment left
+  the event's metadata empty-valued (NULL), which the database refused, so the delete returned an error. The
+  comment now keeps an empty attachment list.
+
+---
+
 ## [Unreleased — Zitadel machine-key expiry digest follow-ups (#953)]
 
 ### Added
