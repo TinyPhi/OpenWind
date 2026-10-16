@@ -95,6 +95,13 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
           // Invalid regex stored in config — skip rather than crash validation
         }
       }
+      // Every workflow record has a title (docs/specs/mandatory-ticket-fields.md R1); a key
+      // holding only whitespace is no title.
+      if (field.name === "title") {
+        return s.refine((v) => v.trim().length > 0, {
+          message: "Title can't be blank",
+        });
+      }
       return s;
     }
 

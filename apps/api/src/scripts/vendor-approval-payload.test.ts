@@ -42,6 +42,7 @@ describe("mapVendorPayload", () => {
   it("maps the payload onto vendor entity fields, carrying source and external id", () => {
     const fields = mapVendorPayload(VendorPayloadSchema.parse(VALID));
     expect(fields).toEqual({
+      title: "Vendor approval: Acme Analytics",
       vendor_name: "Acme Analytics",
       category: "software",
       contact_email: "sales@acme.example",

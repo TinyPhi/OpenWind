@@ -24,6 +24,8 @@ export interface FieldInputField {
     options?: Array<string | { label: string; value: string; color?: string }>;
     allowedCurrencies?: string[];
     target_entity_type?: string;
+    /** Engine-written: callers show the value as text, never this input. */
+    readOnly?: boolean;
   };
 }
 

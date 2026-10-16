@@ -138,6 +138,34 @@ describe("EntityInstanceCreate — Mandate/Other tabs", () => {
     });
     expect(screen.queryByText("Title")).toBeNull();
   });
+
+  // docs/specs/mandatory-ticket-fields.md R2: isSystem means protected, not hidden; an
+  // engine-written (readOnly) field is never a create-form input.
+  it("shows a protected title, and leaves a read-only field out of the form", async () => {
+    mockLoad([
+      { ...MANDATE_FIELD, isSystem: true },
+      {
+        ...OTHER_FIELD,
+        id: "f-submitted",
+        name: "submitted_at",
+        label: "Submitted At",
+        isSystem: true,
+        config: { readOnly: true },
+      },
+    ]);
+    renderAt();
+
+    await waitFor(() => {
+      expect(screen.getByText("Title")).toBeDefined();
+    });
+    fireEvent.click(screen.getByText("Other"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("No other fields defined for this entity type."),
+      ).toBeDefined();
+    });
+    expect(screen.queryByText("Submitted At")).toBeNull();
+  });
 });
 
 describe("EntityInstanceCreate — mandatory assignedTo/dueDate/remark", () => {

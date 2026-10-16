@@ -40,6 +40,7 @@ import { ModuleService } from "../../src/services/module-service.js";
 const TENANT_ID = "00000000-0000-0000-0000-000000000606";
 
 const READY_FIELDS = {
+  title: "Vendor approval: Acme Analytics",
   vendor_name: "Acme Analytics",
   category: "software",
   contact_email: "sales@acme.example",
@@ -222,6 +223,7 @@ describe("vendor-approval module (#606)", () => {
           "external_ref",
           "security_questionnaire",
           "source_system",
+          "title",
           "vendor_name",
         ].sort(),
       );
@@ -294,7 +296,7 @@ describe("vendor-approval module (#606)", () => {
       expect(types).toHaveLength(1);
       expect(wfs).toHaveLength(1);
       expect(rules).toHaveLength(3);
-      expect(fields).toHaveLength(9);
+      expect(fields).toHaveLength(10);
 
       // 002 deletes + re-inserts transitions, so refresh the id map.
       const rows = await db
@@ -393,6 +395,7 @@ describe("vendor-approval module (#606)", () => {
   describe("R3 — required fields and comments", () => {
     it("blocks submission until justification fields and the security questionnaire are present", async () => {
       const id = await newVendor({
+        title: "Vendor approval: Bare Vendor",
         vendor_name: "Bare Vendor",
         category: "services",
       });

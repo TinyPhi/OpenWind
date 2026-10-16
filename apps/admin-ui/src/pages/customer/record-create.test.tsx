@@ -262,6 +262,34 @@ describe("CustomerRecordCreate — Mandate/Other tabs", () => {
       ).toBeDefined();
     });
   });
+
+  // docs/specs/mandatory-ticket-fields.md R2: an engine-written (readOnly) field, like tender's
+  // submitted_at, is never filled in by hand.
+  it("leaves a read-only field out of the form", async () => {
+    renderAt({ entityTypeId: "et-1", workflowId: "wf-1" }, [
+      ...FIELDS,
+      {
+        id: "f-submitted",
+        name: "submitted_at",
+        label: "Submitted At",
+        fieldType: "datetime",
+        isRequired: false,
+        isSystem: true,
+        config: { readOnly: true },
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Mandate")).toBeDefined();
+    });
+    fireEvent.click(screen.getByText("Other"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("No other fields defined for this entity type."),
+      ).toBeDefined();
+    });
+    expect(screen.queryByText("Submitted At")).toBeNull();
+  });
 });
 
 // docs/specs/team-assign-oncall-fallback.md R1 -- User/Team assign-mode

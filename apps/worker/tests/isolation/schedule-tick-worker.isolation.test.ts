@@ -26,6 +26,9 @@ import { schedulerTick } from "../../src/schedule-tick-worker.js";
 
 const TENANT_A = "aaaaaaaa-2222-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-2222-4000-b000-000000000002";
+// Real-shaped Zitadel user ids (numeric, not UUIDs).
+const USER_A = "395069484982800001";
+const USER_B = "395069484982800002";
 
 let entityTypeA: EntityType;
 let entityTypeB: EntityType;
@@ -65,8 +68,8 @@ beforeAll(async () => {
   // Mandate-fields templates require a valid assignedTo, cross-tenant
   // validated against tenant_users (packages/scheduler/src/cross-tenant-refs.ts).
   await db.insert(tenantUsers).values([
-    { tenantId: TENANT_A, userId: "aaaaaaaa-0000-4000-a000-0000000000aa" },
-    { tenantId: TENANT_B, userId: "bbbbbbbb-0000-4000-b000-0000000000bb" },
+    { tenantId: TENANT_A, userId: USER_A },
+    { tenantId: TENANT_B, userId: USER_B },
   ]);
 
   const [ruleA] = await db
@@ -79,7 +82,7 @@ beforeAll(async () => {
       entityTypeId: entityTypeA.id,
       template: {
         title: "Weekly review",
-        assignedTo: "aaaaaaaa-0000-4000-a000-0000000000aa",
+        assignedTo: USER_A,
         due_days: 3,
         remark: "Auto-created weekly review",
       },
@@ -98,7 +101,7 @@ beforeAll(async () => {
       entityTypeId: entityTypeB.id,
       template: {
         title: "Weekly review",
-        assignedTo: "bbbbbbbb-0000-4000-b000-0000000000bb",
+        assignedTo: USER_B,
         due_days: 3,
         remark: "Auto-created weekly review",
       },

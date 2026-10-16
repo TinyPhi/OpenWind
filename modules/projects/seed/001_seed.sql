@@ -8,14 +8,14 @@ WHERE NOT EXISTS (
   SELECT 1 FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'
 );
 
-INSERT INTO entity_fields (id, entity_type_id, tenant_id, name, label, field_type, is_required, is_indexed, sort_order, config)
+INSERT INTO entity_fields (id, entity_type_id, tenant_id, name, label, field_type, is_required, is_indexed, sort_order, config, is_system)
 VALUES
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title',        'Title',        'text',     true,  false, 0, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description',  'Description',  'longtext', false, false, 1, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority',     'Priority',     'enum',     false, false, 2, '{"options":[{"value":"low","label":"Low","color":"#6b7280"},{"value":"medium","label":"Medium","color":"#f59e0b"},{"value":"high","label":"High","color":"#ef4444"}]}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'due_date',     'Due Date',     'date',     false, false, 3, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'assignee',     'Assignee',     'text',     false, false, 4, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'story_points', 'Story Points', 'number',   false, false, 5, '{}'::jsonb)
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title',        'Title',        'text',     true,  false, 0, '{}'::jsonb, true),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description',  'Description',  'longtext', false, false, 1, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority',     'Priority',     'enum',     false, false, 2, '{"options":[{"value":"low","label":"Low","color":"#6b7280"},{"value":"medium","label":"Medium","color":"#f59e0b"},{"value":"high","label":"High","color":"#ef4444"}]}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'due_date',     'Due Date',     'date',     false, false, 3, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'assignee',     'Assignee',     'text',     false, false, 4, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Task' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'story_points', 'Story Points', 'number',   false, false, 5, '{}'::jsonb, false)
 ON CONFLICT (entity_type_id, name) DO NOTHING;
 
 -- Idempotency keyed on entity_type_id, not name — see
