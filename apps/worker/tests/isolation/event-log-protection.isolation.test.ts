@@ -19,7 +19,7 @@ import {
 
 const TENANT = "aaaaaaaa-0777-4000-a000-000000000001";
 const OTHER = "bbbbbbbb-0777-4000-b000-000000000002";
-const ids: Record<string, { event: string }> = {};
+const ids: Record<string, { event: string; rich: string }> = {};
 
 async function seed(tenantId: string, name: string): Promise<void> {
   await db
@@ -63,7 +63,29 @@ async function seed(tenantId: string, name: string): Promise<void> {
       originPerformerUserId: "person-1",
     })
     .returning({ id: workflowEvents.id });
-  ids[tenantId] = { event: ev!.id };
+  const [rich] = await db
+    .insert(workflowEvents)
+    .values({
+      tenantId,
+      instanceId: inst!.id,
+      workflowId: wf!.id,
+      fromState: "open",
+      toState: "open",
+      triggeredBy: "user",
+      actorId: "u-1",
+      metadata: {
+        type: "update",
+        actingPersonId: "p-1",
+        actorName: "Ada",
+        changed: {
+          assignee: { old: "u-9", new: "u-2" },
+          note: { old: "a", new: "b" },
+        },
+        fileIds: [],
+      },
+    })
+    .returning({ id: workflowEvents.id });
+  ids[tenantId] = { event: ev!.id, rich: rich!.id };
 }
 
 beforeAll(async () => {
@@ -149,6 +171,128 @@ describe("workflow_events as app_user", () => {
       .from(workflowEvents)
       .where(eq(workflowEvents.id, ids[TENANT]!.event));
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("workflow_events.metadata guard (migration 0148), as app_user", () => {
+  async function setMetadata(metadata: Record<string, unknown>): Promise<void> {
+    await withTenantContext(TENANT, (tx) =>
+      tx
+        .update(workflowEvents)
+        .set({ metadata })
+        .where(eq(workflowEvents.id, ids[TENANT]!.rich)),
+    );
+  }
+  async function current(): Promise<Record<string, unknown>> {
+    const [row] = await db
+      .select({ metadata: workflowEvents.metadata })
+      .from(workflowEvents)
+      .where(eq(workflowEvents.id, ids[TENANT]!.rich));
+    return row!.metadata as Record<string, unknown>;
+  }
+  const base = (): Promise<Record<string, unknown>> => current();
+
+  // Drizzle wraps the driver error; the trigger's SQLSTATE and message sit on its cause.
+  async function expectRefused(
+    attempt: Promise<void>,
+    message: RegExp,
+  ): Promise<void> {
+    const err: unknown = await attempt.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).not.toBeNull();
+    // Cast: the error's shape is only known from the driver, not the type system.
+    const cause = (err as { cause?: { code?: string; message?: string } })
+      .cause;
+    expect(cause?.code).toBe("42501");
+    expect(cause?.message).toMatch(message);
+  }
+  const ONLY_LISTED = /only fileIds, mentions, mentionIdentifiers/;
+  const CHANGED_ONLY_REDACTED =
+    /changed may only have its old\/new values redacted/;
+
+  it("lets the editable keys change", async () => {
+    await setMetadata({
+      ...(await base()),
+      fileIds: ["f-1"],
+      mentions: ["u-2"],
+      mentionIdentifiers: { "u-2": ["ada"] },
+      text: "hello",
+    });
+    expect((await current())["fileIds"]).toEqual(["f-1"]);
+  });
+
+  it("refuses to change or clear type, or to add another key", async () => {
+    await expectRefused(
+      setMetadata({ ...(await base()), type: "comment" }),
+      ONLY_LISTED,
+    );
+    const { type: _type, ...withoutType } = await base();
+    await expectRefused(setMetadata(withoutType), ONLY_LISTED);
+    await expectRefused(
+      setMetadata({ ...(await base()), extra: 1 }),
+      ONLY_LISTED,
+    );
+    expect((await current())["type"]).toBe("update");
+  });
+
+  it("allows actingPersonId and actorName to be redacted but not rewritten", async () => {
+    await expectRefused(
+      setMetadata({ ...(await base()), actingPersonId: "p-2" }),
+      /actingPersonId may only be redacted/,
+    );
+    await expectRefused(
+      setMetadata({ ...(await base()), actorName: "Grace" }),
+      /actorName may only be redacted/,
+    );
+    await setMetadata({
+      ...(await base()),
+      actingPersonId: "[REDACTED]",
+      actorName: "[REDACTED]",
+    });
+    expect((await current())["actorName"]).toBe("[REDACTED]");
+  });
+
+  it("allows changed.<field>.old/new to be redacted but nothing else about it", async () => {
+    const m = await base();
+    const changed = m["changed"] as Record<string, Record<string, unknown>>;
+    await expectRefused(
+      setMetadata({
+        ...m,
+        changed: { ...changed, assignee: { old: "u-1", new: "u-2" } },
+      }),
+      CHANGED_ONLY_REDACTED,
+    );
+    await expectRefused(
+      setMetadata({ ...m, changed: { assignee: changed["assignee"] } }),
+      CHANGED_ONLY_REDACTED,
+    );
+    await expectRefused(
+      setMetadata({
+        ...m,
+        changed: { ...changed, extra: { old: "x", new: "y" } },
+      }),
+      CHANGED_ONLY_REDACTED,
+    );
+    const { changed: _changed, ...withoutChanged } = m;
+    await expectRefused(setMetadata(withoutChanged), CHANGED_ONLY_REDACTED);
+    await expectRefused(
+      setMetadata({ ...m, changed: "[REDACTED]" }),
+      CHANGED_ONLY_REDACTED,
+    );
+    await setMetadata({
+      ...m,
+      changed: {
+        ...changed,
+        assignee: { old: "[REDACTED]", new: "u-2" },
+      },
+    });
+    const after = (await current())["changed"] as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(after["assignee"]).toEqual({ old: "[REDACTED]", new: "u-2" });
   });
 });
 
