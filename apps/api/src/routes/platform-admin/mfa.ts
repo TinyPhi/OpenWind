@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Context } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import {
   requirePlatformAdminIdentity,
@@ -6,6 +7,7 @@ import {
   verifyMfaCode,
   endMfaSession,
   MfaResendTooSoonError,
+  MfaLockedOutError,
   PLATFORM_ADMIN_MFA_SESSION_HEADER,
   MFA_CODE_TTL_SECONDS,
 } from "@platform/auth";
@@ -21,11 +23,29 @@ import { platformAdminFactory } from "./factory.js";
  *
  * No route-local rate limit here beyond the global per-IP rateLimit() mounted on `*`
  * (apps/api/src/app.ts) -- security.md's 10 req/min guidance for auth endpoints is already
- * matched by platform-admin-mfa.ts's own MAX_VERIFY_ATTEMPTS=5-within-the-code's-10-minute-TTL
- * cap on /mfa/verify, which is the more meaningful bound for this specific route (a per-IP
- * limit alone wouldn't stop repeated guesses from different IPs against one admin's code; the
- * attempt cap does). Two independent layers, not a gap.
+ * matched by platform-admin-mfa.ts's own caps: MAX_VERIFY_ATTEMPTS=5 per code within its
+ * 10-minute TTL, and MAX_FAILED_VERIFIES=5 per admin within 30 minutes across resends (which a
+ * new code doesn't reset). These are the more meaningful bound for these routes (a per-IP limit
+ * alone wouldn't stop repeated guesses from different IPs against one admin's code; the
+ * per-admin caps do). Independent layers, not a gap.
  */
+/**
+ * Too many incorrect codes across resends (PR #947 R3 finding 1): no code is sent and none is
+ * verified until the window ends. 429 with Retry-After, like the resend cooldown.
+ */
+function lockedOutResponse(c: Context, retryAfterSeconds: number): Response {
+  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+  c.header("Retry-After", String(retryAfterSeconds));
+  return c.json(
+    {
+      error: "TOO_MANY_ATTEMPTS",
+      message: `Too many incorrect codes. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+      meta: { retryAfterSeconds },
+    },
+    429,
+  );
+}
+
 export const mfaRequestHandler = platformAdminFactory.createHandlers(
   requirePlatformAdminIdentity(),
   async (c) => {
@@ -40,6 +60,9 @@ export const mfaRequestHandler = platformAdminFactory.createHandlers(
     try {
       ({ sentTo } = await requestMfaCode(userId, email));
     } catch (err) {
+      if (err instanceof MfaLockedOutError) {
+        return lockedOutResponse(c, err.retryAfterSeconds);
+      }
       if (err instanceof MfaResendTooSoonError) {
         c.header("Retry-After", String(err.retryAfterSeconds));
         return c.json(
@@ -100,6 +123,9 @@ export const mfaVerifyHandler = platformAdminFactory.createHandlers(
       c.req.header(PLATFORM_ADMIN_MFA_SESSION_HEADER),
     );
     if (!result.ok) {
+      if (result.reason === "locked_out") {
+        return lockedOutResponse(c, result.retryAfterSeconds);
+      }
       return c.json(
         {
           ...VERIFY_FAILURES[result.reason],

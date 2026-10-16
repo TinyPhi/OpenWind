@@ -20,16 +20,22 @@ const mockRequestMfaCode = vi.fn();
 const mockVerifyMfaCode = vi.fn();
 const mockEndMfaSession = vi.fn();
 
-const { MfaResendTooSoonErrorMock } = vi.hoisted(() => ({
+const { MfaResendTooSoonErrorMock, MfaLockedOutErrorMock } = vi.hoisted(() => ({
   MfaResendTooSoonErrorMock: class extends Error {
     constructor(readonly retryAfterSeconds: number) {
       super("too soon");
+    }
+  },
+  MfaLockedOutErrorMock: class extends Error {
+    constructor(readonly retryAfterSeconds: number) {
+      super("locked out");
     }
   },
 }));
 
 vi.mock("@platform/auth", () => ({
   MfaResendTooSoonError: MfaResendTooSoonErrorMock,
+  MfaLockedOutError: MfaLockedOutErrorMock,
   requirePlatformAdminIdentity:
     () =>
     async (
@@ -87,6 +93,17 @@ describe("POST /platform-admin/mfa/request", () => {
     expect(await res.json()).toMatchObject({
       error: "MFA_RESEND_TOO_SOON",
       meta: { retryAfterSeconds: 12 },
+    });
+  });
+
+  it("returns 429 with Retry-After when locked out after too many incorrect codes", async () => {
+    mockRequestMfaCode.mockRejectedValueOnce(new MfaLockedOutErrorMock(1800));
+    const res = await makeApp().request("/mfa/request", { method: "POST" });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("1800");
+    expect(await res.json()).toMatchObject({
+      error: "TOO_MANY_ATTEMPTS",
+      meta: { retryAfterSeconds: 1800 },
     });
   });
 
@@ -152,6 +169,21 @@ describe("POST /platform-admin/mfa/verify", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe(error);
     expect(body.meta).toBeUndefined();
+  });
+
+  it("returns 429 with Retry-After when verify is locked out after too many incorrect codes", async () => {
+    mockVerifyMfaCode.mockResolvedValueOnce({
+      ok: false,
+      reason: "locked_out",
+      retryAfterSeconds: 1800,
+    });
+    const res = await verify("000000");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("1800");
+    expect(await res.json()).toMatchObject({
+      error: "TOO_MANY_ATTEMPTS",
+      meta: { retryAfterSeconds: 1800 },
+    });
   });
 
   it("returns 400 for a malformed code (not 6 digits)", async () => {

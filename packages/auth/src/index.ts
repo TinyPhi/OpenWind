@@ -115,8 +115,11 @@ export {
   endMfaSession,
   maskEmail,
   MfaResendTooSoonError,
+  MfaLockedOutError,
   PLATFORM_ADMIN_MFA_SESSION_HEADER,
   MFA_CODE_TTL_SECONDS,
+  MAX_FAILED_VERIFIES,
+  FAILED_VERIFY_WINDOW_SECONDS,
 } from "./platform-admin-mfa.js";
 export type { MfaVerifyResult } from "./platform-admin-mfa.js";
 export {

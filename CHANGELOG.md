@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — per-sign-in platform-admin MFA, login polish and handover CSV (#947)]
+
+### Security
+
+- **Platform-admin MFA is now enforced per sign-in.** Instead of caching verification for 12 hours
+  per account across devices, each sign-in requires its own MFA verification code. Successful verification
+  issues a cryptographically random session token (hashed in Redis, never stored plaintext), sent via
+  `X-Platform-Admin-Mfa` solely to `/api/platform-admin/*` routes. Tokens are terminated on logout, session
+  expiry, and step-up verification.
+- **Cross-resend brute-force lockout.** In addition to the per-code 5-attempt limit, a persistent failed-verification
+  counter with a 30-minute window prevents indefinite brute-force attacks across resends. Five failed attempts
+  across resends lock out both `/mfa/request` and `/mfa/verify` (429 with `Retry-After`). The counter is only reset
+  on a successful verification.
+- **Wrong MFA code answers with 422 instead of 401.** Previously, a 401 response triggered client auth refresh
+  and automatic replay, consuming two verification attempts per entered guess.
+- **Strict parsing for `PLATFORM_ADMIN_MFA_DEV_BYPASS`.** Replaced `z.coerce.boolean()` with strict literal `"true"`
+  validation so that values like `"false"`, `"0"`, or empty strings cannot inadvertently enable the dev bypass.
+- **Safe handling of trial-expired and suspended tenant sign-outs.** Added `tenantAccessEndedReason` to distinguish
+  403 responses for trial expiration or tenant suspension from standard authorization failures, with validated
+  reason banners on sign-out.
+
+### Added
+
+- **Platform-admin sandbox handover CSV download.** Added a "Download CSV" action to the sandbox handover dialog
+  with a widened dialog layout.
+
+### UI Polish
+
+- **Tenant login page improvements.**
+  - "Need access? Contact us" opens a prefilled product-trial request addressed to `info@rokkalabs.com`.
+  - Replaced the placeholder "W" box with the official OpenWind logo and wordmark.
+  - Removed outdated footer links (dead docs and privacy hashes, copyright, GitHub link).
+  - Streamlined the login card styling by removing the drop shadow while preserving the accent glow.
+
+---
+
 ## [Unreleased — OpenBao production guards and secrets client hardening (#935)]
 
 ### Breaking change (production only)

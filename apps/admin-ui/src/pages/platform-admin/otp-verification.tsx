@@ -237,7 +237,15 @@ export function OtpVerification({
       clearDigits();
     } catch (err) {
       const e = err as ApiError;
-      if (e.status === 429) {
+      if (e.status === 429 && e.code === "TOO_MANY_ATTEMPTS") {
+        // Locked out after too many incorrect codes: no code is valid, and the resend waits
+        // until the lockout ends.
+        const at = Date.now();
+        setNow(at);
+        setResendAt(at + positiveSeconds(e.meta?.retryAfterSeconds) * 1000);
+        setError(e.message);
+        setNeedsNewCode(true);
+      } else if (e.status === 429) {
         // A code from moments ago is still valid; just show when another can be sent.
         const at = Date.now();
         setNow(at);
@@ -307,6 +315,13 @@ export function OtpVerification({
       } else if (e.code === "CODE_EXPIRED" || e.code === "TOO_MANY_ATTEMPTS") {
         setError(e.message);
         setNeedsNewCode(true);
+        // A lockout says how long until a new code can be requested.
+        const wait = positiveSeconds(e.meta?.retryAfterSeconds);
+        if (wait) {
+          const at = Date.now();
+          setNow(at);
+          setResendAt(at + wait * 1000);
+        }
       } else {
         setError(e.message || "Verification failed. Try again.");
       }
