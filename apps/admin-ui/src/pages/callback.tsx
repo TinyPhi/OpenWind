@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { userManager } from "../authProvider.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
+import {
+  clearPlatformAdminMfaSession,
+  getPlatformAdminMfaSession,
+  PLATFORM_ADMIN_MFA_SESSION_HEADER,
+} from "../lib/platform-admin-mfa-session.js";
 import { toTypeSlug, type EntityType } from "../entity-type-context.js";
 import type { HandoffState } from "./login.js";
 
@@ -49,6 +54,20 @@ export function AuthCallback(): React.ReactElement {
           navigate("/login");
           return;
         }
+
+        // A completed sign-in never inherits the previous one's platform-admin verification,
+        // so every platform-admin login asks for a new code (docs/specs/multi-org-sandbox.md R1).
+        // The old token is also ended on the server (keyed by the same user), so a copy of it
+        // left anywhere is useless rather than valid for hours. Not awaited: sign-in must not
+        // wait on it, so the token travels in the request itself rather than from storage.
+        const staleMfaSession = getPlatformAdminMfaSession();
+        if (staleMfaSession) {
+          fetchWithAuth(`${API_URL}/platform-admin/mfa/end`, {
+            method: "POST",
+            headers: { [PLATFORM_ADMIN_MFA_SESSION_HEADER]: staleMfaSession },
+          }).catch(() => undefined);
+        }
+        clearPlatformAdminMfaSession();
 
         // Platform Admin (docs/specs/multi-org-sandbox.md T17) -- checked before the
         // handoff branch below (a platform_admin token never carries handoff state,

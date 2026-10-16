@@ -6,7 +6,10 @@ import React, {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { subscribe, getSnapshot } from "../lib/network-status.js";
-import { consumeSessionExpiredNotice } from "../lib/session-expiry.js";
+import {
+  consumeSessionEndNotice,
+  type SessionEndReason,
+} from "../lib/session-expiry.js";
 
 interface ApiErrorEvent {
   type: "server";
@@ -24,13 +27,25 @@ let _nextId = 0;
 // Read once at module load, not in the component: React Strict Mode runs the
 // state initializer twice in dev, and the notice is one-shot (the first read
 // clears it), so the visible mount would otherwise see nothing.
-const INITIAL_SESSION_EXPIRED_NOTICE = consumeSessionExpiredNotice();
+const INITIAL_SESSION_END_NOTICE = consumeSessionEndNotice();
+
+const SESSION_END_MESSAGE_KEYS: Record<SessionEndReason, string> = {
+  session_expired: "network.sessionExpired",
+  trial_ended: "network.trialEnded",
+  suspended: "network.tenantSuspended",
+};
 
 export function GlobalErrorBanner(): React.ReactElement | null {
   const { t } = useTranslation();
   const [banners, setBanners] = useState<Banner[]>(() =>
-    INITIAL_SESSION_EXPIRED_NOTICE
-      ? [{ id: ++_nextId, type: "auth", message: t("network.sessionExpired") }]
+    INITIAL_SESSION_END_NOTICE
+      ? [
+          {
+            id: ++_nextId,
+            type: "auth",
+            message: t(SESSION_END_MESSAGE_KEYS[INITIAL_SESSION_END_NOTICE]),
+          },
+        ]
       : [],
   );
   const [degradedMsg, setDegradedMsg] = useState<string | null>(null);

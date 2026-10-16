@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { PlatformAdminAuthContext } from "@platform/auth";
 import { sessionHandler } from "./session.js";
-import { mfaRequestHandler, mfaVerifyHandler } from "./mfa.js";
+import { mfaRequestHandler, mfaVerifyHandler, mfaEndHandler } from "./mfa.js";
 import {
   createSandboxHandler,
   sandboxProgressHandler,
@@ -23,6 +23,7 @@ const router = new Hono<{
 router.get("/session", ...sessionHandler);
 router.post("/mfa/request", ...mfaRequestHandler);
 router.post("/mfa/verify", ...mfaVerifyHandler);
+router.post("/mfa/end", ...mfaEndHandler);
 router.post("/sandboxes", ...createSandboxHandler);
 router.get("/sandboxes", ...sandboxListHandler);
 router.get("/sandboxes/:tenantId", ...sandboxDetailHandler);

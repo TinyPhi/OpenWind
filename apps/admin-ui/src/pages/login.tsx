@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { userManager } from "../authProvider.js";
+import { contactUsHref } from "./login-contact.js";
 
 // Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md).
 // A 3rd party opens this route with these params instead of the bare
@@ -196,9 +197,11 @@ export function Login(): React.ReactElement {
 
   return (
     <div className="lp-page lp-page-notebook" data-theme={theme}>
-      {/* Logo, floating top-left — no bar chrome, no brand name (the
-          sign-in card already names OpenWind) */}
-      <div className="lp-float-logo">W</div>
+      {/* Logo, floating top-left -- the same icon and wordmark as the app's navbar. */}
+      <div className="lp-float-logo">
+        <img src="/favicon.svg" alt="" className="logo-icon" />
+        <span className="logo-text">OpenWind</span>
+      </div>
 
       {/* Theme toggle, floating top-right — icon only, no label */}
       <button
@@ -308,35 +311,16 @@ export function Login(): React.ReactElement {
 
         <p className="lp-help">
           {t("login.helpPrompt")}{" "}
-          <a href="mailto:support@openwind.io" className="lp-help-link">
-            {t("login.contactAdmin")}
-          </a>
-        </p>
-      </main>
-
-      {/* ── Footer ── */}
-      <footer className="lp-footer">
-        <div className="lp-footer-inner">
-          <span>{t("login.footer.copyright")}</span>
-          <span className="lp-footer-sep">·</span>
           <a
-            href="https://github.com/openwind"
-            className="lp-footer-link"
+            href={contactUsHref()}
+            className="lp-help-link"
             target="_blank"
             rel="noopener noreferrer"
           >
-            {t("login.footer.github")}
+            {t("login.contactUs")}
           </a>
-          <span className="lp-footer-sep">·</span>
-          <a href="#" className="lp-footer-link">
-            {t("login.footer.docs")}
-          </a>
-          <span className="lp-footer-sep">·</span>
-          <a href="#" className="lp-footer-link">
-            {t("login.footer.privacy")}
-          </a>
-        </div>
-      </footer>
+        </p>
+      </main>
     </div>
   );
 }

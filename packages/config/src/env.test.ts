@@ -69,6 +69,38 @@ describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
   );
 });
 
+describe("PLATFORM_ADMIN_MFA_DEV_BYPASS", () => {
+  it.each([
+    [undefined, false],
+    ["", false],
+    ["false", false],
+    ["0", false],
+    ["no", false],
+    ["TRUE", false],
+    ["true", true],
+  ])(
+    "%s -> %s (only the literal 'true' turns the bypass on)",
+    (value, expected) => {
+      const parsed = EnvSchema.parse(
+        value === undefined
+          ? MINIMAL_VALID_ENV
+          : { ...MINIMAL_VALID_ENV, PLATFORM_ADMIN_MFA_DEV_BYPASS: value },
+      );
+      expect(parsed.PLATFORM_ADMIN_MFA_DEV_BYPASS).toBe(expected);
+    },
+  );
+
+  it("is still refused in production", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        NODE_ENV: "production",
+        PLATFORM_ADMIN_MFA_DEV_BYPASS: "true",
+      }),
+    ).toThrow(/PLATFORM_ADMIN_MFA_DEV_BYPASS must not be true in production/);
+  });
+});
+
 describe("OPS_ALERT_EMAIL", () => {
   it.each([undefined, "", "ops@example.com", "a@example.com, b@example.com"])(
     "accepts %s",

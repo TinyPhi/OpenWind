@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { authProvider } from "../../authProvider.js";
+import { signOutPlatformAdmin } from "./sign-out.js";
 import { CreateSandboxModal } from "./create-sandbox-modal.js";
 import { SandboxesTable } from "./sandboxes-table.js";
 import { SandboxDetailPanel } from "./sandbox-detail-panel.js";
@@ -72,8 +72,8 @@ export function PlatformAdminDashboard(): React.ReactElement {
   async function handleLogout(): Promise<void> {
     setLogoutError(null);
     try {
-      const result = await authProvider.logout({});
-      if (result.redirectTo) window.location.href = result.redirectTo;
+      const redirectTo = await signOutPlatformAdmin();
+      if (redirectTo) window.location.href = redirectTo;
     } catch {
       setLogoutError("Logout failed. Please try again.");
     }

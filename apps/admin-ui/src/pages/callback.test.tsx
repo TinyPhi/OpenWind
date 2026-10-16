@@ -23,6 +23,11 @@ vi.mock("../lib/api.js", () => ({
 }));
 
 const { AuthCallback } = await import("./callback.js");
+const {
+  setPlatformAdminMfaSession,
+  getPlatformAdminMfaSession,
+  clearPlatformAdminMfaSession,
+} = await import("../lib/platform-admin-mfa-session.js");
 
 function renderCallback(): ReturnType<typeof render> {
   return render(
@@ -34,7 +39,8 @@ function renderCallback(): ReturnType<typeof render> {
 
 describe("AuthCallback", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    clearPlatformAdminMfaSession();
   });
 
   afterEach(() => {
@@ -51,6 +57,41 @@ describe("AuthCallback", () => {
       expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
     });
     expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  // docs/specs/multi-org-sandbox.md R1 -- a code on every platform-admin sign-in.
+  it("ends the previous sign-in's platform-admin MFA session on the server, then drops it", async () => {
+    setPlatformAdminMfaSession("old-session");
+    fetchWithAuth.mockReturnValue(new Promise(() => {})); // never answers: sign-in must not wait
+    signinCallback.mockResolvedValue({ state: undefined });
+    renderCallback();
+
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith("/dashboard"));
+    // The token rides in the request itself, since storage is cleared straight after.
+    expect(fetchWithAuth).toHaveBeenCalledWith("/api/platform-admin/mfa/end", {
+      method: "POST",
+      headers: { "X-Platform-Admin-Mfa": "old-session" },
+    });
+    expect(getPlatformAdminMfaSession()).toBeNull();
+  });
+
+  it("still drops the token and continues when ending it on the server fails", async () => {
+    setPlatformAdminMfaSession("old-session");
+    fetchWithAuth.mockRejectedValueOnce(new Error("403"));
+    signinCallback.mockResolvedValue({ state: undefined });
+    renderCallback();
+
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith("/dashboard"));
+    expect(getPlatformAdminMfaSession()).toBeNull();
+  });
+
+  it("keeps the MFA session when the callback completes no sign-in", async () => {
+    setPlatformAdminMfaSession("current-session");
+    signinCallback.mockResolvedValue(undefined);
+    renderCallback();
+
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith("/login"));
+    expect(getPlatformAdminMfaSession()).toBe("current-session");
   });
 
   // T17 (docs/specs/multi-org-sandbox.md) -- a platform_admin token must land on the

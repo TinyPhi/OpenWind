@@ -12,13 +12,16 @@ vi.mock("../authProvider.js", () => ({
 }));
 
 // Real 401 classification, spied redirect (the redirect itself is covered in session-expiry.test.ts).
-const mockEndSession = vi.fn((): void => {});
+const mockEndSession = vi.fn((_reason?: string): void => {});
 vi.mock("./session-expiry.js", async (importOriginal) => ({
   ...(await importOriginal<typeof SessionExpiry>()),
-  endSessionAndRedirectToLogin: (): void => mockEndSession(),
+  endSessionAndRedirectToLogin: (reason?: string): void =>
+    mockEndSession(reason),
 }));
 
 const { fetchRawWithAuth, fetchWithAuth } = await import("./api.js");
+const { setPlatformAdminMfaSession, clearPlatformAdminMfaSession } =
+  await import("./platform-admin-mfa-session.js");
 
 function jsonResponse(status: number, body: unknown = {}): Response {
   const res = {
@@ -212,5 +215,90 @@ describe("cross-origin URL rejection (CodeQL: server-side request forgery)", () 
       /cross-origin/i,
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("tenant closed (trial ended / suspended)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue({ access_token: "t" });
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["TENANT_TRIAL_EXPIRED", "trial_ended"],
+    ["TENANT_SUSPENDED", "suspended"],
+  ])(
+    "fetchWithAuth: a 403 %s signs the user out with reason %s",
+    async (code, reason) => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: code }));
+
+      await expect(fetchWithAuth("/api/modules")).rejects.toThrow();
+
+      expect(mockEndSession).toHaveBeenCalledWith(reason);
+      expect(mockSilentRefresh).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fetchRawWithAuth: a 403 TENANT_TRIAL_EXPIRED signs the user out too", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, { error: "TENANT_TRIAL_EXPIRED" }),
+    );
+
+    const res = await fetchRawWithAuth("/api/export/1");
+
+    expect(res.status).toBe(403);
+    expect(mockEndSession).toHaveBeenCalledWith("trial_ended");
+  });
+
+  it("an ordinary 403 (a forbidden action) does not sign anyone out", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: "FORBIDDEN" }));
+
+    await expect(fetchWithAuth("/api/entity-types/x")).rejects.toThrow();
+
+    expect(mockEndSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("platform-admin MFA session header", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue({ access_token: "t" });
+    fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+    setPlatformAdminMfaSession("mfa-tok");
+  });
+
+  afterEach(() => {
+    clearPlatformAdminMfaSession();
+    vi.unstubAllGlobals();
+  });
+
+  function sentHeader(call: number): string | null {
+    const init = fetchMock.mock.calls[call]?.[1] as { headers: Headers };
+    return init.headers.get("X-Platform-Admin-Mfa");
+  }
+
+  it("is sent on platform-admin requests by both fetch helpers", async () => {
+    await fetchWithAuth("/api/platform-admin/sandboxes");
+    await fetchRawWithAuth("/api/platform-admin/session");
+
+    expect(sentHeader(0)).toBe("mfa-tok");
+    expect(sentHeader(1)).toBe("mfa-tok");
+  });
+
+  it("is never sent to other API routes", async () => {
+    await fetchWithAuth("/api/entity-types");
+
+    expect(sentHeader(0)).toBeNull();
   });
 });

@@ -162,8 +162,13 @@ const EnvSchema = z
     // requirement on platform_admin login (setting up a real authenticator app against
     // every local Zitadel instance is impractical for day-to-day dev). Same safety bar as
     // DEV_TENANT_ID/SKIP_AV_SCAN below: the refine makes it structurally impossible to
-    // enable in production, not just discouraged by convention.
-    PLATFORM_ADMIN_MFA_DEV_BYPASS: z.coerce.boolean().default(false),
+    // enable in production, not just discouraged by convention. Only the literal "true" turns
+    // it on, like SKIP_AV_SCAN: z.coerce.boolean() read "false" as true, so writing
+    // PLATFORM_ADMIN_MFA_DEV_BYPASS=false silently left the bypass on.
+    PLATFORM_ADMIN_MFA_DEV_BYPASS: z
+      .string()
+      .transform((v) => v === "true")
+      .default("false"),
     // ADR-022 Decision 10, #865 — sandbox reset and delete are the two irreversible
     // platform_admin actions, so they need a verification this recent even though the
     // general MFA window is 12 hours. Config, not hardcoded: the bounds keep it a real

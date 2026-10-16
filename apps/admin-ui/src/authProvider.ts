@@ -6,6 +6,7 @@ import {
 import type { User } from "oidc-client-ts";
 import type { AuthProvider } from "@refinedev/core";
 import { emitSessionEnd } from "./lib/session-events.js";
+import { clearPlatformAdminMfaSession } from "./lib/platform-admin-mfa-session.js";
 
 declare const window: Window & {
   __CONFIG__?: {
@@ -133,6 +134,7 @@ export const authProvider: AuthProvider = {
     // sign-out steps means no request finishing mid-logout can be served from
     // the previous identity's cache. If logout then fails, it costs a refetch.
     emitSessionEnd();
+    clearPlatformAdminMfaSession();
     const user = await userManager.getUser();
     await userManager.clearStaleState();
     try {

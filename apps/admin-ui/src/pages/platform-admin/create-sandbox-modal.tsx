@@ -1,6 +1,7 @@
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { downloadHandoverCsv } from "./sandbox-handover-csv.js";
 
 interface ProvisioningProgress {
   status: "pending" | "running" | "completed" | "failed";
@@ -56,6 +57,7 @@ export function CreateSandboxModal({
   const [handover, setHandover] = React.useState<SandboxHandover | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [downloadFailed, setDownloadFailed] = React.useState(false);
 
   const trialDaysNumber = Number(trialDays);
   const trialDaysValid =
@@ -72,6 +74,7 @@ export function CreateSandboxModal({
     setHandover(null);
     setSubmitting(false);
     setError(null);
+    setDownloadFailed(false);
   }
 
   async function handleCreate(e: React.FormEvent): Promise<void> {
@@ -175,7 +178,10 @@ export function CreateSandboxModal({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={!isProvisioning}
-        style={{ maxWidth: 480 }}
+        // The handover lists up to ~21 accounts with email and password side by side, so it
+        // gets a wide dialog; the form and progress steps stay narrow. DialogContent is
+        // width: 100% of its centred overlay, so the wide one still fits a small screen.
+        style={{ maxWidth: handover ? 960 : 480 }}
       >
         {handover ? (
           <>
@@ -190,11 +196,12 @@ export function CreateSandboxModal({
               Each account has its own password. Sign in with either the
               username or the email.
             </p>
-            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            <div style={{ maxHeight: "60vh", overflow: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     <th style={cellStyle}>Username</th>
+                    <th style={cellStyle}>Email</th>
                     <th style={cellStyle}>Role</th>
                     <th style={cellStyle}>Password</th>
                   </tr>
@@ -204,10 +211,8 @@ export function CreateSandboxModal({
                     <tr key={a.email}>
                       <td style={cellStyle}>
                         <strong>{a.username}</strong>
-                        <div style={{ color: "var(--text-muted)" }}>
-                          {a.email}
-                        </div>
                       </td>
+                      <td style={cellStyle}>{a.email}</td>
                       <td style={cellStyle}>{a.role}</td>
                       <td style={cellStyle}>
                         <code style={{ userSelect: "all" }}>{a.password}</code>
@@ -217,16 +222,39 @@ export function CreateSandboxModal({
                 </tbody>
               </table>
             </div>
-            <Button
-              variant="primary"
-              style={{ marginTop: 20 }}
-              onClick={() => {
-                onCreated();
-                resetForm();
-              }}
-            >
-              Done
-            </Button>
+            {downloadFailed && (
+              <p
+                role="alert"
+                style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
+              >
+                Could not create the CSV. Copy the credentials above instead.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDownloadFailed(false);
+                  try {
+                    downloadHandoverCsv(orgName, handover.seededAccounts);
+                  } catch (err) {
+                    console.error("Sandbox handover CSV download failed:", err);
+                    setDownloadFailed(true);
+                  }
+                }}
+              >
+                Download CSV
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  onCreated();
+                  resetForm();
+                }}
+              >
+                Done
+              </Button>
+            </div>
           </>
         ) : jobId ? (
           <>
