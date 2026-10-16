@@ -32,14 +32,20 @@ remove that history.
 The grants guard against defects in application and request-path code. They sit alongside the tenant
 RLS policies and the same `INHERIT FALSE` role shape as `tenant_purge_role` (0144).
 
-## Not covered
+## Metadata (migration 0148)
 
-`metadata` stays editable by the request role, because the writers above need it. Protecting its contents
-would need those writers to move to separate records, which is a larger change and is not part of this one.
+`metadata` holds what an event recorded when it was written (its `type` and the other keys). A
+BEFORE UPDATE trigger (`workflow_events_metadata_guard`) limits an UPDATE to the keys the application and
+erasure legitimately edit: `fileIds`, `mentions`, `mentionIdentifiers`, `text`, `actorName`,
+`actingPersonId` and `changed`. Every other key, including `type`, is fixed once written, and no other key can
+be added. `actingPersonId` and `actorName` may change only to `[REDACTED]`; `changed.<field>.old/new` only to
+`[REDACTED]`, with the same fields. The content of `text`, `mentions`, `mentionIdentifiers` and `fileIds`
+remains editable, and those four keys can still be added, removed or set to any value, because comments,
+attachments and erasure edit them. The trigger protects the recorded `type` and the actor, not the comment body.
 
 ## Tests
 
-`tests/isolation/event-log-protection.isolation.test.ts` (real Postgres): metadata edit works; rewriting
+`tests/isolation/event-log-protection.isolation.test.ts` (real Postgres; the metadata cases fail if the trigger is dropped): metadata edit works; rewriting
 `to_state`, `from_state`, `created_at`, `triggered_by`, or re-attributing the actor or origin performer, and deleting, are refused for `app_user`; redacting the actor and origin performer is allowed;
 the maintenance role cannot UPDATE and deletes only the tenant in context, even with no `tenant_id` filter.
 Re-granting UPDATE and DELETE to `app_user` makes the column and delete tests fail, and dropping the trigger makes the re-attribution tests fail.
