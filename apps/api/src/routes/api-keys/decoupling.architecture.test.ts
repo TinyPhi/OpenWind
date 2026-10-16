@@ -5,8 +5,9 @@
  * This test enforces that:
  * 1. Zitadel-specific DB column naming (zitadel_client_id, etc.) remains decoupled and
  *    represented generically as OIDC Client ID.
- * 2. No packages other than @platform/secrets, @platform/config, and bootstrap scripts
- *    access OPENBAO_* configuration or direct OpenBao APIs, ensuring secrets storage decoupling.
+ * 2. No packages other than @platform/secrets, @platform/config, and bootstrap/deployment
+ *    tooling (packages/openbao-deploy) access OPENBAO_* configuration or direct OpenBao APIs,
+ *    ensuring secrets storage decoupling.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -80,10 +81,13 @@ describe("architectural decoupling guards", () => {
     for (const root of searchRoots) {
       for (const file of walk(root)) {
         const rel = relative(REPO_ROOT, file).replace(/\\/g, "/");
-        // Only packages/secrets and packages/config are allowed to know about OpenBao
+        // Only packages/secrets, packages/config and the OpenBao deployment tooling
+        // (packages/openbao-deploy, #939 -- it checks the production compose's OPENBAO_*
+        // settings, like the bootstrap scripts above) are allowed to know about OpenBao.
         if (
           rel.includes("packages/secrets") ||
-          rel.includes("packages/config")
+          rel.includes("packages/config") ||
+          rel.startsWith("packages/openbao-deploy/")
         ) {
           continue;
         }
