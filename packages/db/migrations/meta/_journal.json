@@ -1030,6 +1030,13 @@
       "when": 1791967471781,
       "tag": "0146_workflows_state_override",
       "breakpoints": false
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1791967472781,
+      "tag": "0147_workflow_events_protection",
+      "breakpoints": false
     }
   ]
 }

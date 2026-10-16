@@ -120,6 +120,26 @@ export async function withTenantPurgeContext<T>(
   });
 }
 
+/**
+ * For the only paths that may delete workflow_events rows: the retention sweep, tenant purge
+ * and sandbox reset (migration 0147). app_user cannot DELETE them. app.tenant_id is set so the
+ * table's tenant RLS policy still confines every statement to `tenantId`; callers keep their
+ * explicit tenant_id filters. The role can also read entity_instances and workflow_states, for
+ * the sweep's open-case guard.
+ */
+export async function withEventLogMaintenanceContext<T>(
+  tenantId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL ROLE event_log_maintenance_role`);
+    await tx.execute(
+      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+    );
+    return fn(tx);
+  });
+}
+
 export async function withTenantAndUserContext<T>(
   tenantId: string,
   userId: string,
