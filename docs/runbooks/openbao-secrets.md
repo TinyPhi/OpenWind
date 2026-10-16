@@ -11,15 +11,15 @@ Owner: Bikash (@bikash-barnwal), per ADR-023 Consequences.
 
 ### What lands where
 
-Several pieces this runbook uses are added by separate pull requests under #911. Until a piece is
-merged, the step that uses it can't be run yet.
+The pieces this runbook uses were added by these pull requests under #911, all merged. The one
+exception is the rollback override (`docker-compose.rollback.yml`, #970); see [Rollback](#rollback).
 
 | Piece                                                                                                                | Added by |
 | -------------------------------------------------------------------------------------------------------------------- | -------- |
-| `@platform/secrets` hardening; production guards; `.env.local` not loaded in production; `db:check-local-ciphertext` | PR 1     |
-| Bootstrap production mode (`BOOTSTRAP_SECRETS_OUT`, `--rotate-introspection-secret`); `pnpm credential:set`          | PR 2     |
-| Startup loaders `packages/openbao-deploy/src/bao-env-loader.mjs` (Node) and `bao-env-loader.py` (Superset)           | PR 3     |
-| `docker-compose.prod.yml`, `.env.production.example`, `pnpm --filter @platform/openbao-deploy check:prod-compose`    | PR 4     |
+| `@platform/secrets` hardening; production guards; `.env.local` not loaded in production; `db:check-local-ciphertext` | #935     |
+| Bootstrap production mode (`BOOTSTRAP_SECRETS_OUT`, `--rotate-introspection-secret`); `pnpm credential:set`          | #936     |
+| Startup loaders `packages/openbao-deploy/src/bao-env-loader.mjs` (Node) and `bao-env-loader.py` (Superset)           | #938     |
+| `docker-compose.prod.yml`, `.env.production.example`, `pnpm --filter @platform/openbao-deploy check:prod-compose`    | #939     |
 
 Some steps also need changes in the **separate OpenBao operations repository**, which runs the
 OpenBao server. They are marked **[ops repo]**. This page does not describe that server's
@@ -63,12 +63,12 @@ touches them.
 - **A bootstrap output directory** (`OPENWIND_BOOTSTRAP_OUT_DIR`, mode `0700`), where bootstrap
   writes any new secrets as a `0600` file for you to load into OpenBao and delete.
 - **The non-secret `.env`** in the checkout root (it is gitignored). It holds wiring only, never a
-  secret. Every variable is documented in `.env.production.example` (PR 4): `OPENWIND_SECRETS_DIR`,
+  secret. Every variable is documented in `.env.production.example` (#939): `OPENWIND_SECRETS_DIR`,
   `OPENWIND_BOOTSTRAP_OUT_DIR`, `OPENBAO_ADDR`, `OPENBAO_NETWORK`, `OPENBAO_NETWORK_CIDR`, the
   fixed per-service addresses (`OW_BAO_IP_BACKEND`, `_WORKER`, `_SUPERSET`, `_SUPERSET_INIT`,
   `_BOOTSTRAP`, `_NOVU_API`, `_NOVU_WORKER`), `OPENWIND_BAO_ENV`, `OPENBAO_TRANSIT_KEY`,
   `COMPOSE_PROFILES` and the public URLs.
-- **No `.env.local`.** Production does not read it (PR 1). After cutover it is removed.
+- **No `.env.local`.** Production does not read it (#935). After cutover it is removed.
 
 All production commands use the production override. To keep them short, this page uses:
 
@@ -148,18 +148,18 @@ For a new deployment with no running instance. To move an existing one, see
    ```
 
    The `kv get` line prints key **names** only. Which keys each service needs is the `BAO_REQUIRED_KEYS`
-   list the production override sets for it (PR 4). Rules that are easy to miss:
+   list the production override sets for it (#939). Rules that are easy to miss:
    - A value two services need is stored **at both paths** (no wildcards). For example
      `REPORTING_BINDING_SECRET` goes in `superset` and in `bootstrap` (the migration runner writes the
      database's copy).
    - `MIGRATION_DATABASE_URL` goes **only** in `bootstrap`, never in `worker` (ADR-001).
    - Superset secrets go only where they are used: `backend` holds just
      `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, and `worker` holds none. Production has no development
-     defaults for them (PR 1), so nothing else needs them.
+     defaults for them (#935), so nothing else needs them.
    - Do not put a key in KV that compose also sets non-empty: the loader refuses to start (exit 78).
-   - `METRICS_TOKEN` must be a real value; production refuses the dev default (PR 1).
+   - `METRICS_TOKEN` must be a real value; production refuses the dev default (#935).
 
-5. **Non-secret `.env`.** Copy `.env.production.example` (PR 4) to `.env` and fill it in.
+5. **Non-secret `.env`.** Copy `.env.production.example` (#939) to `.env` and fill it in.
 
 6. **Check the rendered config** before the first start:
 
@@ -168,7 +168,7 @@ For a new deployment with no running instance. To move an existing one, see
    ```
 
    It fails if the production config would start the dev OpenBao, mount `.env.local`, or set a
-   non-allowlisted `environment:` key (PR 4).
+   non-allowlisted `environment:` key (#939).
 
 7. **Database passwords, before any app starts.** `docker/postgres/init/001_setup.sql` creates
    `app_user`, `migration_user`, `analytics_user` and `superset_user` with passwords that are
@@ -202,7 +202,7 @@ For a new deployment with no running instance. To move an existing one, see
 
 8. **Bootstrap.** Bootstrap in production never writes `.env.local`. New secrets it creates go to a
    file named by `BOOTSTRAP_SECRETS_OUT`, which must not exist yet; without it, bootstrap refuses
-   before rotating anything (PR 2). It also stops before any change unless it has Zitadel
+   before rotating anything (#936). It also stops before any change unless it has Zitadel
    credentials: `ZITADEL_KEY_JSON` in its KV path, or, on the very first run only, a one-time
    `ZITADEL_SETUP_PAT`:
 
@@ -247,11 +247,11 @@ window, and rehearse it (including the [rollback](#rollback)) on a copy first.
   in a read-only transaction, and prints counts, never values.
 
   It is read-only and prints counts only. It **must report zero** before production runs with the
-  new guards (PR 1), because production refuses to decrypt `local:` values. If it reports any,
+  new guards (#935), because production refuses to decrypt `local:` values. If it reports any,
   re-enter those credentials through the write path first:
 
   ```bash
-  pnpm credential:set --tenant <tenant-uuid> --connector <connector-id> --key <name>   # value on stdin (PR 2)
+  pnpm credential:set --tenant <tenant-uuid> --connector <connector-id> --key <name>   # value on stdin (#936)
   ```
 
   In production there is no `.env.local`: the script's `dotenv -e .env.local` wrapper simply
