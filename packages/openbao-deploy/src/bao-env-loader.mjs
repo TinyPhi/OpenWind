@@ -27,6 +27,8 @@
 // Exit codes: 69 unreachable or sealed, 77 refused (including any HTTP redirect, which is
 // never followed), 78 configuration or missing/conflicting key. Otherwise the app's own
 // exit code. The login token is revoked after the read, and also when the read fails.
+// Proxy variables are not used by default (Node's fetch ignores them); setting
+// NODE_USE_ENV_PROXY=1 opts the runtime into them and this loader can't override that.
 //
 // Precedence: OpenBao values win. A key that compose also sets to a non-empty
 // value is a conflict and the loader refuses to start, so a compose default can
