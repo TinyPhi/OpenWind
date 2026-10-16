@@ -26,6 +26,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — OpenBao production guards and secrets client hardening (#935)]
+
+### Breaking change (production only)
+
+With `NODE_ENV=production`, the API and worker now refuse to start when:
+
+- `SECRETS_PROVIDER` is `local` — the local provider's AES key is published in this repo
+- `OPENBAO_TOKEN` is set — use AppRole (`OPENBAO_ROLE_ID` + `OPENBAO_SECRET_ID`) instead
+- `OPENBAO_ADDR` does not start with `https://` — credentials must not travel over plain HTTP
+- `METRICS_TOKEN` is unset or still at its development default — the default is published in this repo
+- A Superset secret (`SUPERSET_SECRET_KEY`, `SUPERSET_GUEST_TOKEN_SECRET`,
+  `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, `SUPERSET_ADMIN_PASSWORD`) is set to its
+  development default
+
+`.env.local` is also no longer read in production — every setting must come from the
+container environment (the OpenBao startup loader, ADR-023 Decision 2).
+
+**Before redeploying** any server still using the dev OpenBao or the default `METRICS_TOKEN`,
+complete the ADR-023 production setup first. See `docs/runbooks/openbao-secrets.md` and
+`docs/deployment-hardening.md`.
+
+### Added
+
+- `packages/secrets`: 5 s request timeout (≈15 s max hold across 3 attempts), retry on
+  transient errors (5xx/429/network, never 4xx), token renewal at 2/3 of lease with
+  re-login fallback, concurrent callers share one login, 403 rate-limited re-login (at most
+  once per 5 s per process), only a short summary of OpenBao's `errors` in logs and thrown
+  errors (≤200 chars)
+- `packages/config`: production guards for `SECRETS_PROVIDER`, `OPENBAO_TOKEN`,
+  `OPENBAO_ADDR`, `METRICS_TOKEN`; Superset secrets are optional in production with no
+  default; `.env.local` not loaded when `NODE_ENV=production`; empty `OPENBAO_TOKEN` /
+  `OPENBAO_ROLE_ID` / `OPENBAO_SECRET_ID` treated as unset
+- `packages/db`: `pnpm --filter @platform/db db:check-local-ciphertext` — read-only
+  pre-cutover check that counts `connector_credentials` rows still holding `local:` ciphertext
+  (needs `MIGRATION_DATABASE_URL` pointing at production or a read replica)
+- `packages/secrets/README.md`: API, provider table, client behaviour, configuration reference
+- `decryptCredential` refuses `local:` ciphertext in production (ADR-023 Decision 7)
+
+---
+
 ## [Unreleased — OpenBao loader hardening (#962, #963)]
 
 ### Security
