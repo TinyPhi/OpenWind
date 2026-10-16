@@ -1,6 +1,11 @@
 import "@platform/telemetry/instrumentation.js";
 import { startErrorTracking } from "@platform/telemetry";
 startErrorTracking();
+import { env } from "@platform/config";
+import { setMandatoryFieldsMode } from "@platform/entity-engine";
+// docs/specs/mandatory-ticket-fields.md: log or reject workflow records missing a mandatory
+// value. The engine reads no config itself.
+setMandatoryFieldsMode(env.MANDATORY_FIELDS_MODE);
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";
 import { startOutboxPoller, stopOutboxPoller } from "./outbox-poller.js";

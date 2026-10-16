@@ -427,7 +427,9 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
     expect(mockCreateEntity).not.toHaveBeenCalled();
   });
 
-  it("succeeds with teamId alone, writing it into fields.team_id (not assignedTo)", async () => {
+  // createEntity now stores teamId in fields.team_id itself, so it survives on entity types
+  // with no team_id field (docs/specs/mandatory-ticket-fields.md B4).
+  it("succeeds with teamId alone, handing it to the engine (not assignedTo)", async () => {
     mockSelectLimitResult = [{ id: "00000000-0000-0000-0000-000000000001" }];
     mockCreateEntity.mockResolvedValue(fakeInstance);
 
@@ -446,10 +448,8 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
       expect.any(Object),
       "t-aaa",
       expect.objectContaining({
-        fields: {
-          subject: "hello",
-          team_id: "00000000-0000-0000-0000-000000000001",
-        },
+        fields: { subject: "hello" },
+        teamId: "00000000-0000-0000-0000-000000000001",
       }),
     );
     expect(mockCreateEntity.mock.calls[0]?.[2]).not.toHaveProperty(

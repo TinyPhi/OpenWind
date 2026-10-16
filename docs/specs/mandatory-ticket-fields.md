@@ -20,14 +20,16 @@ their own extra fields (create page "Others" tab), which admins may make require
 
 ## §C Constraints
 
-| constraint   | value                                                                                                                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| the five     | `fields.title` (entity field) · `due_date` · `remark` · `assigned_to` XOR `fields.team_id` · `severity` (columns)                                                                          |
-| system field | `is_system=true` = protected (no rename/delete/optional — ADR-004 CF-01, ADR-016 D3). NOT "hidden"                                                                                         |
-| hidden/RO    | engine-written fields use field `config.readOnly: true` — shown as text, never an input (tender `submitted_at`/`submitted_by`)                                                             |
-| ADRs         | ADR-003 (validation), ADR-004 CF-01, ADR-016 D3 — consistent. **ADR-012 needs a human amendment** (R6). ADRs are human-authored                                                            |
-| out of scope | label/config changes on the title field (system = fully immutable, accepted); DB-level CHECK constraints (app-layer first; revisit after R9 backfill); child-ticket 3-state machine itself |
-| split        | PR 1 = R1–R3 + R10 + §B fixes (title + visibility); PR 2 = R4–R9 (enforcement everywhere + backfill)                                                                                       |
+| constraint   | value                                                                                                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| the five     | `fields.title` (entity field) · `due_date` · `remark` · `assigned_to` or `fields.team_id` (exactly one on create input; resolve_oncall may later set both) · `severity` (columns)                |
+| system field | `is_system=true` = protected (no rename/delete/optional — ADR-004 CF-01, ADR-016 D3). NOT "hidden"                                                                                               |
+| hidden/RO    | engine-written fields use field `config.readOnly: true` — shown as text, never an input (tender `submitted_at`/`submitted_by`)                                                                   |
+| ADRs         | ADR-003 (validation), ADR-004 CF-01, ADR-016 D3 — consistent. **ADR-012 needs a human amendment** (R6). ADRs are human-authored                                                                  |
+| out of scope | label/config changes on the title field (system = fully immutable, accepted); DB-level CHECK constraints (app-layer first; revisit after R9 backfill); child-ticket 3-state machine itself       |
+| scope        | a workflow record: `workflowId` set, its entity type has a workflow, or a sub-task. Comments are workflow_events rows; helpdesk articles have no workflow                                        |
+| rollout      | engine check `MANDATORY_FIELDS_MODE=log` (default) logs, `enforce` rejects (422); set by api/worker at startup. Sub-task create enforces at the route at once                                    |
+| split        | PR 1 = R1–R3 + R10 + §B fixes (#965); PR 2.1 engine check + create paths; 2.2 automation/scheduler/seeder/install owner; 2.3 edits + erasure; 2.4 template UI; 2.5 fixtures + enforce + backfill |
 
 ## §I Interfaces
 
@@ -98,21 +100,21 @@ R10: Schedule rule assigned to a user saves.
 
 ## §T Tasks
 
-| id  | task                                                                                        | phase | status  | depends                   |
-| --- | ------------------------------------------------------------------------------------------- | ----- | ------- | ------------------------- |
-| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | todo    | —                         |
-| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | todo    | —                         |
-| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | todo    | —                         |
-| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | todo    | —                         |
-| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | todo    | —                         |
-| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | todo    | PR 1                      |
-| T7  | R5 PATCH/bulk PATCH enforcement                                                             | 2     | todo    | T6                        |
-| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | todo    | T6                        |
-| T9  | R8 erasure/removal reassign to workflow owner                                               | 2     | todo    | T6                        |
-| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo    | T6–T9                     |
-| T11 | R6 partner API fallback owner                                                               | 2     | blocked | ADR-012 amendment (human) |
+| id  | task                                                                                        | phase | status                           | depends                   |
+| --- | ------------------------------------------------------------------------------------------- | ----- | -------------------------------- | ------------------------- |
+| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                        | —                         |
+| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                        | —                         |
+| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                        | —                         |
+| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                        | —                         |
+| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                        | —                         |
+| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | 2.1 engine + API paths; 2.2 rest | PR 1                      |
+| T7  | R5 PATCH/bulk PATCH enforcement                                                             | 2     | todo                             | T6                        |
+| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | todo                             | T6                        |
+| T9  | R8 erasure/removal reassign to workflow owner                                               | 2     | todo                             | T6                        |
+| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo                             | T6–T9                     |
+| T11 | R6 partner API fallback owner                                                               | 2     | blocked                          | ADR-012 amendment (human) |
 
-phase gate: PR 1 merged and on the server before PR 2 starts.
+phase gate: PR 1 merged and on the server before PR 2 starts. Owner overrode this on 2026-10-16: PR 2 stacks on #965.
 
 ## §B Bugs / Backprop Log
 
@@ -122,6 +124,8 @@ phase gate: PR 1 merged and on the server before PR 2 starts.
 | B2  | First fix (drop UI filter) would expose tender's engine fields as inputs; second (seed non-system) broke ADR-016 D3 / ADR-004 CF-01 | two meanings of `is_system`; resolved by `config.readOnly` for hiding                               | yes (1st)       |
 | B3  | Schedule rule assigned to a user → 400 "assignedTo invalid" (server + local)                                                        | template validated `assignedTo` as UUID; Zitadel ids are numeric; fixtures used fake UUIDs          | yes (3rd)       |
 | B4  | Helpdesk ticket created with teamId ends with no assignee and no team                                                               | `team_id` written into `fields`, stripped by the type's schema when the type has no `team_id` field | yes (2nd)       |
+| B5  | Sandbox, automation, scheduler and bulk tickets lacked due date/remark/assignee/severity although the create page required them     | the rule lived only in POST /entities and the create page; the engine enforced none of it           | yes (2nd)       |
+| B6  | A record could name another tenant's team, or a workflow of a different entity type                                                 | no tenant check on `team_id`; createEntity never checked the workflow against the type              | no (fixed 2.1)  |
 
 ---
 

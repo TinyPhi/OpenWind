@@ -21,7 +21,8 @@ const mockRestoreEntity = vi.fn();
 const mockGetEntity = vi.fn();
 const mockCountActiveChildren = vi.fn();
 
-vi.mock("@platform/entity-engine", () => ({
+vi.mock("@platform/entity-engine", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   createChildRelation: (...args: unknown[]) => mockCreateChildRelation(...args),
   listChildInstances: (...args: unknown[]) => mockListChildInstances(...args),
   moveChildRelation: (...args: unknown[]) => mockMoveChildRelation(...args),
@@ -69,6 +70,16 @@ vi.mock("../../lib/cascade-cancel-alerts.js", () => ({
   cancelAllPendingAlertsForInstance: vi.fn().mockResolvedValue(undefined),
 }));
 
+// create-child.ts checks the assignee's membership and posts the remark as the first comment.
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  ensureTenantMembers: vi.fn((_tx: unknown, _t: string, ids: string[]) =>
+    Promise.resolve(new Set(ids)),
+  ),
+}));
+vi.mock("../../lib/post-remark-comment.js", () => ({
+  postRemarkComment: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ── Import handlers after mocks ───────────────────────────────────────────────
 
 const { createChildHandler } = await import("./create-child.js");
@@ -113,6 +124,13 @@ const fakeChild = {
 
 beforeEach(() => vi.clearAllMocks());
 
+// docs/specs/mandatory-ticket-fields.md R4: a sub-task needs all five mandatory values.
+const MANDATORY = {
+  assignedTo: "395069484982861826",
+  dueDate: "2099-09-01T00:00:00.000Z",
+  remark: "Needed for the release",
+};
+
 // ── POST /:id/children ────────────────────────────────────────────────────────
 
 describe("POST /:id/children", () => {
@@ -130,6 +148,7 @@ describe("POST /:id/children", () => {
       body: JSON.stringify({
         entityTypeId: ENTITY_TYPE_ID,
         fields: { title: "Sub" },
+        ...MANDATORY,
       }),
     });
 
@@ -150,7 +169,7 @@ describe("POST /:id/children", () => {
       body: JSON.stringify({
         entityTypeId: ENTITY_TYPE_ID,
         fields: { title: "Sub" },
-        dueDate: "2026-09-01T00:00:00.000Z",
+        ...MANDATORY,
       }),
     });
 
@@ -158,7 +177,7 @@ describe("POST /:id/children", () => {
     expect(mockCreateChildRelation).toHaveBeenCalledWith(
       {},
       TENANT,
-      expect.objectContaining({ dueDate: "2026-09-01T00:00:00.000Z" }),
+      expect.objectContaining({ dueDate: MANDATORY.dueDate }),
     );
   });
 
@@ -173,7 +192,11 @@ describe("POST /:id/children", () => {
     const res = await app.request(`/${PARENT_ID}/children`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entityTypeId: ENTITY_TYPE_ID }),
+      body: JSON.stringify({
+        entityTypeId: ENTITY_TYPE_ID,
+        fields: { title: "Sub" },
+        ...MANDATORY,
+      }),
     });
     expect(res.status).toBe(422);
   });

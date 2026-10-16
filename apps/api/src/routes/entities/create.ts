@@ -275,15 +275,11 @@ export const createEntityHandler = factory.createHandlers(
           input.fields,
           orgId,
         );
-        // teamId isn't a createEntity field -- it's written into
-        // fields.team_id (docs/specs/team-assign-oncall-fallback.md R1/§I),
-        // the same JSONB slot the (previously dormant) resolve_oncall
-        // automation rule already reads.
-        const { appClientId, teamId, fields, ...createInput } = input;
+        // createEntity stores teamId in fields.team_id (docs/specs/team-assign-oncall-fallback.md
+        // R1/§I), the slot resolve_oncall reads, even when the type defines no team_id field.
+        const { appClientId, ...createInput } = input;
         return createEntity(tx, tenantId, {
           ...createInput,
-          fields:
-            teamId !== undefined ? { ...fields, team_id: teamId } : fields,
           severity: createInput.severity ?? DEFAULT_TICKET_SEVERITY,
           actorId: userId,
           actorName: actorName ?? undefined,

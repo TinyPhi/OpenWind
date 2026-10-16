@@ -1318,6 +1318,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [newChildAssignedTo, setNewChildAssignedTo] = useState("");
   const [newChildDueDate, setNewChildDueDate] = useState("");
   const [newChildDescription, setNewChildDescription] = useState("");
+  const [newChildRemark, setNewChildRemark] = useState("");
+  const [newChildSeverity, setNewChildSeverity] =
+    useState<Severity>(DEFAULT_SEVERITY);
   const [creatingChild, setCreatingChild] = useState(false);
   const [createChildError, setCreateChildError] = useState<string | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState<{
@@ -2462,7 +2465,25 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   async function createChild(): Promise<void> {
-    if (!id || !effectiveEntityTypeId || !newChildTitle.trim()) return;
+    if (!id || !effectiveEntityTypeId) return;
+    // docs/specs/mandatory-ticket-fields.md R4: a sub-task needs the same five mandatory
+    // values as a full ticket.
+    const missing = [
+      !newChildTitle.trim() && "Title",
+      !newChildAssignedTo && "Assignee",
+      !newChildDueDate && "Due date",
+      !newChildRemark.trim() && "Remark",
+    ].filter((m): m is string => typeof m === "string");
+    if (missing.length > 0) {
+      setCreateChildError(
+        `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required.`,
+      );
+      return;
+    }
+    if (new Date(newChildDueDate).getTime() <= Date.now()) {
+      setCreateChildError("Due date must be in the future.");
+      return;
+    }
     setCreatingChild(true);
     setCreateChildError(null);
     try {
@@ -2476,16 +2497,18 @@ export function CustomerRecordDetail(): React.ReactElement {
         body: JSON.stringify({
           entityTypeId: effectiveEntityTypeId,
           fields: childFields,
-          ...(newChildAssignedTo ? { assignedTo: newChildAssignedTo } : {}),
-          ...(newChildDueDate
-            ? { dueDate: new Date(newChildDueDate).toISOString() }
-            : {}),
+          assignedTo: newChildAssignedTo,
+          dueDate: new Date(newChildDueDate).toISOString(),
+          remark: newChildRemark.trim(),
+          severity: newChildSeverity,
         }),
       });
       setNewChildTitle("");
       setNewChildAssignedTo("");
       setNewChildDueDate("");
       setNewChildDescription("");
+      setNewChildRemark("");
+      setNewChildSeverity(DEFAULT_SEVERITY);
       setShowCreateChild(false);
       void loadChildren();
     } catch (err) {
@@ -5761,7 +5784,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Assign to</label>
+              <label className="form-label">Assign to *</label>
               <AssignDropdown
                 value={newChildAssignedTo}
                 users={users}
@@ -5771,12 +5794,49 @@ export function CustomerRecordDetail(): React.ReactElement {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Due date</label>
+              <label className="form-label" htmlFor="new-child-due">
+                Due date *
+              </label>
               <input
+                id="new-child-due"
                 className="form-input"
                 type="datetime-local"
                 value={newChildDueDate}
                 onChange={(e) => setNewChildDueDate(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="new-child-severity">
+                Severity *
+              </label>
+              <select
+                id="new-child-severity"
+                className="form-input"
+                value={newChildSeverity}
+                onChange={(e) =>
+                  // The options are exactly SEVERITY_LEVELS.
+                  setNewChildSeverity(e.target.value as Severity)
+                }
+              >
+                {SEVERITY_LEVELS.map((s) => (
+                  <option key={s} value={s}>
+                    {SEVERITY_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="new-child-remark">
+                Remark *
+              </label>
+              <textarea
+                id="new-child-remark"
+                className="form-input"
+                rows={2}
+                placeholder="Why this sub-task exists…"
+                value={newChildRemark}
+                onChange={(e) => setNewChildRemark(e.target.value)}
+                style={{ resize: "vertical" }}
               />
             </div>
             <div className="form-group">
@@ -5800,6 +5860,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                 setNewChildAssignedTo("");
                 setNewChildDueDate("");
                 setNewChildDescription("");
+                setNewChildRemark("");
+                setNewChildSeverity(DEFAULT_SEVERITY);
                 setCreateChildError(null);
               }}
             >
@@ -5807,7 +5869,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </Button>
             <Button
               variant="primary"
-              disabled={!newChildTitle.trim() || creatingChild}
+              disabled={creatingChild}
               onClick={() => void createChild()}
             >
               {creatingChild ? "Creating…" : "Create sub-task"}

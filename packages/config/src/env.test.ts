@@ -90,6 +90,29 @@ describe("OPS_ALERT_EMAIL", () => {
   });
 });
 
+describe("MANDATORY_FIELDS_MODE", () => {
+  it("defaults to log", () => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV).MANDATORY_FIELDS_MODE).toBe(
+      "log",
+    );
+  });
+
+  it("accepts enforce and rejects anything else", () => {
+    expect(
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        MANDATORY_FIELDS_MODE: "enforce",
+      }).MANDATORY_FIELDS_MODE,
+    ).toBe("enforce");
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        MANDATORY_FIELDS_MODE: "strict",
+      }),
+    ).toThrow();
+  });
+});
+
 describe("SECRETS_PROVIDER", () => {
   it("defaults to openbao and requires OPENBAO_ADDR", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);

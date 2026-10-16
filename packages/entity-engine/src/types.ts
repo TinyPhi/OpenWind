@@ -114,6 +114,12 @@ export type CreateChildRelationInput = {
   originMechanism?: "api" | "handoff" | undefined;
   originOidcClientId?: string | undefined;
   originPerformerUserId?: string | undefined;
+  /** Defaults to medium. */
+  severity?: TicketSeverity | undefined;
+  /** Team assignment, stored in `fields.team_id`; same rules as createEntity's teamId. */
+  teamId?: string | undefined;
+  /** Same narrow partner-API exemption as createEntity's. */
+  mandatoryExemption?: "partner_unresolved_assignee" | undefined;
 };
 
 export type MoveChildRelationInput = {
@@ -171,6 +177,18 @@ export type CreateEntityInput = {
    * writes NULL after this feature ships" invariant.
    */
   severity?: TicketSeverity | undefined;
+  /**
+   * Team assignment (the alternative to assignedTo), stored in `fields.team_id` whether or
+   * not the entity type defines that field, and checked against this tenant's teams. A
+   * `fields.team_id` value is treated the same way.
+   */
+  teamId?: string | undefined;
+  /**
+   * docs/specs/mandatory-ticket-fields.md R6: only the partner API sets this, when the
+   * requested assignee can't be resolved, until the ADR-012 amendment. Skips the assignee
+   * part of the mandatory-fields check and nothing else.
+   */
+  mandatoryExemption?: "partner_unresolved_assignee" | undefined;
 };
 
 export type UpdateEntityInput = {

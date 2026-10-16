@@ -2,7 +2,11 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
-import { bulkCreateEntities, BULK_MAX_ITEMS } from "@platform/entity-engine";
+import {
+  bulkCreateEntities,
+  BULK_MAX_ITEMS,
+  TicketSeveritySchema,
+} from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -14,6 +18,13 @@ const BulkCreateSchema = z.object({
         fields: z.record(z.unknown()),
         assignedTo: z.string().optional(),
         workflowId: z.string().uuid().optional(),
+        // docs/specs/mandatory-ticket-fields.md R4: the rest of the five mandatory values.
+        // Optional here while MANDATORY_FIELDS_MODE is "log"; the engine reports or rejects
+        // an item missing them.
+        teamId: z.string().uuid().optional(),
+        dueDate: z.string().datetime().optional(),
+        remark: z.string().trim().min(1).max(4000).optional(),
+        severity: TicketSeveritySchema.optional(),
       }),
     )
     .min(1)

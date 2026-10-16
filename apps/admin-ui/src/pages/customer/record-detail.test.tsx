@@ -91,6 +91,7 @@ vi.mock("../../lib/api.js", () => ({
 
 const { CustomerRecordDetail } = await import("./record-detail.js");
 const { clearCoverageCache } = await import("../../lib/oncall-coverage.js");
+const { clearUsersCache } = await import("../../lib/use-users.js");
 
 const BASE_RECORD = {
   id: RECORD_ID,
@@ -1451,6 +1452,8 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
   beforeEach(() => {
     mockUserId = ADMIN_USER;
     mockProfileRoles = ["admin"];
+    // The shared /users list is cached for a minute; these tests need their own users.
+    clearUsersCache();
   });
 
   afterEach(() => {
@@ -1636,5 +1639,89 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
 
     expect(await screen.findByText("Third floor printer")).toBeDefined();
     expect(screen.queryByText("Submitted At")).toBeNull();
+  });
+
+  // docs/specs/mandatory-ticket-fields.md R4 (owner decision 1): a sub-task needs the same
+  // five mandatory values as a full ticket.
+  async function openSubtaskForm(): Promise<void> {
+    await screen.findByRole("heading", { name: "Printer offline" });
+    fireEvent.click(screen.getByRole("button", { name: /Sub-tasks/ }));
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: "Add sub-task" },
+        { timeout: 3000 },
+      ),
+    );
+  }
+
+  function postBodies(path: string): Array<Record<string, unknown>> {
+    return mockFetchWithAuth.mock.calls
+      .filter(
+        ([url, init]) =>
+          url === path &&
+          (init as { method?: string } | undefined)?.method === "POST",
+      )
+      .map(
+        ([, init]) =>
+          JSON.parse((init as { body: string }).body) as Record<
+            string,
+            unknown
+          >,
+      );
+  }
+
+  it("sends all five mandatory values when creating a sub-task", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.click(screen.getByText("Select assignee"));
+    fireEvent.click(await screen.findByText("Second"));
+    fireEvent.change(screen.getByLabelText("Due date *"), {
+      target: { value: "2099-01-01T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Severity *"), {
+      target: { value: "high" },
+    });
+    fireEvent.change(screen.getByLabelText("Remark *"), {
+      target: { value: "Needed before the board meeting" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    await waitFor(
+      () =>
+        expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toHaveLength(
+          1,
+        ),
+      { timeout: 3000 },
+    );
+    expect(postBodies(`/api/entities/${RECORD_ID}/children`)[0]).toEqual({
+      entityTypeId: ENTITY_TYPE_ID,
+      fields: { title: "Swap the toner" },
+      assignedTo: "u-2",
+      dueDate: new Date("2099-01-01T10:00").toISOString(),
+      remark: "Needed before the board meeting",
+      severity: "high",
+    });
+  });
+
+  it("names the missing values and sends nothing", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    expect(
+      await screen.findByText("Assignee, Due date, Remark are required."),
+    ).toBeDefined();
+    expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toEqual([]);
   });
 });
