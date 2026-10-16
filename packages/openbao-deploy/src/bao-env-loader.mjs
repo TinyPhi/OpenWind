@@ -24,8 +24,9 @@
 //                           config error, so `restart: unless-stopped` can't turn
 //                           it into a tight login loop (default 30)
 //
-// Exit codes: 69 unreachable or sealed, 77 refused, 78 configuration or
-// missing/conflicting key. Otherwise the app's own exit code.
+// Exit codes: 69 unreachable or sealed, 77 refused (including any HTTP redirect, which is
+// never followed), 78 configuration or missing/conflicting key. Otherwise the app's own
+// exit code. The login token is revoked after the read, and also when the read fails.
 //
 // Precedence: OpenBao values win. A key that compose also sets to a non-empty
 // value is a conflict and the loader refuses to start, so a compose default can
@@ -106,11 +107,10 @@ async function call(addr, method, path, body, token) {
       ...(token ? { "x-vault-token": token } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    // Never follow a redirect: it would re-send the AppRole login or the token
-    // to a host the network check never saw. OpenBao doesn't redirect these
-    // calls, so a 3xx is returned as is and treated as a refusal.
+    // A followed redirect would resend the AppRole login or the token to a host the
+    // OPENBAO_NETWORK_CIDR check never saw. OpenBao doesn't redirect, so a 3xx is refused below.
     redirect: "manual",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   let json = null;
   try {
@@ -128,10 +128,16 @@ async function callWithWait(addr, method, path, body, token, deadline) {
     let result;
     try {
       result = await call(addr, method, path, body, token);
-      if (!isTransient(result.status)) return result;
     } catch (err) {
       result = { status: 0, error: err };
     }
+    if (result.status >= 300 && result.status < 400) {
+      return fail(
+        EXIT_REFUSED,
+        `OpenBao answered HTTP ${result.status} (a redirect) at ${addr}; refusing to follow it`,
+      );
+    }
+    if (result.status !== 0 && !isTransient(result.status)) return result;
     if (Date.now() + delay > deadline) {
       const reason =
         result.status === 0
@@ -223,8 +229,8 @@ async function main() {
       deadline,
     );
   } finally {
-    // The token was only needed for this one read. Revoked even when the read
-    // fails, so restarts don't pile up live tokens; a failed revoke is ignored.
+    // The token was only needed for this one read. Revoke it even when the read fails or
+    // gives up, so a restart loop doesn't leave live tokens behind; best effort.
     await call(addr, "POST", "auth/token/revoke-self", {}, token).catch(
       () => {},
     );
