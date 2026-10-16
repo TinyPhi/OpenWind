@@ -76,6 +76,39 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // Retention sweep defaults (docs/specs/retention-classes.md). Per-tenant
+    // overrides live in tenants.config. Evidence and comment defaults are
+    // placeholders pending owner/counsel confirmation.
+    RETENTION_DEFAULT_DAYS: z.coerce
+      .number()
+      .int()
+      .min(7)
+      .max(3650)
+      .default(90),
+    RETENTION_COMMENT_DAYS: z.coerce
+      .number()
+      .int()
+      .min(30)
+      .max(3650)
+      .default(365),
+    RETENTION_EVIDENCE_DAYS: z.coerce
+      .number()
+      .int()
+      .min(365)
+      .max(7300)
+      .default(2555),
+    RETENTION_BATCH_SIZE: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(50000)
+      .default(5000),
+    RETENTION_BATCH_PAUSE_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(5000)
+      .default(50),
     // docs/temporal-scheduler-design.md §3.1/§3.5 — the scheduler tick's poll
     // interval and its cap on missed fires executed in one catch-up run
     // (SCHEDULE_CATCH_UP_MAX exists specifically so a long worker outage on a

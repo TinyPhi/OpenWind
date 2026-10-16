@@ -6,5 +6,8 @@ node_modules
 **/.cache
 *.log
 .env.local
+# Committed dev defaults and history never belong in an image (ADR-023).
+.env
+.git
 .env.*.local
 docker-compose.override.yml

@@ -37,7 +37,9 @@ vi.mock("@platform/redis", () => ({
       store.set(k, v);
       return Promise.resolve("OK");
     },
-    del: (k: string) => {
+    // Mirrors the check-and-delete script: only the holder of the token deletes the key.
+    eval: (_script: string, _numKeys: number, k: string, token: string) => {
+      if (store.get(k) !== token) return Promise.resolve(0);
       store.delete(k);
       return Promise.resolve(1);
     },
@@ -346,6 +348,32 @@ describe("overlapping runs", () => {
 
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+  });
+
+  it("holds the lock under a random token while sending, not a fixed value", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+    let held: string | undefined;
+    mockSend.mockImplementationOnce(() => {
+      held = store.get("ops:zitadel-key-expiry:lock");
+      return Promise.resolve(undefined);
+    });
+
+    await runZitadelKeyExpiryCheck(NOW);
+
+    expect(held).toMatch(/^[0-9a-f-]{36}$/);
+    expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+  });
+
+  it("does not release a lock that a later run took over after the TTL", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+    mockSend.mockImplementationOnce(() => {
+      store.set("ops:zitadel-key-expiry:lock", "later-run-token");
+      return Promise.resolve(undefined);
+    });
+
+    await runZitadelKeyExpiryCheck(NOW);
+
+    expect(store.get("ops:zitadel-key-expiry:lock")).toBe("later-run-token");
   });
 
   it("frees the lock when the send fails, so the retry can send", async () => {

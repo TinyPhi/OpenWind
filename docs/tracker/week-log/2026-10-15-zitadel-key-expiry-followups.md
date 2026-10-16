@@ -10,3 +10,9 @@
   CHANGELOG entry for `OPS_ALERT_EMAIL` and the daily email.
 - **Verified.** Unit tests for concurrent runs, lock release after a failed send and the retry options;
   mutation check confirmed the concurrency test needs the lock.
+- **Review round (R1, R2).** The lock now stores a random token and is released by compare-and-delete (same
+  script as `retention-archival.ts`), so a send that outlives the 300 s TTL cannot delete the lock a later run
+  took. The test mock honours the token, with a takeover test and a token-shape test; a mutation that releases
+  by the wrong token fails the lock tests.
+- **Deferred.** The lock has a fixed TTL with no renewal, so a send slower than 300 s can still overlap with a
+  second run, and the worst case is a duplicate email (the fingerprint is written only after a send).

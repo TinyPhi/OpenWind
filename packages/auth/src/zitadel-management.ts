@@ -844,6 +844,11 @@ export async function listOrgUsers(orgId: string): Promise<OrgUser[]> {
 
   const pending = _fetchOrgUsers(orgId, now, cacheKey);
   _usersCache.set(cacheKey, pending);
+  // A successful fetch replaces this entry with a timed one. Any other outcome (no token, a
+  // non-2xx answer such as a 429) must not leave the empty result cached forever.
+  void pending.finally(() => {
+    if (_usersCache.get(cacheKey) === pending) _usersCache.delete(cacheKey);
+  });
   return pending;
 }
 
@@ -870,23 +875,8 @@ async function _fetchOrgUsers(
     };
 
     const PAGE_LIMIT = 500;
-    const payload: Record<string, unknown> = {
-      query: { limit: PAGE_LIMIT, asc: true },
-      queries: [{ organizationIdQuery: { organizationId: orgId } }],
-    };
-
-    const result = await httpPost(
-      url,
-      issuerHost(),
-      headers,
-      JSON.stringify(payload),
-    );
-
-    if (result.status < 200 || result.status >= 300) {
-      // Never log the raw response body -- see comment in getAccessToken.
-      logger.warn({ status: result.status }, "Zitadel list users failed");
-      return [];
-    }
+    // Bounds the loop (10,000 members); a larger org is logged as truncated rather than looped on.
+    const MAX_PAGES = 20;
 
     interface ZitadelUser {
       userId: string;
@@ -905,18 +895,49 @@ async function _fetchOrgUsers(
       };
     }
 
-    const data = JSON.parse(result.text) as {
-      result?: ZitadelUser[];
-      details?: { totalResult?: string };
-    };
-    const totalResult = parseInt(data.details?.totalResult ?? "0", 10);
-    if (totalResult > PAGE_LIMIT) {
+    const rawUsers: ZitadelUser[] = [];
+    let totalResult = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const payload: Record<string, unknown> = {
+        query: {
+          offset: String(page * PAGE_LIMIT),
+          limit: PAGE_LIMIT,
+          asc: true,
+        },
+        queries: [{ organizationIdQuery: { organizationId: orgId } }],
+      };
+      const result = await httpPost(
+        url,
+        issuerHost(),
+        headers,
+        JSON.stringify(payload),
+      );
+
+      if (result.status < 200 || result.status >= 300) {
+        // Never log the raw response body -- see comment in getAccessToken.
+        logger.warn({ status: result.status }, "Zitadel list users failed");
+        return [];
+      }
+
+      // JSON.parse returns any; the fields read below are all optional-chained.
+      const data = JSON.parse(result.text) as {
+        result?: ZitadelUser[];
+        details?: { totalResult?: string };
+      };
+      const pageUsers = data.result ?? [];
+      rawUsers.push(...pageUsers);
+      totalResult = parseInt(data.details?.totalResult ?? "0", 10);
+      if (pageUsers.length < PAGE_LIMIT || rawUsers.length >= totalResult) {
+        break;
+      }
+    }
+    if (totalResult > rawUsers.length) {
       logger.warn(
-        { orgId, totalResult, fetched: PAGE_LIMIT },
-        "listOrgUsers: result truncated — total exceeds page limit",
+        { orgId, totalResult, fetched: rawUsers.length },
+        "listOrgUsers: result truncated — org larger than the page cap",
       );
     }
-    const users: OrgUser[] = (data.result ?? [])
+    const users: OrgUser[] = rawUsers
       .filter((u) => u.human !== undefined && u.state === "USER_STATE_ACTIVE")
       .map((u) => {
         const profile = u.human?.profile ?? {};
@@ -1084,7 +1105,7 @@ const _userByIdCache = new Map<
  * refreshing it) -- for outbound email, where a changed address must be used right away rather
  * than up to five minutes later. If that fresh lookup can't reach Zitadel (no token, network
  * error, 5xx), a cached value no older than FRESH_FALLBACK_MAX_AGE_MS is returned instead, so a
- * blip never loses a recipient. A 4xx is an answer, not an outage: a deleted user must not be
+ * blip never loses a recipient. A 4xx other than 429 is an answer, not an outage: a deleted user must not be
  * resurrected from the cache and emailed at their old address.
  */
 export async function getUserById(
@@ -1094,7 +1115,7 @@ export async function getUserById(
   const now = Date.now();
   const cached = _userByIdCache.get(userId);
   if (!options.fresh && cached && now < cached.expiresAt) return cached.user;
-  // Only used when the lookup itself failed (no token, 5xx, network/parse error).
+  // Only used when the lookup itself failed (no token, 429, 5xx, network/parse error).
   const cachedAt = cached ? cached.expiresAt - CACHE_TTL_MS : 0;
   const fallback =
     options.fresh && cached && now - cachedAt <= FRESH_FALLBACK_MAX_AGE_MS
@@ -1113,7 +1134,9 @@ export async function getUserById(
       JSON.stringify({ userId }),
     );
 
-    if (result.status >= 500) return fallback;
+    // 429 is transient like a 5xx: keep serving the cached profile rather than treating the
+    // user as not found.
+    if (result.status >= 500 || result.status === 429) return fallback;
     if (result.status < 200 || result.status >= 300) {
       if (options.fresh) _userByIdCache.delete(userId);
       return null;

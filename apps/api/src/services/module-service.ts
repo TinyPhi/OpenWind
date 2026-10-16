@@ -401,7 +401,12 @@ export class ModuleService {
           tx
             .update(workflows)
             .set({ name: newName })
-            .where(eq(workflows.id, seededWorkflow.id)),
+            .where(
+              and(
+                eq(workflows.id, seededWorkflow.id),
+                eq(workflows.tenantId, tenantId),
+              ),
+            ),
         );
       } else {
         logger.warn(

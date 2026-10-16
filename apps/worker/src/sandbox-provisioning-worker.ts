@@ -374,6 +374,7 @@ export async function processSandboxProvisioningJob(
         password: admin.password,
       },
     ];
+    // Also the round-robin set for seeded records (admin first).
     const members = [
       {
         userId: admin.userId,
@@ -436,7 +437,11 @@ export async function processSandboxProvisioningJob(
     // sandbox with some modules only partially seeded is still useful; a partially
     // created ORG/tenant/accounts is not, which is what T11's rollback guards against.
     const coreModuleInstall = await installCoreModulesForSandbox(tenantId);
-    await seedAllModulesData(tenantId, coreModuleInstall.succeeded);
+    await seedAllModulesData(
+      tenantId,
+      coreModuleInstall.succeeded,
+      members.map((m) => m.userId),
+    );
 
     await updateJobProgress(jobId, {
       currentStep: "syncing_directory",

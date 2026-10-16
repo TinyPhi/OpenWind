@@ -8,7 +8,7 @@
  * forgotten. Every run also logs a summary and leaves the result in Redis for the
  * days-remaining gauge, so the notification key expiring (which stops email) still shows up.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { checkMachineKeyExpiry, type MachineKeyExpiry } from "@platform/auth";
 import { sendDirectNotification } from "@platform/notifications";
@@ -27,6 +27,8 @@ const LAST_DIGEST_KEY = "ops:zitadel-key-expiry:last-digest";
 // Held while a run decides and sends, so the daily job and the on-start job cannot both email.
 const RUN_LOCK_KEY = "ops:zitadel-key-expiry:lock";
 const RUN_LOCK_TTL_SECONDS = 300;
+const RELEASE_LOCK_SCRIPT =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
 // A failed send is safe to retry: the last-digest key is written only after a successful send.
 const RETRY_OPTS = {
   attempts: 3,
@@ -274,9 +276,10 @@ export async function runZitadelKeyExpiryCheck(
   );
 
   if (rows.length === 0) return;
+  const lockToken = randomUUID();
   const locked = await redis.set(
     RUN_LOCK_KEY,
-    "1",
+    lockToken,
     "EX",
     RUN_LOCK_TTL_SECONDS,
     "NX",
@@ -288,7 +291,9 @@ export async function runZitadelKeyExpiryCheck(
   try {
     await sendDigestIfDue(rows, now);
   } finally {
-    await redis.del(RUN_LOCK_KEY);
+    // Only the owner releases: a send that outlived the TTL must not delete the lock a later
+    // run took over.
+    await redis.eval(RELEASE_LOCK_SCRIPT, 1, RUN_LOCK_KEY, lockToken);
   }
 }
 

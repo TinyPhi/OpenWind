@@ -14,7 +14,7 @@ import {
 } from "@platform/db";
 import { isNull } from "drizzle-orm";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
-import { ensureTenantMembers } from "../../lib/ensure-user-refs.js";
+import { resolveTenantMembers } from "../../lib/ensure-user-refs.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -32,9 +32,12 @@ const MentionSchema = z.object({
     .default("read_comment"),
 });
 
+// Each mention can cost a Zitadel lookup and a notification row, so the list is bounded.
+const MAX_MENTIONS = 50;
+
 const AddCommentSchema = z.object({
   text: z.string().min(1).max(4000),
-  mentions: z.array(MentionSchema).default([]),
+  mentions: z.array(MentionSchema).max(MAX_MENTIONS).default([]),
   replyTo: z.string().uuid().nullable().default(null),
   fileIds: z.array(z.string().uuid()).max(10).default([]),
 });
@@ -247,9 +250,7 @@ export const addCommentHandler = factory.createHandlers(
     // signed in used to be silently dropped, so mentioning them notified nobody.
     const mentionMemberIds =
       mentionUserIds.length > 0
-        ? await withTenantContext(tenantId, (tx) =>
-            ensureTenantMembers(tx, tenantId, mentionUserIds, orgId),
-          )
+        ? await resolveTenantMembers(tenantId, mentionUserIds, orgId)
         : new Set<string>();
 
     // Classify mentions once, up front, and reuse for both notification
