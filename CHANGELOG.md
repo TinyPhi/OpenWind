@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — OpenBao loader hardening (#962, #963)]
+
+### Security
+
+- **The OpenBao startup loaders no longer follow redirects.** Both the Node and the Python loader now treat any
+  HTTP 3xx from OpenBao as a refusal (exit 77, no retry) instead of following it, so the AppRole login or the
+  token can't be resent to a host the network check never saw.
+- **The loaders revoke their login token when the secret read fails.** Previously a read that gave up (OpenBao
+  unreachable until `BAO_WAIT_SECONDS` ran out) skipped the revoke, leaving a live token per restart.
+
+---
+
 ## [Unreleased — deleting the last attachment of a comment]
 
 ### Fixed
