@@ -68,6 +68,15 @@ def is_transient(status):
     return status == 429 or status >= 500
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: it would re-send the token (or the AppRole
+    login) to a host the network check never saw. OpenBao doesn't redirect
+    these calls, so a 3xx surfaces as an HTTPError and counts as a refusal."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def call(ctx, addr, method, path, body=None, token=None):
     headers = {"content-type": "application/json"}
     if token:
@@ -78,10 +87,18 @@ def call(ctx, addr, method, path, body=None, token=None):
         headers=headers,
         data=json.dumps(body).encode() if body is not None else None,
     )
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ctx), _NoRedirect()
+    )
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=REQUEST_TIMEOUT_S) as res:
+        with opener.open(req, timeout=REQUEST_TIMEOUT_S) as res:
             raw = res.read()
-            return res.status, (json.loads(raw) if raw else {})
+            try:
+                return res.status, (json.loads(raw) if raw else {})
+            except ValueError:
+                # A malformed body is treated like an empty one, so the normal
+                # exit codes and the fail-sleep apply instead of a traceback.
+                return res.status, {}
     except urllib.error.HTTPError as err:
         try:
             return err.code, json.loads(err.read() or b"{}")
@@ -162,12 +179,18 @@ def main():
     if status != 200 or not token:
         fail(EXIT_REFUSED, f"AppRole login refused (HTTP {status})")
 
-    status, kv = call_with_wait(ctx, addr, "GET", f"secret/data/{kv_path}", None, token, deadline)
-    # The token was only needed for this one read.
     try:
-        call(ctx, addr, "POST", "auth/token/revoke-self", {}, token)
-    except (urllib.error.URLError, OSError):
-        pass
+        status, kv = call_with_wait(
+            ctx, addr, "GET", f"secret/data/{kv_path}", None, token, deadline
+        )
+    finally:
+        # The token was only needed for this one read. Revoked even when the
+        # read fails (fail() exits through here), so restarts don't pile up live
+        # tokens; a failed revoke is ignored.
+        try:
+            call(ctx, addr, "POST", "auth/token/revoke-self", {}, token)
+        except (urllib.error.URLError, OSError):
+            pass
 
     data = (kv.get("data") or {}).get("data")
     if status != 200 or not isinstance(data, dict):

@@ -34,6 +34,10 @@ interface FakeBao {
   kvStatus: number;
   kvData: Record<string, unknown>;
   transientFailures: number;
+  // Answer the login or the KV read with a redirect to another path.
+  redirect: "none" | "login" | "kv";
+  // Answer the KV read with 200 and a body that isn't JSON.
+  kvMalformed: boolean;
   calls: string[];
 }
 
@@ -42,6 +46,8 @@ const bao: FakeBao = {
   kvStatus: 200,
   kvData: {},
   transientFailures: 0,
+  redirect: "none",
+  kvMalformed: false,
   calls: [],
 };
 
@@ -88,6 +94,17 @@ beforeAll(async () => {
     (req, res) => {
       const path = req.url ?? "";
       bao.calls.push(path);
+      const redirectHere =
+        (bao.redirect === "login" && path.endsWith("/auth/approle/login")) ||
+        (bao.redirect === "kv" && path.includes("/secret/data/"));
+      if (redirectHere) {
+        res.writeHead(307, { location: "/v1/elsewhere" });
+        return res.end();
+      }
+      if (bao.kvMalformed && path.includes("/secret/data/")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end("this is not json");
+      }
       if (bao.transientFailures > 0 && path.endsWith("/auth/approle/login")) {
         bao.transientFailures--;
         return send(res, 503, { errors: ["Vault is sealed"] });
@@ -131,6 +148,8 @@ beforeEach(() => {
     API_KEY: "REAL-KEY",
   };
   bao.transientFailures = 0;
+  bao.redirect = "none";
+  bao.kvMalformed = false;
   bao.calls = [];
 });
 
@@ -309,6 +328,53 @@ describe.each(LOADERS)("$name", (loader) => {
       expect(
         bao.calls.filter((c) => c.endsWith("/auth/approle/login")),
       ).toHaveLength(3);
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "never follows a redirect on the login (credentials not re-sent)",
+    async () => {
+      bao.redirect = "login";
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(r.childEnv).toEqual({});
+      expect(bao.calls.some((c) => c.endsWith("/v1/elsewhere"))).toBe(false);
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "never follows a redirect on the KV read (token not re-sent), and revokes the token",
+    async () => {
+      bao.redirect = "kv";
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(bao.calls.some((c) => c.endsWith("/v1/elsewhere"))).toBe(false);
+      expect(bao.calls.some((c) => c.endsWith("/auth/token/revoke-self"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "revokes the token when the KV read keeps failing until the wait runs out",
+    async () => {
+      bao.kvStatus = 503;
+      const r = await run({ BAO_WAIT_SECONDS: "1" });
+      expect(r.code).toBe(69);
+      expect(bao.calls.some((c) => c.endsWith("/auth/token/revoke-self"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "treats a malformed KV reply as a refusal (normal exit code, no crash)",
+    async () => {
+      bao.kvMalformed = true;
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(r.loaderLog).not.toMatch(/Traceback/);
+      expect(r.childEnv).toEqual({});
     },
   );
 

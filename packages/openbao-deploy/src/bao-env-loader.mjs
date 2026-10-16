@@ -107,6 +107,10 @@ async function call(addr, method, path, body, token) {
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    // Never follow a redirect: it would re-send the AppRole login or the token
+    // to a host the network check never saw. OpenBao doesn't redirect these
+    // calls, so a 3xx is returned as is and treated as a refusal.
+    redirect: "manual",
   });
   let json = null;
   try {
@@ -208,16 +212,23 @@ async function main() {
     return fail(EXIT_REFUSED, `AppRole login refused (HTTP ${login.status})`);
   }
 
-  const kv = await callWithWait(
-    addr,
-    "GET",
-    `secret/data/${kvPath}`,
-    undefined,
-    token,
-    deadline,
-  );
-  // The token was only needed for this one read.
-  await call(addr, "POST", "auth/token/revoke-self", {}, token).catch(() => {});
+  let kv;
+  try {
+    kv = await callWithWait(
+      addr,
+      "GET",
+      `secret/data/${kvPath}`,
+      undefined,
+      token,
+      deadline,
+    );
+  } finally {
+    // The token was only needed for this one read. Revoked even when the read
+    // fails, so restarts don't pile up live tokens; a failed revoke is ignored.
+    await call(addr, "POST", "auth/token/revoke-self", {}, token).catch(
+      () => {},
+    );
+  }
 
   const data = kv.json?.data?.data;
   if (kv.status !== 200 || !data || typeof data !== "object") {
