@@ -159,6 +159,8 @@ const DEV_OPENBAO = ["openbao", "openbao-init"];
 const REBUILT_FROM_BASE = ["novu-api", "novu-worker"];
 
 export interface CheckOptions {
+  /** "rollback" checks prod + docker-compose.rollback.yml (#943). */
+  mode?: "prod" | "rollback";
   /** docker-compose.yml rendered on its own, for the pinned-image comparison. */
   base?: ComposeConfig;
   /** What a host path is; defaults to the real filesystem. */
@@ -290,6 +292,18 @@ export function checkComposeConfig(
     const service = services[name];
     if (!service) continue; // profile not active
     const entrypoint = [service.entrypoint ?? []].flat().join(" ");
+    // Rollback (#943): the loader is off and the secrets come from a one-time
+    // rollback-<service>.env file instead; every other rule stays the same.
+    if (options.mode === "rollback") {
+      if (entrypoint.includes("bao-env-loader")) {
+        problems.push(`${name}: still starts through the OpenBao loader`);
+      }
+      const files = (service.env_file ?? []).map((f) => f.path ?? "");
+      if (!files.some((f) => /rollback-[a-z-]+\.env$/.test(f))) {
+        problems.push(`${name}: reads no rollback-<service>.env file`);
+      }
+      continue;
+    }
     if (!entrypoint.includes("bao-env-loader")) {
       problems.push(`${name}: does not start through the OpenBao loader`);
     }
@@ -361,9 +375,11 @@ function render(repoRoot: string, files: string[]): ComposeConfig | string {
 
 function main(): number {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const rollback = process.argv.includes("--rollback");
   const prod = render(repoRoot, [
     "docker-compose.yml",
     "docker-compose.prod.yml",
+    ...(rollback ? ["docker-compose.rollback.yml"] : []),
   ]);
   const base = render(repoRoot, ["docker-compose.yml"]);
   if (typeof prod === "string" || typeof base === "string") {
@@ -374,10 +390,13 @@ function main(): number {
   }
 
   const profiles = composeProfiles(repoRoot);
-  const problems = checkComposeConfig(prod, profiles, { base });
+  const problems = checkComposeConfig(prod, profiles, {
+    base,
+    mode: rollback ? "rollback" : "prod",
+  });
   if (problems.length === 0) {
     console.error(
-      `OK: production compose config passes the ADR-023 checks (profiles: ${profiles.join(",") || "none"}).`,
+      `OK: ${rollback ? "rollback" : "production"} compose config passes the ADR-023 checks (profiles: ${profiles.join(",") || "none"}).`,
     );
     return 0;
   }
