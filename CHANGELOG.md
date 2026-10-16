@@ -5,35 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased — OpenBao client hardening and production guards (#911, ADR-023)]
+## [Unreleased — deleting the last attachment of a comment]
 
-### Breaking change (production only)
+### Fixed
 
-- **With `NODE_ENV=production`, the API and worker now refuse to start** if:
-  - `SECRETS_PROVIDER=local` (its AES key is published in this repo);
-  - `OPENBAO_TOKEN` is set (use AppRole: `OPENBAO_ROLE_ID` and `OPENBAO_SECRET_ID`);
-  - `OPENBAO_ADDR` doesn't start with `https://`;
-  - `METRICS_TOKEN` is missing or still its development default;
-  - any Superset secret that is set is still its development default or too short.
-
-  `.env.local` is no longer loaded in production, and `local:` connector ciphertext is refused
-  at decrypt. **Before redeploying a server that runs with `NODE_ENV=production` and the dev OpenBao
-  (`OPENBAO_TOKEN`, `http://openbao:8200`), the default `METRICS_TOKEN`, or settings in
-  `.env.local`:** move it to the ADR-023 setup first, or it won't start. See
-  `docs/deployment-hardening.md`.
-
-### Changed
-
-- `@platform/secrets`: 5 s request timeout, retry on network errors / 429 / 5xx, AppRole token
-  renewal at about 2/3 of its lease, one shared login for concurrent callers, one re-login on 403
-  (at most once every 5 s), and only a short summary of OpenBao's errors in logs.
-- In production the Superset secrets have no development defaults; each service holds only the
-  ones it uses (the API: the service account password; the worker: none).
-
-### Added
-
-- `pnpm --filter @platform/db db:check-local-ciphertext`: read-only count of `local:` connector
-  credentials. Needs a live database connection (`MIGRATION_DATABASE_URL`).
+- **Deleting the last attachment of a comment no longer fails.** Removing the only file id from a comment left
+  the event's metadata empty-valued (NULL), which the database refused, so the delete returned an error. The
+  comment now keeps an empty attachment list.
 
 ---
 
@@ -57,7 +35,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **A case's history can no longer be rewritten or deleted by the request role.** `workflow_events` keeps
   its metadata editable (comment attachments, mentions, erasure) but its state and timestamps are now
   fixed for `app_user`, the actor can only be redacted (never re-attributed), and deleting events needs the new `event_log_maintenance_role` (migration 0147).
-  The retention sweep, tenant purge and sandbox reset use it.
+  The retention sweep, tenant purge and sandbox reset use it. A trigger (migration 0148) also fixes an
+  event's recorded `type` and other metadata keys once written; only attachments, mentions, comment text
+  and erasure redaction can still edit it.
 
 ---
 

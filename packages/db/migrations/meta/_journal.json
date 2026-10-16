@@ -1037,6 +1037,13 @@
       "when": 1791967472781,
       "tag": "0147_workflow_events_protection",
       "breakpoints": false
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1791967473781,
+      "tag": "0148_workflow_events_metadata_guard",
+      "breakpoints": false
     }
   ]
 }
