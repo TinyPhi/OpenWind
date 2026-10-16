@@ -5,11 +5,13 @@
  * This test enforces that:
  * 1. Zitadel-specific DB column naming (zitadel_client_id, etc.) remains decoupled and
  *    represented generically as OIDC Client ID.
- * 2. No packages other than @platform/secrets, @platform/config, and bootstrap scripts
+ * 2. No packages other than @platform/secrets, @platform/config, @platform/openbao-deploy
+ *    (container entrypoint loaders and the production compose check) and bootstrap scripts
  *    access OPENBAO_* configuration or direct OpenBao APIs, ensuring secrets storage decoupling.
+ *    Nothing may depend on @platform/openbao-deploy, so that exemption stays deploy-only.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..", "..");
@@ -80,10 +82,13 @@ describe("architectural decoupling guards", () => {
     for (const root of searchRoots) {
       for (const file of walk(root)) {
         const rel = relative(REPO_ROOT, file).replace(/\\/g, "/");
-        // Only packages/secrets and packages/config are allowed to know about OpenBao
+        // Only packages/secrets and packages/config are allowed to know about OpenBao,
+        // plus packages/openbao-deploy: OpenBao-specific deploy tooling that no other
+        // package may depend on (checked by the next test).
         if (
           rel.includes("packages/secrets") ||
-          rel.includes("packages/config")
+          rel.includes("packages/config") ||
+          rel.startsWith("packages/openbao-deploy/")
         ) {
           continue;
         }
@@ -96,5 +101,24 @@ describe("architectural decoupling guards", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("keeps @platform/openbao-deploy out of every other package's dependencies", () => {
+    const dependents: string[] = [];
+    for (const base of ["apps", "packages", "modules"]) {
+      for (const entry of readdirSync(join(REPO_ROOT, base))) {
+        const manifest = join(REPO_ROOT, base, entry, "package.json");
+        if (!existsSync(manifest)) continue;
+        const rel = relative(REPO_ROOT, manifest).replace(/\\/g, "/");
+        if (rel === "packages/openbao-deploy/package.json") continue;
+        if (
+          readFileSync(manifest, "utf8").includes('"@platform/openbao-deploy"')
+        ) {
+          dependents.push(rel);
+        }
+      }
+    }
+
+    expect(dependents).toEqual([]);
   });
 });
