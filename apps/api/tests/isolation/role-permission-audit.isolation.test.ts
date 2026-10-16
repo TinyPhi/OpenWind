@@ -31,6 +31,8 @@ const NEW_ACTIONS: readonly AuditAction[] = [
   "workflow.admins_updated",
   "workflow.transition_roles_updated",
   "workflow.transition_conditions_updated",
+  "workflow.state_overridden",
+  "workflow.override_policy_updated",
 ];
 
 function insertEntry(tenantId: string, action: string): Promise<void> {

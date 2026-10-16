@@ -170,3 +170,31 @@ export async function auditTransitionConditionChanges(
     },
   });
 }
+
+/**
+ * Records turning a workflow's state-override switch on or off. Writes nothing when it is
+ * unchanged. Call on the same transaction as the write.
+ */
+export async function auditOverridePolicyChange(
+  tx: AuditDb,
+  input: {
+    tenantId: string;
+    actorId: string;
+    workflowId: string;
+    before: boolean;
+    after: boolean;
+  },
+): Promise<void> {
+  if (input.before === input.after) return;
+
+  await writeAuditEntry(tx, {
+    tenantId: input.tenantId,
+    actorId: input.actorId,
+    actorType: "user",
+    resourceType: "workflow",
+    resourceId: input.workflowId,
+    action: "workflow.override_policy_updated",
+    beforeSnapshot: { allowStateOverride: input.before },
+    afterSnapshot: { allowStateOverride: input.after },
+  });
+}

@@ -207,7 +207,12 @@ export type AuditAction =
   // Segregation of duties: a change to a transition's `conditions`, which holds the
   // actor rules. Migration 0145_admin_audit_log_transition_conditions_action.sql extends
   // the DB CHECK constraint in the same commit.
-  | "workflow.transition_conditions_updated";
+  | "workflow.transition_conditions_updated"
+  // Guarded state override (docs/specs/state-override.md): a record moved to a chosen step by an
+  // admin with a recorded reason, and a change to a workflow's override switch. Migration
+  // 0146_workflows_state_override.sql extends the DB CHECK constraint in the same commit.
+  | "workflow.state_overridden"
+  | "workflow.override_policy_updated";
 
 export type AuditEntryInput = {
   tenantId: string;

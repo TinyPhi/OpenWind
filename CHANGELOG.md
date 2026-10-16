@@ -26,6 +26,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+---
+
+## [Unreleased — guarded state override]
+
+### Added
+
+- **A recorded, reasoned way for an admin to move a record to a chosen step** outside its workflow's transitions:
+  `POST /entities/:id/override-state` with `{ state, reason }`. It is admin-only, needs the workflow's new
+  `allowStateOverride` switch (off by default; only a tenant admin can change it, and the change is audited), needs a
+  reason of 10 to 1000 characters, and refuses the record's creator. It locks the row, writes the event and an
+  admin audit entry (`workflow.state_overridden`) in one transaction, emits `workflow.transitioned` with
+  `override: true`, and moves SLA timers like a transition. It counts as acting for segregation-of-duties rules.
+- Migration 0146: `workflows.allow_state_override`, and the two audit actions `workflow.state_overridden` and
+  `workflow.override_policy_updated`.
+
 ## [Unreleased — segregation-of-duties transition conditions]
 
 ### Added
