@@ -69,6 +69,27 @@ describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
   );
 });
 
+describe("OPS_ALERT_EMAIL", () => {
+  it.each([undefined, "", "ops@example.com", "a@example.com, b@example.com"])(
+    "accepts %s",
+    (value) => {
+      expect(() =>
+        EnvSchema.parse(
+          value === undefined
+            ? MINIMAL_VALID_ENV
+            : { ...MINIMAL_VALID_ENV, OPS_ALERT_EMAIL: value },
+        ),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(["not-an-email", "ops@example.com, nope"])("rejects %s", (value) => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, OPS_ALERT_EMAIL: value }),
+    ).toThrow(/OPS_ALERT_EMAIL/);
+  });
+});
+
 describe("SECRETS_PROVIDER", () => {
   it("defaults to openbao and requires OPENBAO_ADDR", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
@@ -322,6 +343,26 @@ describe("DATABASE_DIRECT_URL / DATABASE_LOCK_POOL_MAX (#752)", () => {
     ).toThrow();
     expect(() =>
       EnvSchema.parse({ ...MINIMAL_VALID_ENV, DATABASE_LOCK_POOL_MAX: "0" }),
+    ).toThrow();
+  });
+});
+
+describe("retention settings (docs/specs/retention-classes.md)", () => {
+  it("default to 90/365/2555 days, 5000-row batches and a 50 ms pause", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.RETENTION_DEFAULT_DAYS).toBe(90);
+    expect(parsed.RETENTION_COMMENT_DAYS).toBe(365);
+    expect(parsed.RETENTION_EVIDENCE_DAYS).toBe(2555);
+    expect(parsed.RETENTION_BATCH_SIZE).toBe(5000);
+    expect(parsed.RETENTION_BATCH_PAUSE_MS).toBe(50);
+  });
+
+  it("reject an evidence window below one year or a zero batch size", () => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_EVIDENCE_DAYS: "30" }),
+    ).toThrow();
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_BATCH_SIZE: "0" }),
     ).toThrow();
   });
 });

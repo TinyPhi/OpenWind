@@ -58,12 +58,15 @@ WHERE NOT EXISTS (
 -- tracked follow-up -- team_id/service_id seeding is deferred to whichever
 -- PR resolves that dependency-direction question and updates
 -- validateEntityRefs' dispatch accordingly.
+-- Mandatory-field rule (2026-10-14): title is the only required custom field; every other
+-- field is optional and shows in the create form's Others tab. Due date, assignee, remark
+-- and severity are built-in ticket columns, required at the API layer.
 INSERT INTO entity_fields (entity_type_id, tenant_id, name, label, field_type, config, is_required, is_indexed, is_system, sort_order)
 VALUES
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', '{}'::jsonb, true, true, true, 1),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description', 'Description', 'longtext', '{}'::jsonb, false, false, true, 2),
-  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority', 'Priority', 'select', '{"options": ["low", "medium", "high", "urgent"]}'::jsonb, true, true, true, 3),
-  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'select', '{"options": ["technical", "billing", "general"]}'::jsonb, true, true, true, 4),
+  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority', 'Priority', 'select', '{"options": ["low", "medium", "high", "urgent"]}'::jsonb, false, true, true, 3),
+  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'select', '{"options": ["technical", "billing", "general"]}'::jsonb, false, true, true, 4),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'severity', 'Severity', 'select', '{"options": ["critical", "high", "medium", "low"]}'::jsonb, false, true, true, 5),
   -- Which team/business unit the ticket belongs to. Same shape as
   -- priority/category above -- a plain `select` field, not `entity_ref` --

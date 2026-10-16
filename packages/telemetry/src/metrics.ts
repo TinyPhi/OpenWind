@@ -235,6 +235,114 @@ oncallCoverageGapGauge.addCallback(async (observableResult) => {
   }
 });
 
+// Zitadel machine-key expiry (docs/deployment-hardening.md, "Zitadel machine-key rotation").
+// apps/worker/src/zitadel-key-expiry.ts leaves its latest result under this one key; reading it
+// at scrape time keeps an alert possible even when the expiring key is the one email depends on.
+const ZITADEL_KEY_EXPIRY_REPORT_KEY = "ops:zitadel-key-expiry:report";
+
+const ZITADEL_KEY_NAMES = new Set([
+  "management",
+  "provisioning",
+  "notification",
+]);
+const ZITADEL_KEY_STATUS_RE =
+  /^(ok|warn_(30|14|7|3|1)|expired|long_lived|never_expires|missing|unknown)$/;
+
+interface ZitadelKeyReport {
+  checkedAt: number;
+  rows: { name: string; status: string; expiresAt: string | null }[];
+}
+
+// Only well-formed rows count: a stray value in Redis must not invent label values.
+async function readZitadelKeyReport(): Promise<ZitadelKeyReport | null> {
+  const raw = await getRedis().get(ZITADEL_KEY_EXPIRY_REPORT_KEY);
+  if (!raw) return null;
+  // JSON.parse returns any; the shape is untrusted Redis content, so every field is
+  // type-checked below before use.
+  const parsed = JSON.parse(raw) as {
+    checkedAt?: unknown;
+    rows?: { name?: unknown; status?: unknown; expiresAt?: unknown }[];
+  };
+  const checkedAt =
+    typeof parsed.checkedAt === "string" ? Date.parse(parsed.checkedAt) : NaN;
+  if (Number.isNaN(checkedAt)) return null;
+  const rows = (parsed.rows ?? []).flatMap((r) =>
+    typeof r.name === "string" &&
+    ZITADEL_KEY_NAMES.has(r.name) &&
+    typeof r.status === "string" &&
+    ZITADEL_KEY_STATUS_RE.test(r.status)
+      ? [
+          {
+            name: r.name,
+            status: r.status,
+            expiresAt: typeof r.expiresAt === "string" ? r.expiresAt : null,
+          },
+        ]
+      : [],
+  );
+  return { checkedAt, rows };
+}
+
+const zitadelKeyDaysGauge = meter.createObservableGauge(
+  "openwind_zitadel_key_days_remaining",
+  {
+    description:
+      "Days until each configured Zitadel machine key expires, computed at scrape time (absent when it never expires or could not be checked)",
+  },
+);
+
+zitadelKeyDaysGauge.addCallback(async (observableResult) => {
+  try {
+    const report = await readZitadelKeyReport();
+    for (const row of report?.rows ?? []) {
+      const expiresAt = row.expiresAt ? Date.parse(row.expiresAt) : NaN;
+      if (Number.isNaN(expiresAt)) continue;
+      observableResult.observe((expiresAt - Date.now()) / 86_400_000, {
+        key: row.name,
+      });
+    }
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
+const zitadelKeyStatusGauge = meter.createObservableGauge(
+  "openwind_zitadel_key_status",
+  {
+    description:
+      "1 for each configured Zitadel machine key's current status (ok, warn_N, expired, long_lived, never_expires, missing, unknown)",
+  },
+);
+
+zitadelKeyStatusGauge.addCallback(async (observableResult) => {
+  try {
+    const report = await readZitadelKeyReport();
+    for (const row of report?.rows ?? []) {
+      observableResult.observe(1, { key: row.name, status: row.status });
+    }
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
+// Alert when this grows past ~36 h: the daily check has stopped, so the two gauges above are
+// no longer being refreshed (the report itself expires after 3 days).
+const zitadelKeyCheckAgeGauge = meter.createObservableGauge(
+  "openwind_zitadel_key_check_age_seconds",
+  { description: "Seconds since the last Zitadel machine-key expiry check" },
+);
+
+zitadelKeyCheckAgeGauge.addCallback(async (observableResult) => {
+  try {
+    const report = await readZitadelKeyReport();
+    if (report) {
+      observableResult.observe((Date.now() - report.checkedAt) / 1000);
+    }
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
 const serializer = new PrometheusSerializer();
 
 /** Retrieves current metrics in Prometheus exposition format. */
@@ -303,6 +411,16 @@ export const mentionRecordFailureTotal = meter.createCounter(
   {
     description:
       "Resolved mentions the mention-resolution worker failed to record on a comment",
+  },
+);
+
+// docs/specs/retention-classes.md — rows removed by the retention sweep, so a
+// sweep that deletes nothing (the pre-fix silent no-op) is visible on a dashboard.
+export const retentionDeletedRowsTotal = meter.createCounter(
+  "openwind_retention_deleted_rows_total",
+  {
+    description:
+      "Rows deleted by the retention sweep, by table and retention class",
   },
 );
 

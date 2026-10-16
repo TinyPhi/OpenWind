@@ -14,6 +14,8 @@ import { connection } from "./queues.js";
 import { getNotificationOutboundToken } from "./notification-outbound-auth.js";
 import { validateActiveTenant } from "./tenant-guard.js";
 
+const LOOKUP_CONCURRENCY = 5;
+
 interface OutboundJobData {
   notificationId: string;
   tenantId: string;
@@ -64,6 +66,14 @@ function toAbsoluteLink(link: string | null): string | null {
  * function's internals turn out to need; only this function changes once the
  * real contract is known.
  */
+/** "tusharsh@gmail.com" -> "t***@gmail.com": enough to tell which address was used, without
+ * logging the address itself. */
+export function maskEmail(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.indexOf("@");
+  return at > 0 ? `${email[0]}***${email.slice(at)}` : "***";
+}
+
 async function dispatchOutbound(payload: OutboundPayload): Promise<void> {
   if (!env.NOTIFICATION_SERVICE_URL) {
     logger.info(
@@ -166,11 +176,32 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
         ),
     );
 
-    const recipients = await Promise.all(
-      recipientRows.map(async (r) => {
-        const user = await getUserById(r.userId);
-        return { userId: r.userId, email: user?.email ?? null };
-      }),
+    // Fresh from Zitadel, not the 5-minute user cache: an address changed moments ago must be
+    // used right away. getUserById falls back to the cached value if Zitadel is unreachable.
+    // A bounded number at a time: a notification with many recipients must not fire one
+    // uncached Zitadel lookup per recipient at once (a 429 falls back to the cached profile).
+    const recipients: { userId: string; email: string | null }[] = [];
+    for (let i = 0; i < recipientRows.length; i += LOOKUP_CONCURRENCY) {
+      const batch = recipientRows.slice(i, i + LOOKUP_CONCURRENCY);
+      recipients.push(
+        ...(await Promise.all(
+          batch.map(async (r) => {
+            const user = await getUserById(r.userId, { fresh: true });
+            return { userId: r.userId, email: user?.email ?? null };
+          }),
+        )),
+      );
+    }
+    logger.info(
+      {
+        tenantId,
+        notificationId,
+        recipients: recipients.map((r) => ({
+          userId: r.userId,
+          email: maskEmail(r.email),
+        })),
+      },
+      "Notification outbound: dispatching",
     );
 
     await dispatchOutbound({

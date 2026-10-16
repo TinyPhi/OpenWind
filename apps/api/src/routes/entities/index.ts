@@ -6,6 +6,7 @@ import { updateEntityHandler } from "./update.js";
 import { deleteEntityHandler } from "./delete.js";
 import { listEntitiesHandler } from "./list.js";
 import { setEntityStateHandler } from "./set-state.js";
+import { overrideStateHandler } from "./override-state.js";
 import { createRelationHandler } from "./create-relation.js";
 import { listRelationsHandler } from "./list-relations.js";
 import { deleteRelationHandler } from "./delete-relation.js";
@@ -69,6 +70,7 @@ router.get("/:id", ...getEntityHandler);
 router.patch("/:id", ...updateEntityHandler);
 router.delete("/:id", ...deleteEntityHandler);
 router.post("/:id/state", ...setEntityStateHandler);
+router.post("/:id/override-state", ...overrideStateHandler);
 
 // "/:id/transitions/history" goes first so "/:id/transitions" can't shadow it.
 router.get("/:id/transitions/history", ...listWorkflowEventsHandler);

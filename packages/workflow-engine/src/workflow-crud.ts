@@ -8,6 +8,7 @@ import {
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { WorkflowError } from "./errors.js";
+import { collectRuleStates } from "./condition-evaluator.js";
 import { isWorkflowAdmin, isWorkflowAdminListEditor } from "./authorization.js";
 import type {
   WorkflowDefinition,
@@ -20,7 +21,7 @@ import type {
   UpdateWorkflowStateInput,
   CreateWorkflowTransitionInput,
   UpdateWorkflowTransitionInput,
-  ConditionTree,
+  TransitionConditionTree,
   WorkflowCaller,
 } from "./types.js";
 
@@ -39,6 +40,7 @@ function rowToWorkflow(r: typeof workflows.$inferSelect): WorkflowDefinition {
     maxChildDepth: r.maxChildDepth,
     maxChildrenPerParent: r.maxChildrenPerParent,
     allowAutoGrantOnMention: r.allowAutoGrantOnMention,
+    allowStateOverride: r.allowStateOverride,
     createdAt: r.createdAt,
   };
 }
@@ -66,7 +68,7 @@ function rowToTransition(
     toState: r.toState,
     label: r.label ?? null,
     allowedRoles: r.allowedRoles,
-    conditions: (r.conditions as ConditionTree | null) ?? null,
+    conditions: (r.conditions as TransitionConditionTree | null) ?? null,
     requiresComment: r.requiresComment,
     requiresFields: r.requiresFields,
     sortOrder: r.sortOrder,
@@ -430,12 +432,16 @@ export async function updateWorkflow(
     updates.initialState = input.initialState;
   if (input.allowAutoGrantOnMention !== undefined)
     updates.allowAutoGrantOnMention = input.allowAutoGrantOnMention;
+  if (input.allowStateOverride !== undefined)
+    updates.allowStateOverride = input.allowStateOverride;
 
   if (Object.keys(updates).length === 0) {
     const [current] = await db
       .select()
       .from(workflows)
-      .where(eq(workflows.id, workflowId))
+      .where(
+        and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)),
+      )
       .limit(1);
     if (!current) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
     return rowToWorkflow(current);
@@ -481,7 +487,12 @@ export async function deleteWorkflow(
   const [instance] = await db
     .select({ id: entityInstances.id })
     .from(entityInstances)
-    .where(eq(entityInstances.workflowId, workflowId))
+    .where(
+      and(
+        eq(entityInstances.workflowId, workflowId),
+        eq(entityInstances.tenantId, tenantId),
+      ),
+    )
     .limit(1);
 
   if (instance) {
@@ -504,7 +515,9 @@ export async function deleteWorkflow(
         eq(workflowStates.tenantId, tenantId),
       ),
     );
-  await db.delete(workflows).where(eq(workflows.id, workflowId));
+  await db
+    .delete(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)));
 
   logger.info({ tenantId, workflowId }, "Workflow deleted");
 }
@@ -622,6 +635,7 @@ export async function updateWorkflowState(
       and(
         eq(workflowStates.id, stateId),
         eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
       ),
     )
     .limit(1);
@@ -648,6 +662,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(workflowStates.workflowId, workflowId),
+          eq(workflowStates.tenantId, tenantId),
           eq(workflowStates.name, newName),
         ),
       )
@@ -655,6 +670,13 @@ export async function updateWorkflowState(
     if (duplicate) {
       throw new WorkflowError("WORKFLOW_STATE_NAME_TAKEN", { name: newName });
     }
+    await assertStateNotNamedByRule(
+      db,
+      tenantId,
+      workflowId,
+      current.name,
+      stateId,
+    );
   }
 
   const updates: Partial<typeof workflowStates.$inferInsert> = {};
@@ -688,6 +710,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.tenantId, tenantId),
           eq(workflowTransitions.fromState, oldName),
         ),
       );
@@ -697,6 +720,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.tenantId, tenantId),
           eq(workflowTransitions.toState, oldName),
         ),
       );
@@ -704,7 +728,11 @@ export async function updateWorkflowState(
       .update(workflows)
       .set({ initialState: finalName })
       .where(
-        and(eq(workflows.id, workflowId), eq(workflows.initialState, oldName)),
+        and(
+          eq(workflows.id, workflowId),
+          eq(workflows.tenantId, tenantId),
+          eq(workflows.initialState, oldName),
+        ),
       );
     await db
       .update(entityInstances)
@@ -712,6 +740,7 @@ export async function updateWorkflowState(
       .where(
         and(
           eq(entityInstances.workflowId, workflowId),
+          eq(entityInstances.tenantId, tenantId),
           eq(entityInstances.currentState, oldName),
         ),
       );
@@ -771,6 +800,14 @@ export async function deleteWorkflowState(
     throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
   }
 
+  await assertStateNotNamedByRule(
+    db,
+    tenantId,
+    workflowId,
+    state.name,
+    stateId,
+  );
+
   // Block if any transition references this state
   const [ref] = await db
     .select({ id: workflowTransitions.id })
@@ -820,6 +857,74 @@ export async function deleteWorkflowState(
 
 // ── Transition CRUD ───────────────────────────────────────────────────────────
 
+/**
+ * An `actor_not_prior_actor` rule's `states` are matched against the `from_state` recorded on
+ * past events. A name no state has would never match, so the rule would block nobody: it fails
+ * open. Checked whenever a transition's conditions are written.
+ */
+async function assertRuleStatesExist(
+  db: DbOrTx,
+  tenantId: string,
+  workflowId: string,
+  conditions: TransitionConditionTree | null | undefined,
+): Promise<void> {
+  const named = collectRuleStates(conditions ?? null);
+  if (named.length === 0) return;
+  const rows = await db
+    .select({ name: workflowStates.name })
+    .from(workflowStates)
+    .where(
+      and(
+        eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
+      ),
+    );
+  const known = new Set(rows.map((r) => r.name));
+  const unknown = [...new Set(named)].filter((n) => !known.has(n));
+  if (unknown.length > 0) {
+    throw new WorkflowError("WORKFLOW_CONDITION_STATE_UNKNOWN", { unknown });
+  }
+}
+
+/**
+ * A state a segregation rule names cannot be renamed or deleted. Past events keep the name they
+ * were written with (the log is immutable), so a rename would leave the rule matching nothing
+ * for everything that happened before it, and a deletion would leave it matching nothing at all.
+ * Change the rule first.
+ */
+async function assertStateNotNamedByRule(
+  db: DbOrTx,
+  tenantId: string,
+  workflowId: string,
+  stateName: string,
+  stateId: string,
+): Promise<void> {
+  // A scan of this workflow's transitions in JS, on purpose: a workflow has a handful of
+  // transitions, this runs only on a rename or delete, and the names live inside jsonb trees of
+  // varying shape. A GIN index over `conditions` would not simplify this (the match is over
+  // arbitrary nested `states` arrays) and would add write cost to every transition edit.
+  const rows = await db
+    .select({ conditions: workflowTransitions.conditions })
+    .from(workflowTransitions)
+    .where(
+      and(
+        eq(workflowTransitions.workflowId, workflowId),
+        eq(workflowTransitions.tenantId, tenantId),
+      ),
+    );
+  const named = rows.some((r) =>
+    collectRuleStates(r.conditions as TransitionConditionTree | null).includes(
+      stateName,
+    ),
+  );
+  if (named) {
+    throw new WorkflowError("WORKFLOW_STATE_IN_USE", {
+      stateId,
+      reason: "named by a segregation-of-duties rule",
+    });
+  }
+}
+
 export async function addWorkflowTransition(
   db: DbOrTx,
   tenantId: string,
@@ -828,6 +933,7 @@ export async function addWorkflowTransition(
   input: CreateWorkflowTransitionInput,
 ): Promise<WorkflowTransition> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
+  await assertRuleStatesExist(db, tenantId, workflowId, input.conditions);
 
   const [row] = await db
     .insert(workflowTransitions)
@@ -862,6 +968,7 @@ export async function updateWorkflowTransition(
   input: UpdateWorkflowTransitionInput,
 ): Promise<WorkflowTransition> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
+  await assertRuleStatesExist(db, tenantId, workflowId, input.conditions);
 
   const updates: Partial<typeof workflowTransitions.$inferInsert> = {};
   if (input.label !== undefined) updates.label = input.label;
