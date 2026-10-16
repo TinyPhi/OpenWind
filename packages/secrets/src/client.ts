@@ -106,8 +106,8 @@ async function login(auth: AppRoleAuth): Promise<CachedToken> {
   );
 
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`OpenBao AppRole login failed (${res.status}): ${body}`);
+    const detail = errorDetail(await res.text());
+    throw new Error(`OpenBao AppRole login failed (${res.status}): ${detail}`);
   }
 
   return toCachedToken((await res.json()) as AuthResponse);

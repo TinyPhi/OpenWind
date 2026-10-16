@@ -202,6 +202,18 @@ describe("openbaoRequest", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("puts only a short summary of a refused login's body in the error", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(400, { errors: ["invalid role or secret ID"] }),
+    );
+
+    await expect(
+      openbaoRequest("POST", "transit/decrypt/k", {}),
+    ).rejects.toThrow(
+      /^OpenBao AppRole login failed \(400\): invalid role or secret ID$/,
+    );
+  });
+
   it("reuses the token while it is fresh", async () => {
     fetchMock
       .mockResolvedValueOnce(loginOk("t1"))
