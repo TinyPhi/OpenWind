@@ -5,6 +5,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — OpenBao production guards and secrets client hardening (#935)]
+
+### Breaking change (production only)
+
+With `NODE_ENV=production`, the API and worker now refuse to start when:
+
+- `SECRETS_PROVIDER` is `local` — the local provider's AES key is published in this repo
+- `OPENBAO_TOKEN` is set — use AppRole (`OPENBAO_ROLE_ID` + `OPENBAO_SECRET_ID`) instead
+- `OPENBAO_ADDR` does not start with `https://` — credentials must not travel over plain HTTP
+- `METRICS_TOKEN` is unset or still at its development default — the default is published in this repo
+- A Superset secret (`SUPERSET_SECRET_KEY`, `SUPERSET_GUEST_TOKEN_SECRET`,
+  `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, `SUPERSET_ADMIN_PASSWORD`) is set to its
+  development default
+
+`.env.local` is also no longer read in production — every setting must come from the
+container environment (the OpenBao startup loader, ADR-023 Decision 2).
+
+**Before redeploying** any server still using the dev OpenBao or the default `METRICS_TOKEN`,
+complete the ADR-023 production setup first. See `docs/runbooks/openbao-secrets.md` and
+`docs/deployment-hardening.md`.
+
+### Added
+
+- `packages/secrets`: 5 s request timeout (≈15 s max hold across 3 attempts), retry on
+  transient errors (5xx/429/network, never 4xx), token renewal at 2/3 of lease with
+  re-login fallback, concurrent callers share one login, 403 rate-limited re-login (at most
+  once per 5 s per process), only a short summary of OpenBao's `errors` in logs and thrown
+  errors (≤200 chars)
+- `packages/config`: production guards for `SECRETS_PROVIDER`, `OPENBAO_TOKEN`,
+  `OPENBAO_ADDR`, `METRICS_TOKEN`; Superset secrets are optional in production with no
+  default; `.env.local` not loaded when `NODE_ENV=production`; empty `OPENBAO_TOKEN` /
+  `OPENBAO_ROLE_ID` / `OPENBAO_SECRET_ID` treated as unset
+- `packages/db`: `pnpm --filter @platform/db db:check-local-ciphertext` — read-only
+  pre-cutover check that counts `connector_credentials` rows still holding `local:` ciphertext
+  (needs `MIGRATION_DATABASE_URL` pointing at production or a read replica)
+- `packages/secrets/README.md`: API, provider table, client behaviour, configuration reference
+- `decryptCredential` refuses `local:` ciphertext in production (ADR-023 Decision 7)
+
+---
+
+## [Unreleased — OpenBao loader hardening (#962, #963)]
+
+### Security
+
+- **The OpenBao startup loaders no longer follow redirects.** Both the Node and the Python loader now treat any
+  HTTP 3xx from OpenBao as a refusal (exit 77, no retry) instead of following it, so the AppRole login or the
+  token can't be resent to a host the network check never saw.
+- **The loaders revoke their login token when the secret read fails.** Previously a read that gave up (OpenBao
+  unreachable until `BAO_WAIT_SECONDS` ran out) skipped the revoke, leaving a live token per restart.
+
+---
+
+## [Unreleased — deleting the last attachment of a comment]
+
+### Fixed
+
+- **Deleting the last attachment of a comment no longer fails.** Removing the only file id from a comment left
+  the event's metadata empty-valued (NULL), which the database refused, so the delete returned an error. The
+  comment now keeps an empty attachment list.
+
+---
+
 ## [Unreleased — Zitadel machine-key expiry digest follow-ups (#953)]
 
 ### Added
@@ -25,7 +87,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **A case's history can no longer be rewritten or deleted by the request role.** `workflow_events` keeps
   its metadata editable (comment attachments, mentions, erasure) but its state and timestamps are now
   fixed for `app_user`, the actor can only be redacted (never re-attributed), and deleting events needs the new `event_log_maintenance_role` (migration 0147).
-  The retention sweep, tenant purge and sandbox reset use it.
+  The retention sweep, tenant purge and sandbox reset use it. A trigger (migration 0148) also fixes an
+  event's recorded `type` and other metadata keys once written; only attachments, mentions, comment text
+  and erasure redaction can still edit it.
 
 ---
 

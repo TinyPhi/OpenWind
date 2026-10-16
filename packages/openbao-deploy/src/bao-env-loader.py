@@ -10,8 +10,9 @@
 # for the settings; the only difference is that the CA file, when needed, comes
 # from BAO_CACERT instead of NODE_EXTRA_CA_CERTS.
 #
-# Exit codes: 69 unreachable or sealed, 77 refused, 78 configuration or
-# missing/conflicting key.
+# Exit codes: 69 unreachable or sealed, 77 refused (including any HTTP redirect, which is
+# never followed), 78 configuration or missing/conflicting key. The login token is
+# revoked after the read, and also when the read fails.
 import ipaddress
 import json
 import os
@@ -50,13 +51,25 @@ FAIL_SLEEP_S = number_setting("BAO_FAIL_SLEEP_SECONDS", 30)
 WAIT_S = number_setting("BAO_WAIT_SECONDS", 120)
 
 
+class Fatal(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+# Raises instead of exiting: the pause below must come after main()'s cleanup (the token
+# revoke), or the token would stay live for the whole pause.
 def fail(code, message):
-    log(f"FATAL: {message}")
+    raise Fatal(code, message)
+
+
+def exit_with(fatal):
+    log(f"FATAL: {fatal}")
     # Unreachable already waited; everything else pauses so a restart policy
     # can't hammer OpenBao with failed logins.
-    if code != EXIT_UNREACHABLE and FAIL_SLEEP_S > 0:
+    if fatal.code != EXIT_UNREACHABLE and FAIL_SLEEP_S > 0:
         time.sleep(FAIL_SLEEP_S)
-    sys.exit(code)
+    sys.exit(fatal.code)
 
 
 def need(name):
@@ -66,6 +79,11 @@ def need(name):
 
 def is_transient(status):
     return status == 429 or status >= 500
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def call(ctx, addr, method, path, body=None, token=None):
@@ -78,8 +96,14 @@ def call(ctx, addr, method, path, body=None, token=None):
         headers=headers,
         data=json.dumps(body).encode() if body is not None else None,
     )
+    # A followed redirect would resend the AppRole login or the token to a host the
+    # OPENBAO_NETWORK_CIDR check never saw. OpenBao doesn't redirect, so a 3xx comes back
+    # as an HTTPError and is refused in call_with_wait.
+    opener = urllib.request.build_opener(
+        _NoRedirect(), urllib.request.HTTPSHandler(context=ctx)
+    )
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=REQUEST_TIMEOUT_S) as res:
+        with opener.open(req, timeout=REQUEST_TIMEOUT_S) as res:
             raw = res.read()
             return res.status, (json.loads(raw) if raw else {})
     except urllib.error.HTTPError as err:
@@ -95,6 +119,8 @@ def call_with_wait(ctx, addr, method, path, body, token, deadline):
         error = None
         try:
             status, payload = call(ctx, addr, method, path, body, token)
+            if 300 <= status < 400:
+                fail(EXIT_REFUSED, f"OpenBao answered HTTP {status} (a redirect) at {addr}; refusing to follow it")
             if not is_transient(status):
                 return status, payload
         except (urllib.error.URLError, OSError) as err:
@@ -162,12 +188,15 @@ def main():
     if status != 200 or not token:
         fail(EXIT_REFUSED, f"AppRole login refused (HTTP {status})")
 
-    status, kv = call_with_wait(ctx, addr, "GET", f"secret/data/{kv_path}", None, token, deadline)
-    # The token was only needed for this one read.
     try:
-        call(ctx, addr, "POST", "auth/token/revoke-self", {}, token)
-    except (urllib.error.URLError, OSError):
-        pass
+        status, kv = call_with_wait(ctx, addr, "GET", f"secret/data/{kv_path}", None, token, deadline)
+    finally:
+        # The token was only needed for this one read. Revoke it even when the read fails or
+        # gives up, so a restart loop doesn't leave live tokens behind; best effort.
+        try:
+            call(ctx, addr, "POST", "auth/token/revoke-self", {}, token)
+        except Exception:  # best effort: whatever went wrong here must not replace the exit code
+            pass
 
     data = (kv.get("data") or {}).get("data")
     if status != 200 or not isinstance(data, dict):
@@ -206,4 +235,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Fatal as fatal:
+        exit_with(fatal)
