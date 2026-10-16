@@ -34,7 +34,11 @@ interface FakeBao {
   kvStatus: number;
   kvData: Record<string, unknown>;
   transientFailures: number;
+  kvTransient: boolean;
+  redirect: "login" | "kv" | null;
+  revokeGarbage: boolean;
   calls: string[];
+  callTimes: number[];
 }
 
 const bao: FakeBao = {
@@ -42,7 +46,11 @@ const bao: FakeBao = {
   kvStatus: 200,
   kvData: {},
   transientFailures: 0,
+  kvTransient: false,
+  redirect: null,
+  revokeGarbage: false,
   calls: [],
+  callTimes: [],
 };
 
 let server: Server;
@@ -88,6 +96,18 @@ beforeAll(async () => {
     (req, res) => {
       const path = req.url ?? "";
       bao.calls.push(path);
+      bao.callTimes.push(Date.now());
+      if (bao.redirect === "login" && path.endsWith("/auth/approle/login")) {
+        res.writeHead(307, { location: `${baseUrl}/redirect-target` });
+        return res.end();
+      }
+      if (bao.redirect === "kv" && path.includes("/secret/data/")) {
+        res.writeHead(307, { location: `${baseUrl}/redirect-target` });
+        return res.end();
+      }
+      if (bao.kvTransient && path.includes("/secret/data/")) {
+        return send(res, 503, { errors: ["Vault is sealed"] });
+      }
       if (bao.transientFailures > 0 && path.endsWith("/auth/approle/login")) {
         bao.transientFailures--;
         return send(res, 503, { errors: ["Vault is sealed"] });
@@ -107,6 +127,10 @@ beforeAll(async () => {
           : send(res, bao.kvStatus, { errors: ["permission denied"] });
       }
       if (path.endsWith("/auth/token/revoke-self")) {
+        if (bao.revokeGarbage) {
+          res.writeHead(200, { "content-type": "text/plain" });
+          return res.end("not json");
+        }
         res.writeHead(204);
         return res.end();
       }
@@ -131,7 +155,11 @@ beforeEach(() => {
     API_KEY: "REAL-KEY",
   };
   bao.transientFailures = 0;
+  bao.kvTransient = false;
+  bao.redirect = null;
+  bao.revokeGarbage = false;
   bao.calls = [];
+  bao.callTimes = [];
 });
 
 interface Run {
@@ -292,6 +320,89 @@ describe.each(LOADERS)("$name", (loader) => {
     expect(r.code).toBe(77);
     expect(r.childEnv).toEqual({});
   });
+
+  it.skipIf(!enabled)(
+    "refuses to follow a redirect on the login and never reaches the target",
+    async () => {
+      bao.redirect = "login";
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(r.loaderLog).toContain("redirect");
+      expect(r.loaderLog).not.toContain("secret-id");
+      expect(r.childEnv).toEqual({});
+      expect(bao.calls).not.toContain("/redirect-target");
+      expect(
+        bao.calls.filter((c) => c.endsWith("/auth/approle/login")),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "refuses to follow a redirect on the KV read, does not send the token on, and revokes it",
+    async () => {
+      bao.redirect = "kv";
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(r.loaderLog).toContain("redirect");
+      expect(r.childEnv).toEqual({});
+      expect(bao.calls).not.toContain("/redirect-target");
+      expect(bao.calls.some((c) => c.endsWith("/auth/token/revoke-self"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "revokes its token when the KV read stays unavailable until the wait runs out",
+    async () => {
+      bao.kvTransient = true;
+      const r = await run({ BAO_WAIT_SECONDS: "2" });
+      expect(r.code).toBe(69);
+      expect(r.childEnv).toEqual({});
+      expect(bao.calls.some((c) => c.endsWith("/auth/token/revoke-self"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "revokes its token when the KV read is refused",
+    async () => {
+      bao.kvStatus = 403;
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(bao.calls.some((c) => c.endsWith("/auth/token/revoke-self"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "revokes the token before the failure pause, not after it",
+    async () => {
+      bao.redirect = "kv";
+      const r = await run({ BAO_FAIL_SLEEP_SECONDS: "3" });
+      expect(r.code).toBe(77);
+      const kvAt =
+        bao.callTimes[bao.calls.findIndex((c) => c.includes("/secret/data/"))]!;
+      const revokeAt =
+        bao.callTimes[
+          bao.calls.findIndex((c) => c.endsWith("/auth/token/revoke-self"))
+        ]!;
+      expect(revokeAt - kvAt).toBeLessThan(1500);
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "keeps its exit code when the revoke answers with a body that is not JSON",
+    async () => {
+      bao.kvStatus = 403;
+      bao.revokeGarbage = true;
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(r.childEnv).toEqual({});
+    },
+  );
 
   it.skipIf(!enabled)("exits 78 when a required key is missing", async () => {
     const r = await run({ BAO_REQUIRED_KEYS: "DATABASE_URL,MISSING_KEY" });
