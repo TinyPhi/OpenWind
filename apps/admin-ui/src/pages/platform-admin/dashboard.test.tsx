@@ -1,5 +1,7 @@
+import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   waitFor,
@@ -104,6 +106,41 @@ describe("PlatformAdminDashboard", () => {
     await waitFor(() => {
       expect(screen.getByText(/Signed in as Ops/)).toBeTruthy();
     });
+  });
+
+  it("ignores a session response from an effect that was cleaned up (StrictMode)", async () => {
+    const pending: Array<(value: unknown) => void> = [];
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve({ data: [] }),
+    );
+    const answerSession = (
+      index: number,
+      displayName: string,
+    ): Promise<void> => {
+      const resolve = pending[index];
+      if (!resolve) throw new Error(`no session request #${index}`);
+      resolve({
+        data: { userId: "pa-1", displayName, email: "ops@openwind.io" },
+      });
+      return Promise.resolve();
+    };
+
+    render(
+      <StrictMode>
+        <PlatformAdminDashboard />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(pending).toHaveLength(2));
+
+    // The live effect's fetch answers first; the cleaned-up effect's fetch answers last.
+    await act(() => answerSession(1, "Current"));
+    await waitFor(() => screen.getByText(/Signed in as Current/));
+    await act(() => answerSession(0, "Stale"));
+
+    expect(screen.queryByText(/Signed in as Stale/)).toBeNull();
+    expect(screen.getByText(/Signed in as Current/)).toBeTruthy();
   });
 
   it("fetches the sandbox list, never an all-tenants list", async () => {
