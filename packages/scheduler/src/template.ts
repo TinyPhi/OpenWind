@@ -24,7 +24,9 @@ export const TemplateSchema = z
     // exactly one of assignedTo/teamId, enforced by the superRefine below.
     // teamId resolves via the existing entity.created -> resolve_oncall
     // cascade at fire time, never a separate resolution path (R2).
-    assignedTo: z.string().uuid().optional(),
+    // A Zitadel user id (numeric string), not a UUID -- same as CreateEntitySchema.assignedTo.
+    // Membership is checked against tenant_users by validateScheduleRuleRefs.
+    assignedTo: z.string().trim().min(1).max(255).optional(),
     teamId: z.string().uuid().optional(),
     service_id: z.string().uuid().optional(),
     // Due date has no fixed value for a recurring rule -- due_days is an

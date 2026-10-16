@@ -9,8 +9,10 @@ WHERE NOT EXISTS (
 -- source_system / external_ref identify where a vendor record originated
 -- (manual entry, the synthetic payload, or a future real connector — #634),
 -- so swapping the source never touches the workflow or rules.
+-- title: required and protected on every workflow (docs/specs/mandatory-ticket-fields.md R1).
 INSERT INTO entity_fields (entity_type_id, tenant_id, name, label, field_type, config, is_required, is_indexed, is_system, sort_order, sensitivity)
 VALUES
+  ((SELECT id FROM entity_types WHERE name = 'vendor' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', '{}'::jsonb, true, true, true, 0, 'internal'),
   ((SELECT id FROM entity_types WHERE name = 'vendor' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'vendor_name', 'Vendor Name', 'text', '{}'::jsonb, true, true, false, 1, 'internal'),
   ((SELECT id FROM entity_types WHERE name = 'vendor' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'select', '{"options": ["software", "services", "hardware", "consulting"]}'::jsonb, true, true, false, 2, 'internal'),
   ((SELECT id FROM entity_types WHERE name = 'vendor' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'contact_email', 'Contact Email', 'text', '{}'::jsonb, false, false, false, 3, 'internal'),

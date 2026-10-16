@@ -835,11 +835,9 @@ export function WorkflowRecords(): React.ReactElement {
           return [...kept, ...added];
         });
 
-        setFields(
-          (fieldsRes as { data: EntityField[] }).data.filter(
-            (f) => !f.isSystem,
-          ),
-        );
+        // isSystem means protected, not hidden (docs/specs/mandatory-ticket-fields.md R2):
+        // the helpdesk ticket's title is a system field, and title search needs it.
+        setFields((fieldsRes as { data: EntityField[] }).data);
         setUsers(usersData);
 
         if (recResult.ok) {

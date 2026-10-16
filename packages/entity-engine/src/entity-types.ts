@@ -81,7 +81,9 @@ export async function createEntityType(
       config: {},
       isRequired: true,
       isIndexed: true,
-      isSystem: false,
+      // Protected: title can't be deleted or made optional on any workflow
+      // (docs/specs/mandatory-ticket-fields.md R1).
+      isSystem: true,
       sortOrder: 0,
       sensitivity: "public",
       createdAt: new Date(),

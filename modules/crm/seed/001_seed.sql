@@ -14,15 +14,15 @@ WHERE NOT EXISTS (
 -- Mandatory-field rule (2026-10-14): title is the only required custom field; every other
 -- field is optional and shows in the create form's Others tab. Due date, assignee, remark
 -- and severity are built-in ticket columns, required at the API layer.
-INSERT INTO entity_fields (id, entity_type_id, tenant_id, name, label, field_type, is_required, is_indexed, sort_order, config)
+INSERT INTO entity_fields (id, entity_type_id, tenant_id, name, label, field_type, is_required, is_indexed, sort_order, config, is_system)
 VALUES
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', true, true, 0, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'company',       'Company',       'text',     false, false, 1, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'contact_name',  'Contact Name',  'text',     false, false, 2, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'contact_email', 'Contact Email', 'text',     false, false, 3, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'value',         'Deal Value',    'currency', false, false, 4, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'source',        'Lead Source',   'enum',     false, false, 5, '{"options":[{"value":"inbound","label":"Inbound"},{"value":"outbound","label":"Outbound"},{"value":"referral","label":"Referral"},{"value":"partner","label":"Partner"}]}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'notes',         'Notes',         'longtext', false, false, 6, '{}'::jsonb)
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', true, true, 0, '{}'::jsonb, true),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'company',       'Company',       'text',     false, false, 1, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'contact_name',  'Contact Name',  'text',     false, false, 2, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'contact_email', 'Contact Email', 'text',     false, false, 3, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'value',         'Deal Value',    'currency', false, false, 4, '{}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'source',        'Lead Source',   'enum',     false, false, 5, '{"options":[{"value":"inbound","label":"Inbound"},{"value":"outbound","label":"Outbound"},{"value":"referral","label":"Referral"},{"value":"partner","label":"Partner"}]}'::jsonb, false),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Deal' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'notes',         'Notes',         'longtext', false, false, 6, '{}'::jsonb, false)
 ON CONFLICT (entity_type_id, name) DO NOTHING;
 
 -- Idempotency keyed on entity_type_id, not name — see

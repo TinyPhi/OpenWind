@@ -524,13 +524,16 @@ export function EntityTypeDetail(): React.ReactElement {
                       )}
                     </TableCell>
                     <TableCell>
-                      <button
-                        className="btn-edit-sm"
-                        onClick={() => openEditField(field)}
-                        title="Edit field"
-                      >
-                        ✎
-                      </button>
+                      {/* A system field is protected: the API refuses any change to it. */}
+                      {!field.isSystem && (
+                        <button
+                          className="btn-edit-sm"
+                          onClick={() => openEditField(field)}
+                          title="Edit field"
+                        >
+                          ✎
+                        </button>
+                      )}
                     </TableCell>
                     <TableCell>
                       {!field.isSystem && (

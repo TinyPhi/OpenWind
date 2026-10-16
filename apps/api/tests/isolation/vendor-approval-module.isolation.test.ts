@@ -92,6 +92,7 @@ beforeAll(async () => {
       workflowId: wf.id,
       createdBy: "u-a",
       fields: {
+        title: "Vendor approval: Tenant A Vendor",
         vendor_name: "Tenant A Vendor",
         category: "software",
         contact_email: "a@vendor.example",
