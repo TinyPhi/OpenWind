@@ -4,11 +4,27 @@ import {
   workflowEvents,
   withTenantContext,
 } from "@platform/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { deleteFile } from "@platform/files";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+
+// jsonb_agg over no rows is NULL, which would null the whole metadata column; keep an empty list.
+export function removeFileIdFromMetadata(fileId: string): SQL {
+  return sql`jsonb_set(
+    metadata,
+    '{fileIds}',
+    COALESCE(
+      (
+        SELECT jsonb_agg(elem)
+        FROM jsonb_array_elements_text(COALESCE(metadata->'fileIds', '[]'::jsonb)) AS elem
+        WHERE elem != ${fileId}::text
+      ),
+      '[]'::jsonb
+    )
+  )`;
+}
 
 export const deleteCommentAttachmentHandler = factory.createHandlers(
   requireAuth(),
@@ -105,15 +121,7 @@ export const deleteCommentAttachmentHandler = factory.createHandlers(
         tx
           .update(workflowEvents)
           .set({
-            metadata: sql`jsonb_set(
-              metadata,
-              '{fileIds}',
-              (
-                SELECT jsonb_agg(elem)
-                FROM jsonb_array_elements_text(COALESCE(metadata->'fileIds', '[]'::jsonb)) AS elem
-                WHERE elem != ${fileId}::text
-              )
-            )`,
+            metadata: removeFileIdFromMetadata(fileId),
           })
           .where(
             and(

@@ -5,6 +5,212 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — migration journal ordering (#895)]
+
+### Fixed
+
+- **A database that stopped just before migrations 0020, 0040, 0050 or 0141 no longer skips them.** The Drizzle
+  migrator runs a migration only if its journal `when` is strictly greater than the latest one applied, and
+  those four entries shared or trailed their predecessor's. Such a database skipped the migration; for 0020, 0040
+  and 0141 a later migration then failed, and for 0050 it was skipped silently. Their `when` values are now just
+  after their predecessors', and a new test keeps every journal entry strictly increasing.
+
+---
+
+## [Unreleased — OpenBao production runbook and health alert (#911)]
+
+### Added
+
+- **OpenBao secrets runbook** (`docs/runbooks/openbao-secrets.md`, ADR-023): first-time setup,
+  cutover from a running instance (rotate published secrets first, copy data-protecting keys),
+  rollback, reboot and unseal order, secret ID, secret and Transit key rotation, certificate
+  renewal, an address-binding check, and troubleshooting by loader exit code.
+- **`OpenBaoDown` and `OpenBaoSealed` alerts** (critical, 2 minutes) with promtool tests. They stay
+  quiet until the OpenBao scrape job, shipped commented out in `prometheus.yml`, is enabled for a
+  deployment.
+
+### Changed
+
+- The backup/DR runbook treats the database dump and the OpenBao snapshot as one backup set and
+  sets the restore order: OpenBao unsealed, then database, then apps.
+- `docs/local-setup.md`: the dev OpenBao loses its data on any restart, not only on a recreate.
+  `.env.example`, `docs/deployment-hardening.md`: production OpenBao notes and links.
+
+---
+
+## [Unreleased — OpenBao production guards and secrets client hardening (#935)]
+
+### Breaking change (production only)
+
+With `NODE_ENV=production`, the API and worker now refuse to start when:
+
+- `SECRETS_PROVIDER` is `local` — the local provider's AES key is published in this repo
+- `OPENBAO_TOKEN` is set — use AppRole (`OPENBAO_ROLE_ID` + `OPENBAO_SECRET_ID`) instead
+- `OPENBAO_ADDR` does not start with `https://` — credentials must not travel over plain HTTP
+- `METRICS_TOKEN` is unset or still at its development default — the default is published in this repo
+- A Superset secret (`SUPERSET_SECRET_KEY`, `SUPERSET_GUEST_TOKEN_SECRET`,
+  `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, `SUPERSET_ADMIN_PASSWORD`) is set to its
+  development default
+
+`.env.local` is also no longer read in production — every setting must come from the
+container environment (the OpenBao startup loader, ADR-023 Decision 2).
+
+**Before redeploying** any server still using the dev OpenBao or the default `METRICS_TOKEN`,
+complete the ADR-023 production setup first. See `docs/runbooks/openbao-secrets.md` and
+`docs/deployment-hardening.md`.
+
+### Added
+
+- `packages/secrets`: 5 s request timeout (≈15 s max hold across 3 attempts), retry on
+  transient errors (5xx/429/network, never 4xx), token renewal at 2/3 of lease with
+  re-login fallback, concurrent callers share one login, 403 rate-limited re-login (at most
+  once per 5 s per process), only a short summary of OpenBao's `errors` in logs and thrown
+  errors (≤200 chars)
+- `packages/config`: production guards for `SECRETS_PROVIDER`, `OPENBAO_TOKEN`,
+  `OPENBAO_ADDR`, `METRICS_TOKEN`; Superset secrets are optional in production with no
+  default; `.env.local` not loaded when `NODE_ENV=production`; empty `OPENBAO_TOKEN` /
+  `OPENBAO_ROLE_ID` / `OPENBAO_SECRET_ID` treated as unset
+- `packages/db`: `pnpm --filter @platform/db db:check-local-ciphertext` — read-only
+  pre-cutover check that counts `connector_credentials` rows still holding `local:` ciphertext
+  (needs `MIGRATION_DATABASE_URL` pointing at production or a read replica)
+- `packages/secrets/README.md`: API, provider table, client behaviour, configuration reference
+- `decryptCredential` refuses `local:` ciphertext in production (ADR-023 Decision 7)
+
+---
+
+## [Unreleased — OpenBao loader hardening (#962, #963)]
+
+### Security
+
+- **The OpenBao startup loaders no longer follow redirects.** Both the Node and the Python loader now treat any
+  HTTP 3xx from OpenBao as a refusal (exit 77, no retry) instead of following it, so the AppRole login or the
+  token can't be resent to a host the network check never saw.
+- **The loaders revoke their login token when the secret read fails.** Previously a read that gave up (OpenBao
+  unreachable until `BAO_WAIT_SECONDS` ran out) skipped the revoke, leaving a live token per restart.
+
+---
+
+## [Unreleased — deleting the last attachment of a comment]
+
+### Fixed
+
+- **Deleting the last attachment of a comment no longer fails.** Removing the only file id from a comment left
+  the event's metadata empty-valued (NULL), which the database refused, so the delete returned an error. The
+  comment now keeps an empty attachment list.
+
+---
+
+## [Unreleased — Zitadel machine-key expiry digest follow-ups (#953)]
+
+### Added
+
+- **Daily email digest of Zitadel machine-key expiry** (#948). Set `OPS_ALERT_EMAIL` (comma-separated) to
+  receive one digest at 06:00 and after a worker start, only when a key crossed a threshold, was replaced or
+  went missing; expired, missing and unknown keys repeat daily, never-expiring ones weekly.
+
+### Fixed
+
+- Two overlapping key-expiry runs can no longer both send the digest (short Redis lock, released only by the run
+  that took it), and a failed send is retried by the queue (3 attempts, exponential backoff) instead of waiting for the next day.
+
+## [Unreleased — event-log protection (#777)]
+
+### Changed
+
+- **A case's history can no longer be rewritten or deleted by the request role.** `workflow_events` keeps
+  its metadata editable (comment attachments, mentions, erasure) but its state and timestamps are now
+  fixed for `app_user`, the actor can only be redacted (never re-attributed), and deleting events needs the new `event_log_maintenance_role` (migration 0147).
+  The retention sweep, tenant purge and sandbox reset use it. A trigger (migration 0148) also fixes an
+  event's recorded `type` and other metadata keys once written; only attachments, mentions, comment text
+  and erasure redaction can still edit it.
+
+---
+
+## [Unreleased — retention classes and tenant-context sweeps]
+
+### Fixed
+
+- **The daily retention sweep now actually deletes.** It ran outside tenant context, so under the
+  default database role it matched no rows. Both it and the usage-metering sweep now run each
+  tenant's work inside the tenant context.
+
+### Added
+
+- **Retention classes for the workflow event log**: state-change history is kept for
+  `RETENTION_EVIDENCE_DAYS` (default 2555) and never swept while its case is open or recently
+  active; comments use `RETENTION_COMMENT_DAYS` (365); other events use `RETENTION_DEFAULT_DAYS`
+  (90). Per-tenant overrides: `retention_days`, `retention_comment_days`, `retention_evidence_days`.
+  The comment and evidence defaults are placeholders pending confirmation.
+- `tenants.config.retention_hold: true` pauses all retention sweeps for a tenant.
+- Batched deletes (`RETENTION_BATCH_SIZE`, `RETENTION_BATCH_PAUSE_MS`) and the
+  `openwind_retention_deleted_rows_total{table,class}` metric.
+
+---
+
+---
+
+## [Unreleased — guarded state override]
+
+### Added
+
+- **A recorded, reasoned way for an admin to move a record to a chosen step** outside its workflow's transitions:
+  `POST /entities/:id/override-state` with `{ state, reason }`. It is admin-only, needs the workflow's new
+  `allowStateOverride` switch (off by default; only a tenant admin can change it, and the change is audited), needs a
+  reason of 10 to 1000 characters, and refuses the record's creator. It locks the row, writes the event and an
+  admin audit entry (`workflow.state_overridden`) in one transaction, emits `workflow.transitioned` with
+  `override: true`, and moves SLA timers like a transition. It counts as acting for segregation-of-duties rules.
+- Migration 0146: `workflows.allow_state_override`, and the two audit actions `workflow.state_overridden` and
+  `workflow.override_policy_updated`.
+
+## [Unreleased — segregation-of-duties transition conditions]
+
+### Added
+
+- **Three actor-aware transition conditions**: `actor_not_creator` ("the requester cannot approve"),
+  `actor_is_creator` ("only the requester may withdraw") and `actor_not_prior_actor` ("each stage needs a
+  different person", optionally limited to people who left given states). The engine evaluates them inside
+  the transition lock and fails closed: an unidentified actor, an API-key or system identity satisfies none,
+  and an actor rule under `not` is never satisfied. No schema change; they live in a transition's existing `conditions`.
+  `getAvailableTransitions` takes the actor id, so the list matches the guard.
+
+- **A segregation rule's `states` are checked and protected.** Saving a rule that names a step the workflow does
+  not have is rejected with 422 `WORKFLOW_CONDITION_STATE_UNKNOWN` (a typo would otherwise block nobody), and a
+  step that a rule names can no longer be renamed or deleted until the rule is changed.
+- **Changes to a transition's conditions are audited** (`workflow.transition_conditions_updated`, migration 0145) on create, update, delete and canvas save, so a segregation rule cannot be removed without a record.
+
+### Known limits
+
+- **Not a complete control until #941 merges.** A direct state write (`PATCH /entities/:id` with `currentState`,
+  or the child-status route) does not run transition guards, so the record's creator can bypass
+  `actor_not_creator`. Do not enable these rules on a real workflow before the guarded override lands.
+
+### Changed
+
+- **Transition conditions are validated when saved.** The create and update transition routes now reject an
+  unknown operator or a malformed tree with 400 instead of storing it. A condition nested deeper than 8 levels, or
+  a group of more than 20, is rejected.
+
+---
+
+## [Unreleased — mention and notification follow-ups (#952)]
+
+### Fixed
+
+- **@mention and grant lookups no longer drop org members past the first 500.** `listOrgUsers` now pages
+  through the whole Zitadel org (capped at 10,000 members, logged when truncated).
+- Adding a comment or granting access no longer holds a database connection while it waits on Zitadel:
+  membership is read, Zitadel is called, then the new members are recorded in a second short step.
+- A failed Zitadel org-member lookup (for example a rate limit) is no longer cached as an empty org until the
+  process restarts; the next mention or grant retries.
+- A Zitadel rate limit (429) while resolving a notification recipient now falls back to the cached profile
+  instead of treating the user as not found, and recipient lookups run five at a time.
+
+### Changed
+
+- A comment may mention at most 50 people.
+
+---
+
 ## [Unreleased — step-up MFA for sandbox reset and delete (#865, #801)]
 
 ### Added

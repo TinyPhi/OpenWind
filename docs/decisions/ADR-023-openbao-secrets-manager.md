@@ -79,7 +79,7 @@ A prototype was run locally on 2026-10-13 against a demo OpenBao with a private 
 
 ## Decision
 
-### Decision 1 — OpenBao runs as a separate server; the dev OpenBao can't start in production
+### Decision 1 — OpenBao runs as a separate server; the dev OpenBao is not started in production
 
 - OpenWind connects to a separate OpenBao server. The dev `openbao` / `openbao-init` services stay
   for local development only.
@@ -87,17 +87,27 @@ A prototype was run locally on 2026-10-13 against a demo OpenBao with a private 
   `docker-compose.yml` keeps `openbao` / `openbao-init` without a profile, so a plain
   `docker compose up` on a laptop starts them exactly as today. Compose profiles are opt-in (a
   service with a profile starts only when that profile is activated), so the override assigns
-  `openbao` and `openbao-init` a profile that is never activated in production, and resets the
-  `depends_on` of `ow-backend` / `ow-worker` (`depends_on: !reset {}`); it also replaces the base
-  `OPENBAO_ADDR: http://openbao:8200`. Verified with Docker Compose v5.3.0: the override removes
-  the service from `config --services`, and without the `depends_on` reset Compose rejects the
-  project ("depends on undefined service").
+  `openbao` and `openbao-init` a profile that is never activated in production, and replaces the
+  `depends_on` of `ow-backend` / `ow-worker` with `depends_on: !override` listing the remaining
+  dependencies (`pgbouncer` and `redis`; plus `clamav` for the worker). It also replaces the base
+  `OPENBAO_ADDR: http://openbao:8200`. Verified with Docker Compose v5.3.0: the profile removes the
+  service from `config --services`; without changing `depends_on`, Compose rejects the project
+  ("depends on undefined service"); and `depends_on: !reset {}` would drop **every** dependency,
+  not only OpenBao, which breaks start-up order.
+- "Not started" is not "can't start": activating that profile name (for example through
+  `COMPOSE_PROFILES`) would start it again (tested). So the override also makes the dev OpenBao
+  inert if it is ever started (no published ports, and its command replaced so it exits), and the
+  check script below fails if `COMPOSE_PROFILES` or `--profile` activates it.
+- The override removes `.env.local` from `env_file` with `env_file: !reset []`. A plain empty list
+  does **not** remove the base entry (tested).
 - A check script asserts that the rendered production config
-  (`docker compose -f docker-compose.yml -f docker-compose.prod.yml config`) contains no `openbao`
-  service, no `.env.local` `env_file` or mount, and no `environment:` key outside the per-service
+  (`docker compose -f docker-compose.yml -f docker-compose.prod.yml config --no-interpolate
+--no-env-resolution`) contains no `openbao` service, no `.env.local` `env_file` or mount, and no `environment:` key outside the per-service
   non-secret allowlist (OQ-1). The allowlist is the definition of "allowed"; anything not on it
-  fails. The script is finalised together with OQ-1 in the loader PR. Wiring it into CI is a
-  maintainer change to `.github/workflows/`.
+  fails. The script prints only key names and verdicts, never values: plain `config` prints every
+  resolved value, and the two flags stop interpolation but still print values written directly in
+  a compose file (tested). The script is finalised together with OQ-1 in the loader PR. Wiring it
+  into CI is a maintainer change to `.github/workflows/`.
 - Requires Docker Compose ≥ 2.24.4 (`!override` / `!reset`).
 
 **Why:** running, unsealing, backing up and auditing OpenBao is an operations job with its own
@@ -120,8 +130,9 @@ reachable on a production host.
   `OPENBAO_ADDR`.
 - The loader's role ID and secret ID are passed to the child **only** for backend and worker
   (they call Transit at runtime). Other services' children don't receive them.
-- The loader lives in the repo (`docker/openbao/`) and is copied into the images at build time,
-  never bind-mounted from a host path.
+- The loader lives in the repo (`packages/openbao-deploy/`, a workspace package so CI runs its
+  tests) and is copied into the images at build time, never bind-mounted from a host path.
+  Third-party images (Novu) are rebuilt from their pinned digests with the loader added.
 - Required-key lists are derived from what each service's config actually requires, not
   hand-written.
 
@@ -147,7 +158,10 @@ exist. It will say: the startup loader reads KV once at start; `@platform/secret
 
 - No wildcards. A value two services need is stored at both paths.
 - The worker path does **not** hold `MIGRATION_DATABASE_URL` (ADR-001); only `bootstrap` does.
-- `ow-frontend`'s `.env.local` mount is replaced by an empty file in production.
+- `ow-frontend`'s `.env.local` mount is replaced by an empty file in production. Its public values
+  (`ZITADEL_ISSUER`, `ZITADEL_OIDC_CLIENT_ID`, UI flags) come from non-secret `environment:`
+  entries in the production override (on the OQ-1 allowlist); `apps/admin-ui/vite.config.ts` reads
+  them through `loadEnv` and serves them at `/env.js`. The OIDC client secret is never set there.
 - **Exception:** the pgbouncer image has no Node or Python; its DB password comes from a
   server-only file (mode 0600) until a follow-up moves it (OQ-3).
 
@@ -175,10 +189,15 @@ Accepted for now; see Consequences and OQ-6.
 
 - OpenBao joins a **dedicated network per project** (`openbao-openwind`) that only OpenBao and
   OpenWind's secret-holding services join. OpenWind does not join the shared OpenBao network, and
-  never goes through the public reverse proxy (a proxy hides the caller's address and makes
-  address binding meaningless).
-- Roles are bound (`secret_id_bound_cidrs`, `token_bound_cidrs`) to that network's subnet, or to
-  fixed addresses inside it, never to the proxy or gateway address.
+  never goes through the reverse proxy in front of OpenBao: through the proxy, the address lock
+  only sees the proxy's address.
+- The per-project network has a **fixed subnet** with a reserved `ip_range` for Docker's own
+  assignments, and each OpenWind service gets a **fixed address** outside that range. Roles are
+  bound (`secret_id_bound_cidrs`, `token_bound_cidrs`) to those **exact container addresses**
+  (`/32`), never to the whole subnet. Reason: traffic reaching OpenBao through a published port
+  arrives with the network gateway's address, which is inside the subnet, so a subnet-wide binding
+  would let outside callers through (observed on Docker Desktop; re-test on the Linux host).
+- After deployment, a login attempt from outside the allowed addresses must be shown to fail.
 - `OPENBAO_ADDR` is the server's certificate name, resolved to OpenBao on that network (network
   alias). The loader refuses to send credentials unless the name resolves to an address inside
   that network's subnet, so a container missing from the network can't leak its secret ID to the
@@ -212,8 +231,11 @@ doesn't have; out of scope here.
 
 - **Rotate before cutover** every secret whose current value is published in this repo and is
   cheap to rotate: Postgres role passwords (and pgbouncer's copy), Novu `JWT_SECRET`, Superset
-  service-account and admin passwords. Loading a publicly known value into OpenBao gives no
-  confidentiality.
+  service-account and admin passwords, `REPORTING_BINDING_SECRET` (committed in `.env`; re-run
+  migrations after rotating, since they copy it into `reporting_binding_key`), `METRICS_TOKEN`
+  (`env.ts` defaults it to a value in the repo, with no production guard; a guard is added) and
+  the Grafana admin password (defaults to `admin`) if the observability profile is ever enabled.
+  Loading a publicly known value into OpenBao gives no confidentiality.
 - **Copy, don't regenerate,** keys that protect stored data: Superset `SECRET_KEY` (it encrypts
   the reporting DB password Superset stores) and Novu `STORE_ENCRYPTION_KEY` (it encrypts saved
   provider credentials). Each gets a dated rotation plan (`superset re-encrypt-secrets`; Novu
@@ -222,8 +244,14 @@ doesn't have; out of scope here.
   secret on every run and stops writing secrets to `.env.local` (`scripts/bootstrap.ts`,
   `runZitadelSetup`).
 - After a verified export into OpenBao, `.env.local` is removed from the server.
-- **Rollback:** start without the production override using a one-time env file exported from
-  OpenBao by the runbook owner; delete it once the cutover is signed off.
+- **Rollback:** keep the production override, with the loader switched off and a one-time rollback
+  env file (mode 0600, exported from OpenBao by the runbook owner, deleted after use). Starting
+  without the override would not work: the base compose sets values inline (for example
+  `DATABASE_URL` with dev passwords) that win over any `env_file` (tested), and it would start the
+  dev OpenBao. Rollback is rehearsed before cutover.
+- **Restore test:** an OpenBao restore, and a joint database + OpenBao restore, are tested before
+  cutover. A database restore is useless for connector credentials without the matching Transit
+  key.
 
 ### Decision 7 — OpenBao is the default; a Vault-API Transit server is required in production
 
@@ -254,11 +282,16 @@ OpenWind is open source; self-hosters choose their own tooling.
 - Key: one per environment, `derived=true`, `exportable=false`, `allow_plaintext_backup=false`,
   `deletion_allowed=false`. Rotation creates a new version; a rewrap job moves old ciphertext
   forward before `min_decryption_version` is raised.
-- Backend and worker get `decrypt` only. `encrypt` is granted with the first credential write path
-  (an admin CLI first; #368's connectors after).
+- **Target:** backend and worker get `decrypt` only; `encrypt` is granted with the first credential
+  write path (an admin CLI first; #368's connectors after). **Today** the operations repo's policy
+  template grants both `encrypt` and `decrypt` on a service's key, Transit keys are defined per
+  project file, there is no `rewrap` permission and no key-rotation job. Each is an
+  operations-repo change (see Consequences).
 - **Derivation is not access control.** A token that can decrypt can decrypt any tenant's
   ciphertext by supplying that tenant's ID as context. Tenant isolation for credentials rests on
-  the application (RLS on `connector_credentials`, tenant-scoped reads), not on OpenBao.
+  the application (RLS on `connector_credentials`, tenant-scoped reads), not on OpenBao. RLS on
+  that table is enabled but **not forced** (migration `0001_rls_and_tenancy.sql`), so the table
+  owner and `migration_user` (`BYPASSRLS`) are not subject to it.
 
 ---
 
@@ -267,6 +300,10 @@ OpenWind is open source; self-hosters choose their own tooling.
 ### Trust boundaries
 
 - **OpenBao operators and admins** of the shared server can read and change OpenWind's secrets.
+- **Key custody is not yet separated.** Today, control of the OpenBao host plus one operator's
+  credential is enough to unseal OpenBao and to read every project's secrets; unseal material,
+  administration and backups are not split across people or machines. Documenting and splitting
+  key custody is an operations-repo change, tracked in OQ-6.
 - **Anyone with Docker or root access on the host** can read role IDs and secret IDs
   (`docker inspect`, `/proc/<pid>/environ`, the role files) and the running services'
   environments.
@@ -275,16 +312,16 @@ OpenWind is open source; self-hosters choose their own tooling.
 
 ### Threat model (STRIDE)
 
-| Threat                      | Example                                                                                                    | Control                                                                                                                                                                                                            | Residual                                                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Spoofing (client)           | Stolen secret ID used elsewhere                                                                            | Address binding on a per-project network; one role per service; finite secret ID TTL                                                                                                                               | Host root / Docker access reads the secret ID; secret ID as a file instead of env is OQ-2                                           |
-| Spoofing (server)           | Container off the network resolves the public name and sends its secret ID to the proxy                    | Loader checks the resolved address is inside the project network; `https` only                                                                                                                                     | Any public CA can issue a certificate for the name (OQ-7: pin issuer/SPKI)                                                          |
-| Tampering (secrets)         | Values changed silently                                                                                    | Changes only through OpenBao admin; audit log; KV v2 versions                                                                                                                                                      | Admin token holders can change values                                                                                               |
-| Tampering (loader / images) | Modified loader reads or leaks values                                                                      | Loader in repo, reviewed, baked into images; images pinned                                                                                                                                                         | Bootstrap image installs tools unpinned (OQ-8)                                                                                      |
-| Repudiation                 | Who read what                                                                                              | Audit log on every login and read (values HMAC'd; raw logging off)                                                                                                                                                 | Retention and access owned by the operations repo                                                                                   |
-| Information disclosure      | Secrets in git, env files, `docker inspect`, logs, unused services                                         | OpenBao wins; compose holds only allowlisted wiring; `.env.local` not loaded in production and removed; per-service paths; frontend gets no role; loader never logs values; `.env` and `.git` excluded from images | Process environment readable by root in the container; data-protecting keys still carry dev-known values until rotated (Decision 6) |
-| Denial of service           | OpenBao sealed, down, audit device full; restart loops                                                     | Bounded retry; sleep on 4xx; client timeout/retry/renewal; health alert; runbook                                                                                                                                   | One server and manual unseal are a shared single point of failure (OQ-6)                                                            |
-| Elevation of privilege      | `local` provider or `local:` ciphertext in production; dev root-token OpenBao reachable; address squatting | Production guards incl. `local:` decrypt rejection; dev OpenBao profile + config check; per-project network                                                                                                        | Guards in `env.ts` cover Node services only; Superset relies on its own key checks (added in `superset_config.py`)                  |
+| Threat                      | Example                                                                                                                                                                                                                                            | Control                                                                                                                                                                                                            | Residual                                                                                                                                                 |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spoofing (client)           | Stolen secret ID used elsewhere                                                                                                                                                                                                                    | Address binding on a per-project network; one role per service; finite secret ID TTL                                                                                                                               | Host root / Docker access reads the secret ID; secret ID as a file instead of env is OQ-2                                                                |
+| Spoofing (server)           | Container off the network resolves the public name and sends its secret ID to the proxy                                                                                                                                                            | Loader checks the resolved address is inside the project network; `https` only                                                                                                                                     | Any public CA can issue a certificate for the name (OQ-7: pin issuer/SPKI)                                                                               |
+| Tampering (secrets)         | Values changed silently                                                                                                                                                                                                                            | Changes only through OpenBao admin; audit log; KV v2 versions                                                                                                                                                      | Admin token holders can change values                                                                                                                    |
+| Tampering (loader / images) | Modified loader reads or leaks values                                                                                                                                                                                                              | Loader in repo, reviewed, baked into images; images pinned                                                                                                                                                         | Bootstrap image installs tools unpinned (OQ-8)                                                                                                           |
+| Repudiation                 | Who read what                                                                                                                                                                                                                                      | Audit log on every login and read (values HMAC'd; raw logging off)                                                                                                                                                 | Retention and access owned by the operations repo                                                                                                        |
+| Information disclosure      | Secrets in git, env files, `docker inspect`, logs, unused services                                                                                                                                                                                 | OpenBao wins; compose holds only allowlisted wiring; `.env.local` not loaded in production and removed; per-service paths; frontend gets no role; loader never logs values; `.env` and `.git` excluded from images | Process environment readable by root in the container; data-protecting keys still carry dev-known values until rotated (Decision 6)                      |
+| Denial of service           | OpenBao sealed, down, audit device full; restart loops; each failed inbound webhook makes one OpenBao call (timing-equalisation decrypt), and today that call has no timeout, so a stuck call can hold a request until the proxy or server timeout | Bounded retry; sleep on 4xx; client timeout of 5–10 s with retry, renewal; the existing global API rate limit covers webhook routes; health alert; runbook                                                         | One server and manual unseal are a shared single point of failure (OQ-6); overload of OpenBao from webhook traffic is untested (no production load test) |
+| Elevation of privilege      | `local` provider or `local:` ciphertext in production; dev root-token OpenBao reachable; address squatting                                                                                                                                         | Production guards incl. `local:` decrypt rejection; dev OpenBao profile + config check; per-project network                                                                                                        | Guards in `env.ts` cover Node services only; Superset key checks are to be added in `superset_config.py` (today it only refuses missing keys)            |
 
 ### Inherited controls (and their limits)
 
@@ -308,6 +345,7 @@ OpenWind is open source; self-hosters choose their own tooling.
 | Dev secrets inline or from committed `.env` in compose; DB role passwords in init SQL        | `docker-compose.yml`, `docker/postgres/init/001_setup.sql` | Decisions 2, 6    |
 | Worker gets `MIGRATION_DATABASE_URL` (contrary to ADR-001)                                   | `docker-compose.yml` `ow-worker`                           | Decision 3        |
 | `security.md` describes leases/renewal/README that don't exist                               | `.claude/rules/security.md`                                | Decision 2        |
+| `METRICS_TOKEN` defaults to a value in the repo, with no production guard                    | `packages/config/src/env.ts`                               | Decision 6        |
 
 ---
 
@@ -328,7 +366,9 @@ OpenWind is open source; self-hosters choose their own tooling.
   hardening, the loaders, a production compose override, bootstrap changes, `superset_config.py`
   key checks, `.dockerignore`.
 - Two loaders (Node, Python) to maintain.
-- Depends on changes in the OpenBao operations repo (per-project network, finite secret ID TTL).
+- Depends on changes in the OpenBao operations repo: per-project network with a fixed subnet and
+  reserved `ip_range`; finite secret ID TTL; a policy template that can grant `decrypt` without
+  `encrypt`; a `rewrap` permission and a key-rotation job; split key custody (OQ-6).
 - Data-protecting Superset and Novu keys keep dev-known values until their dated rotation.
 - Runbook (owner: Bikash): unseal order after reboot, secret ID and key rotation, certificate
   renewal reload, joint DB + OpenBao restore (a DB restore is useless for credentials without the

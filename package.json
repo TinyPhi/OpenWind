@@ -39,6 +39,7 @@
     "setup:superset-oauth": "dotenv -e .env.local -- tsx scripts/setup-superset-oauth.ts",
     "reset:data": "pnpm exec dotenv -e .env.local -- tsx scripts/reset-data.ts",
     "backfill:department": "dotenv -e .env.local -- tsx scripts/backfill-ticket-department.ts",
+    "credential:set": "dotenv -e .env.local -- tsx scripts/connector-credential-set.ts",
     "dev:down": "docker compose down",
     "dev:reset": "tsx scripts/dev-reset.ts"
   },
@@ -46,6 +47,8 @@
     "@commitlint/cli": "^19.0.0",
     "@commitlint/config-conventional": "^19.0.0",
     "@eslint/js": "^9.0.0",
+    "@platform/db": "workspace:*",
+    "@platform/secrets": "workspace:*",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "dependency-cruiser": "^18.2.0",

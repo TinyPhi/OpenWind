@@ -15,44 +15,21 @@ vi.mock("bullmq", () => ({
 }));
 
 // mock db
-const mockSelect = vi.fn();
-const mockFrom = vi.fn();
 const mockWhereSelect = vi.fn();
-const mockDelete = vi.fn();
-const mockWhereDelete = vi.fn();
-
-mockSelect.mockImplementation(() => ({
-  from: mockFrom.mockImplementation(() => ({
-    where: mockWhereSelect,
-  })),
-}));
-
-mockDelete.mockImplementation(() => ({
-  where: mockWhereDelete.mockResolvedValue(1),
-}));
-
 vi.mock("@platform/db", () => ({
   db: {
-    select: mockSelect,
-    delete: mockDelete,
+    select: () => ({ from: () => ({ where: mockWhereSelect }) }),
   },
   tenants: {
     id: "tenants.id",
     config: "tenants.config",
     status: "tenants.status",
   },
-  workflowEvents: {
-    tenantId: "workflow_events.tenant_id",
-    createdAt: "workflow_events.created_at",
-  },
-  outboxEvents: {
-    tenantId: "outbox_events.tenant_id",
-    createdAt: "outbox_events.created_at",
-  },
-  tenantUsageDaily: {
-    tenantId: "tenant_usage_daily.tenant_id",
-    usageDate: "tenant_usage_daily.usage_date",
-  },
+}));
+
+const mockSweepTenant = vi.fn();
+vi.mock("./retention-sweep.js", () => ({
+  sweepTenant: (...args: unknown[]) => mockSweepTenant(...args),
 }));
 
 vi.mock("./queues.js", () => ({ connection: {} }));
@@ -64,11 +41,11 @@ vi.mock("@platform/auth", () => ({
 
 // mock redis
 const mockRedisSet = vi.fn().mockResolvedValue("OK");
-const mockRedisDel = vi.fn().mockResolvedValue(1);
+const mockRedisEval = vi.fn().mockResolvedValue(1);
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
     set: mockRedisSet,
-    del: mockRedisDel,
+    eval: mockRedisEval,
   }),
 }));
 
@@ -77,27 +54,66 @@ const { runRetentionArchivalSweep } = await import("./retention-archival.js");
 describe("Retention Archival Sweep", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSweepTenant.mockResolvedValue({});
   });
 
-  it("queries tenants and deletes expired records based on configured retention_days", async () => {
-    // Mock active tenants
+  it("sweeps each active tenant with its resolved policy", async () => {
     mockWhereSelect.mockResolvedValueOnce([
-      {
-        id: "tenant-1",
-        config: { retention_days: 30 },
-      },
-      {
-        id: "tenant-2",
-        config: {}, // empty config, falls back to 90
-      },
+      { id: "tenant-1", config: { retention_days: 30 }, trialEndsAt: null },
+      { id: "tenant-2", config: {}, trialEndsAt: null },
     ]);
 
     await runRetentionArchivalSweep();
 
-    // Verify select was called once to fetch active tenants
-    expect(mockSelect).toHaveBeenCalledTimes(1);
+    expect(mockSweepTenant).toHaveBeenCalledTimes(2);
+    expect(mockSweepTenant.mock.calls[0]?.[1]).toMatchObject({ noiseDays: 30 });
+    expect(mockSweepTenant.mock.calls[1]?.[1]).toMatchObject({ noiseDays: 90 });
+  });
 
-    // Verify delete was called 3 times per tenant (6 times total)
-    expect(mockDelete).toHaveBeenCalledTimes(6);
+  it("skips tenants under retention hold and expired trials", async () => {
+    mockWhereSelect.mockResolvedValueOnce([
+      { id: "held", config: { retention_hold: true }, trialEndsAt: null },
+      { id: "expired", config: {}, trialEndsAt: new Date(Date.now() - 1000) },
+    ]);
+
+    await runRetentionArchivalSweep();
+
+    expect(mockSweepTenant).not.toHaveBeenCalled();
+  });
+
+  it("keeps sweeping other tenants when one fails", async () => {
+    mockWhereSelect.mockResolvedValueOnce([
+      { id: "bad", config: {}, trialEndsAt: null },
+      { id: "good", config: {}, trialEndsAt: null },
+    ]);
+    mockSweepTenant.mockRejectedValueOnce(new Error("boom"));
+
+    await runRetentionArchivalSweep();
+
+    expect(mockSweepTenant).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases the sweep lock only with the token it acquired it with", async () => {
+    mockWhereSelect.mockResolvedValueOnce([]);
+
+    await runRetentionArchivalSweep();
+
+    const token = mockRedisSet.mock.calls[0]?.[1];
+    expect(token).not.toBe("locked");
+    expect(mockRedisEval).toHaveBeenCalledTimes(1);
+    expect(mockRedisEval.mock.calls[0]?.slice(1)).toEqual([
+      1,
+      "lock:retention-archival-sweep",
+      token,
+    ]);
+  });
+
+  it("does not sweep or release when another instance holds the lock", async () => {
+    mockRedisSet.mockResolvedValueOnce(null);
+
+    await runRetentionArchivalSweep();
+
+    expect(mockSweepTenant).not.toHaveBeenCalled();
+    expect(mockRedisEval).not.toHaveBeenCalled();
   });
 });

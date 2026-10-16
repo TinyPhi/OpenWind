@@ -22,14 +22,60 @@ logger = logging.getLogger(__name__)
 # start Superset on a guessable signing key — a known SECRET_KEY forges an admin
 # session, which is the mechanism behind CVE-2023-27524 (that CVE itself does
 # not affect 4.0.2; shipping a default key recreates the same attack anyway).
-SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
-GUEST_TOKEN_JWT_SECRET = os.environ["SUPERSET_GUEST_TOKEN_SECRET"]
+#
+# A missing key raises KeyError as before. An empty one is refused too: with
+# secrets delivered by the OpenBao startup loader (ADR-023), compose passes
+# `${VAR:-}`, so a value missing from OpenBao must not arrive as "" and become
+# a signing key. In production (NODE_ENV=production, set by
+# docker-compose.prod.yml) the development defaults committed in .env and
+# anything shorter than 32 characters are refused, matching the API's guards in
+# packages/config/src/env.ts and the migration runner.
+_PRODUCTION = os.environ.get("NODE_ENV") == "production"
+_DEV_SECRET_DEFAULTS = {
+    "SUPERSET_SECRET_KEY": "superset_dev_secret_key_change_in_prod",
+    "SUPERSET_GUEST_TOKEN_SECRET": "superset_guest_dev_secret_key",
+    "REPORTING_BINDING_SECRET": "reporting_binding_dev_secret_change_me_0001",
+}
+
+
+def _secret(name: str) -> str:
+    value = os.environ[name]
+    if not value.strip():
+        raise RuntimeError(f"{name} is empty; refusing to start Superset without it")
+    if _PRODUCTION:
+        if value == _DEV_SECRET_DEFAULTS.get(name):
+            raise RuntimeError(
+                f"{name} is its development default; refusing to start in production"
+            )
+        if len(value) < 32:
+            raise RuntimeError(
+                f"{name} must be at least 32 characters in production"
+            )
+    return value
+
+
+SECRET_KEY = _secret("SUPERSET_SECRET_KEY")
+GUEST_TOKEN_JWT_SECRET = _secret("SUPERSET_GUEST_TOKEN_SECRET")
 # Signs each reporting connection's tenant binding (see DB_CONNECTION_MUTATOR).
 # The database holds the same secret (migration 0128, synced by the migration
 # runner) and verifies the signature against the connection's *current*
 # settings, so a session that changes its tenant, scope or user after connect
 # sees no rows. No fallback: without it every reporting query returns nothing.
-REPORTING_BINDING_SECRET = os.environ["REPORTING_BINDING_SECRET"]
+REPORTING_BINDING_SECRET = _secret("REPORTING_BINDING_SECRET")
+
+# Passwords superset-init uses to provision accounts. Only superset-init gets
+# them, so they're checked when present: in production a committed dev default
+# is refused here, since the API no longer holds these values (ADR-023).
+_DEV_PASSWORD_DEFAULTS = {
+    "SUPERSET_ADMIN_PASSWORD": "admin_dev_password",
+    "SUPERSET_SERVICE_ACCOUNT_PASSWORD": "service_account_dev_password",
+}
+if _PRODUCTION:
+    for _name, _dev_value in _DEV_PASSWORD_DEFAULTS.items():
+        if os.environ.get(_name) == _dev_value:
+            raise RuntimeError(
+                f"{_name} is its development default; refusing to start in production"
+            )
 
 SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL"]
 

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, withTenantContext } from "@platform/db";
-import { ensureTenantMembers } from "../../lib/ensure-user-refs.js";
+import { resolveTenantMembers } from "../../lib/ensure-user-refs.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -83,9 +83,7 @@ export const grantAccessHandler = factory.createHandlers(
       // written into __accessUsers unchecked. A member is anyone in
       // tenant_users or in this tenant's Zitadel org (registered on the way),
       // so a colleague who has never signed in can still be granted access.
-      const members = await withTenantContext(tenantId, (tx) =>
-        ensureTenantMembers(tx, tenantId, [userId], orgId),
-      );
+      const members = await resolveTenantMembers(tenantId, [userId], orgId);
       if (!members.has(userId)) {
         return c.json(
           { error: "NOT_FOUND", message: "User not found in this tenant" },

@@ -68,6 +68,7 @@ import {
   withTenantContext,
   withTenantLifecycleContext,
   withTenantPurgeContext,
+  withEventLogMaintenanceContext,
   purgeTenantDataFromPluginSchema,
 } from "@platform/db";
 import {
@@ -240,6 +241,12 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
     // rules, so no new schedule_executions row can land between this delete
     // and the main transaction's schedule_rules delete (RESTRICT FK). A tick
     // already mid-flight can still race once; the BullMQ retry then converges.
+    // Workflow events are a FK child of entity_instances and workflows, so they go before
+    // the main transaction. app_user cannot DELETE them (migration 0147).
+    await withEventLogMaintenanceContext(tenantId, (tx) =>
+      tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, tenantId)),
+    );
+
     await withTenantPurgeContext(tenantId, async (tx) => {
       await tx
         .update(scheduleRules)
@@ -354,11 +361,6 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
             ),
           );
       }
-
-      // Workflow events (has tenant_id, FK → entityInstances + workflows)
-      await tx
-        .delete(workflowEvents)
-        .where(eq(workflowEvents.tenantId, tenantId));
 
       // Workflow definitions (FK → entity_types; must come before entityTypes)
       await tx.delete(workflows).where(eq(workflows.tenantId, tenantId));

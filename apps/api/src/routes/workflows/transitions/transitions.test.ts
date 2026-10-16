@@ -29,6 +29,7 @@ let mockBeforeRow: {
   fromState?: string;
   toState?: string;
   allowedRoles: string[] | null;
+  conditions?: unknown;
 } | null = {
   allowedRoles: [],
 };
@@ -420,5 +421,183 @@ describe("DELETE /workflows/:id/transitions/:transitionId", () => {
     });
 
     expect(res.status).toBe(500);
+  });
+});
+
+describe("condition audit (segregation of duties)", () => {
+  const SOD = {
+    op: "and",
+    children: [{ op: "actor_not_creator" }, { op: "actor_not_prior_actor" }],
+  };
+  const CONDITIONS_ACTION = "workflow.transition_conditions_updated";
+  const conditionEntries = () =>
+    mockWriteAuditEntry.mock.calls
+      .map((c) => c[1] as { action: string })
+      .filter((e) => e.action === CONDITIONS_ACTION);
+  const patch = (body: unknown) =>
+    makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("create with a rule records it with created:true", async () => {
+    mockAddTransition.mockResolvedValue({ ...fakeTransition, conditions: SOD });
+
+    const res = await makeApp().request(`/${WF_ID}/transitions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fromState: "open",
+        toState: "in_progress",
+        conditions: SOD,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(conditionEntries()).toEqual([
+      expect.objectContaining({
+        actorId: "u-bbb",
+        resourceId: WF_ID,
+        beforeSnapshot: { [TRANS_ID]: null },
+        afterSnapshot: { [TRANS_ID]: SOD },
+        metadata: {
+          transitions: [
+            expect.objectContaining({
+              transitionId: TRANS_ID,
+              created: true,
+              deleted: false,
+            }),
+          ],
+        },
+      }),
+    ]);
+  });
+
+  it("create without conditions records nothing for conditions", async () => {
+    mockAddTransition.mockResolvedValue({
+      ...fakeTransition,
+      conditions: null,
+    });
+
+    await makeApp().request(`/${WF_ID}/transitions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fromState: "open", toState: "in_progress" }),
+    });
+
+    expect(conditionEntries()).toHaveLength(0);
+  });
+
+  it("update that changes the rule records before and after", async () => {
+    mockBeforeRow = {
+      allowedRoles: [],
+      conditions: { op: "actor_not_creator" },
+    };
+    mockUpdateTransition.mockResolvedValue({
+      ...fakeTransition,
+      conditions: SOD,
+    });
+
+    const res = await patch({ conditions: SOD });
+
+    expect(res.status).toBe(200);
+    expect(conditionEntries()).toEqual([
+      expect.objectContaining({
+        beforeSnapshot: { [TRANS_ID]: { op: "actor_not_creator" } },
+        afterSnapshot: { [TRANS_ID]: SOD },
+      }),
+    ]);
+  });
+
+  it("update that clears the rule is recorded (the way a rule is silently dropped)", async () => {
+    mockBeforeRow = { allowedRoles: [], conditions: SOD };
+    mockUpdateTransition.mockResolvedValue({
+      ...fakeTransition,
+      conditions: null,
+    });
+
+    const res = await patch({ conditions: null });
+
+    expect(res.status).toBe(200);
+    expect(conditionEntries()).toEqual([
+      expect.objectContaining({
+        beforeSnapshot: { [TRANS_ID]: SOD },
+        afterSnapshot: { [TRANS_ID]: null },
+        metadata: {
+          transitions: [expect.objectContaining({ deleted: true })],
+        },
+      }),
+    ]);
+  });
+
+  it("resubmitting the same rule, even with keys in another order, records nothing", async () => {
+    mockBeforeRow = {
+      allowedRoles: [],
+      conditions: { op: "actor_not_prior_actor", states: ["a"] },
+    };
+    mockUpdateTransition.mockResolvedValue({
+      ...fakeTransition,
+      conditions: { states: ["a"], op: "actor_not_prior_actor" },
+    });
+
+    await patch({ conditions: { states: ["a"], op: "actor_not_prior_actor" } });
+
+    expect(conditionEntries()).toHaveLength(0);
+  });
+
+  it("a malformed condition is a 400 and writes nothing", async () => {
+    const res = await patch({ conditions: { op: "actor_not_creater" } });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdateTransition).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("an actor rule under `not` is a 400", async () => {
+    const res = await patch({
+      conditions: { op: "not", child: { op: "actor_not_creator" } },
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdateTransition).not.toHaveBeenCalled();
+  });
+
+  it("deleting a transition that had a rule records the rule as removed", async () => {
+    mockBeforeRow = {
+      fromState: "open",
+      toState: "in_progress",
+      allowedRoles: ["manager"],
+      conditions: SOD,
+    };
+    mockDeleteTransition.mockResolvedValue(undefined);
+
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(204);
+    expect(conditionEntries()).toEqual([
+      expect.objectContaining({
+        beforeSnapshot: { [TRANS_ID]: SOD },
+        afterSnapshot: { [TRANS_ID]: null },
+      }),
+    ]);
+  });
+
+  it("deleting a transition with no rule records no condition entry", async () => {
+    mockBeforeRow = {
+      fromState: "open",
+      toState: "in_progress",
+      allowedRoles: ["manager"],
+      conditions: null,
+    };
+    mockDeleteTransition.mockResolvedValue(undefined);
+
+    await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
+
+    expect(conditionEntries()).toHaveLength(0);
   });
 });

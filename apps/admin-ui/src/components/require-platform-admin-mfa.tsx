@@ -24,6 +24,8 @@ export function RequirePlatformAdminMfa(): React.ReactElement {
           setState("ok");
           return;
         }
+        // Response.json() is typed any; assert the platform-admin/session error body
+        // ({ error?: string }) rather than letting any flow through.
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
         };

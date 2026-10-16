@@ -341,7 +341,12 @@ async function seedModuleDataInTx(
   const transitionRows = await tx
     .select()
     .from(workflowTransitions)
-    .where(eq(workflowTransitions.workflowId, workflow.id));
+    .where(
+      and(
+        eq(workflowTransitions.workflowId, workflow.id),
+        eq(workflowTransitions.tenantId, tenantId),
+      ),
+    );
   const transitionLookup = new Map<string, (typeof transitionRows)[number]>();
   for (const t of transitionRows) {
     transitionLookup.set(`${t.fromState}->${t.toState}`, t);

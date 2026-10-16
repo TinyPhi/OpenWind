@@ -9,6 +9,7 @@ import {
   DEV_SUPERSET_GUEST_TOKEN_SECRET,
   DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD,
   DEV_SUPERSET_ADMIN_PASSWORD,
+  DEV_METRICS_TOKEN,
 } from "./dev-defaults.js";
 
 // Load .env.local from the monorepo root (walk up from cwd until we find it)
@@ -24,7 +25,11 @@ function findEnvLocal(): string | undefined {
   return undefined;
 }
 
-const envLocalPath = findEnvLocal();
+// Never in production: there, every setting comes from the container
+// environment (the OpenBao startup loader, ADR-023 Decision 2). A stray
+// .env.local must not silently fill a key that is missing from OpenBao.
+const envLocalPath =
+  process.env["NODE_ENV"] === "production" ? undefined : findEnvLocal();
 if (envLocalPath) {
   loadDotenv({ path: envLocalPath, override: false });
 }
@@ -76,6 +81,39 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // Retention sweep defaults (docs/specs/retention-classes.md). Per-tenant
+    // overrides live in tenants.config. Evidence and comment defaults are
+    // placeholders pending owner/counsel confirmation.
+    RETENTION_DEFAULT_DAYS: z.coerce
+      .number()
+      .int()
+      .min(7)
+      .max(3650)
+      .default(90),
+    RETENTION_COMMENT_DAYS: z.coerce
+      .number()
+      .int()
+      .min(30)
+      .max(3650)
+      .default(365),
+    RETENTION_EVIDENCE_DAYS: z.coerce
+      .number()
+      .int()
+      .min(365)
+      .max(7300)
+      .default(2555),
+    RETENTION_BATCH_SIZE: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(50000)
+      .default(5000),
+    RETENTION_BATCH_PAUSE_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(5000)
+      .default(50),
     // docs/temporal-scheduler-design.md §3.1/§3.5 — the scheduler tick's poll
     // interval and its cap on missed fires executed in one catch-up run
     // (SCHEDULE_CATCH_UP_MAX exists specifically so a long worker outage on a
@@ -288,10 +326,21 @@ const EnvSchema = z
     OPENBAO_ADDR: z.string().url().optional(),
     OPENBAO_TRANSIT_KEY: z.string().default("platform-credentials"),
     // Dev: static root token. Prod: leave unset and use AppRole instead.
-    OPENBAO_TOKEN: z.string().optional(),
+    // Empty or whitespace counts as unset: an empty value used to pass the
+    // refine below and fail only at the first decrypt.
+    OPENBAO_TOKEN: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
     // AppRole auth (production) — both required together when OPENBAO_TOKEN is absent
-    OPENBAO_ROLE_ID: z.string().optional(),
-    OPENBAO_SECRET_ID: z.string().optional(),
+    OPENBAO_ROLE_ID: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
+    OPENBAO_SECRET_ID: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
     // Telemetry and Tracing (Stage 0)
     TELEMETRY_ENABLED: z
       .string()
@@ -299,7 +348,7 @@ const EnvSchema = z
       .default("false"),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
     OTEL_SERVICE_NAME: z.string().optional(),
-    METRICS_TOKEN: z.string().default("dev-metrics-token-12345"),
+    METRICS_TOKEN: z.string().default(DEV_METRICS_TOKEN),
     OTEL_TRACE_SAMPLE_RATIO: z
       .string()
       .transform((v) => parseFloat(v))
@@ -318,30 +367,28 @@ const EnvSchema = z
     // production by a refine below.
     SUPERSET_SITE_URL: z.string().url().default("http://localhost:8088"),
     SUPERSET_INTERNAL_URL: z.string().url().default("http://superset:8088"),
-    // Secrets: dev defaults exist so a fresh clone runs, and the refines below
+    // Secrets: dev defaults exist so a fresh clone runs (filled in by the
+    // transform at the end, outside production only), and the refines below
     // reject every one of them in production. A usable default reaching a
     // deployment is the CVE-2023-27524 attack class (known signing key →
     // forged session), not a hygiene nit — see the reporting spec §P7.
+    //
+    // In production there is no default: a service gets only the Superset
+    // secrets it uses (ADR-023 Decision 3 — the API needs only the service
+    // account password; the worker none), and each value that IS set is
+    // checked. Presence per service is enforced at deploy time by the OpenBao
+    // loader's BAO_REQUIRED_KEYS.
     //
     // Never empty, in any environment: an empty value is not the dev default,
     // so without min(1) it would slip past the production guards below and hand
     // Superset an empty signing key. The 32-character floor for the two
     // signing keys is enforced in production only (refines below), so the
     // shorter dev defaults keep a fresh clone working.
-    SUPERSET_SECRET_KEY: z.string().min(1).default(DEV_SUPERSET_SECRET_KEY),
-    SUPERSET_GUEST_TOKEN_SECRET: z
-      .string()
-      .min(1)
-      .default(DEV_SUPERSET_GUEST_TOKEN_SECRET),
+    SUPERSET_SECRET_KEY: z.string().min(1).optional(),
+    SUPERSET_GUEST_TOKEN_SECRET: z.string().min(1).optional(),
     SUPERSET_SERVICE_ACCOUNT_USER: z.string().default("service_account"),
-    SUPERSET_SERVICE_ACCOUNT_PASSWORD: z
-      .string()
-      .min(1)
-      .default(DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD),
-    SUPERSET_ADMIN_PASSWORD: z
-      .string()
-      .min(1)
-      .default(DEV_SUPERSET_ADMIN_PASSWORD),
+    SUPERSET_SERVICE_ACCOUNT_PASSWORD: z.string().min(1).optional(),
+    SUPERSET_ADMIN_PASSWORD: z.string().min(1).optional(),
     // Dashboards are addressed by slug, never by UUID. The embedded UUID the
     // iframe needs is generated by Superset when embedding is enabled, so it
     // cannot be pinned here — the API resolves it from the slug at runtime.
@@ -379,6 +426,42 @@ const EnvSchema = z
     {
       message:
         "Either OPENBAO_TOKEN (dev) or both OPENBAO_ROLE_ID and OPENBAO_SECRET_ID (prod) must be set for 'openbao' provider",
+    },
+  )
+  // OpenBao in production (ADR-023 Decision 7): AppRole over https only, and
+  // never the local provider, whose AES key is published in this repo.
+  .refine(
+    (v) => !(v.NODE_ENV === "production" && v.SECRETS_PROVIDER === "local"),
+    {
+      message:
+        "SECRETS_PROVIDER must not be 'local' in production — the local provider's key is public, so it protects nothing",
+    },
+  )
+  .refine(
+    (v) => !(v.NODE_ENV === "production" && v.OPENBAO_TOKEN !== undefined),
+    {
+      message:
+        "OPENBAO_TOKEN must not be set in production — use AppRole (OPENBAO_ROLE_ID and OPENBAO_SECRET_ID) instead of a static token",
+    },
+  )
+  .refine(
+    (v) =>
+      !(
+        v.NODE_ENV === "production" &&
+        v.OPENBAO_ADDR !== undefined &&
+        !v.OPENBAO_ADDR.startsWith("https://")
+      ),
+    {
+      message:
+        "OPENBAO_ADDR must use https:// in production — tokens and secrets must not travel over plain HTTP",
+    },
+  )
+  .refine(
+    (v) =>
+      !(v.NODE_ENV === "production" && v.METRICS_TOKEN === DEV_METRICS_TOKEN),
+    {
+      message:
+        "METRICS_TOKEN must not be its development default in production — the default is published in this repo",
     },
   )
   .refine(
@@ -432,7 +515,12 @@ const EnvSchema = z
   // Signing keys shorter than 32 characters are guessable offline, which is
   // the same forgery risk as a published default.
   .refine(
-    (v) => !(v.NODE_ENV === "production" && v.SUPERSET_SECRET_KEY.length < 32),
+    (v) =>
+      !(
+        v.NODE_ENV === "production" &&
+        v.SUPERSET_SECRET_KEY !== undefined &&
+        v.SUPERSET_SECRET_KEY.length < 32
+      ),
     {
       message:
         "SUPERSET_SECRET_KEY must be at least 32 characters in production",
@@ -441,7 +529,9 @@ const EnvSchema = z
   .refine(
     (v) =>
       !(
-        v.NODE_ENV === "production" && v.SUPERSET_GUEST_TOKEN_SECRET.length < 32
+        v.NODE_ENV === "production" &&
+        v.SUPERSET_GUEST_TOKEN_SECRET !== undefined &&
+        v.SUPERSET_GUEST_TOKEN_SECRET.length < 32
       ),
     {
       message:
@@ -485,6 +575,23 @@ const EnvSchema = z
       message:
         "SUPERSET_SITE_URL and SUPERSET_INTERNAL_URL must differ in production — one is browser-facing, the other is the container-internal address",
     },
+  )
+  // Development defaults for the Superset secrets, never in production (see
+  // the field comment above).
+  .transform((v) =>
+    v.NODE_ENV === "production"
+      ? v
+      : {
+          ...v,
+          SUPERSET_SECRET_KEY: v.SUPERSET_SECRET_KEY ?? DEV_SUPERSET_SECRET_KEY,
+          SUPERSET_GUEST_TOKEN_SECRET:
+            v.SUPERSET_GUEST_TOKEN_SECRET ?? DEV_SUPERSET_GUEST_TOKEN_SECRET,
+          SUPERSET_SERVICE_ACCOUNT_PASSWORD:
+            v.SUPERSET_SERVICE_ACCOUNT_PASSWORD ??
+            DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD,
+          SUPERSET_ADMIN_PASSWORD:
+            v.SUPERSET_ADMIN_PASSWORD ?? DEV_SUPERSET_ADMIN_PASSWORD,
+        },
   );
 
 export const env = EnvSchema.parse(process.env);

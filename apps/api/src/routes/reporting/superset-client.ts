@@ -50,6 +50,13 @@ function supersetUrl(path: string): string {
 }
 
 async function login(): Promise<string> {
+  // In production there is no default (ADR-023): a deployment that runs
+  // reporting must provide the service account password.
+  if (!env.SUPERSET_SERVICE_ACCOUNT_PASSWORD) {
+    throw new SupersetUnavailableError(
+      "SUPERSET_SERVICE_ACCOUNT_PASSWORD is not set; reporting is not configured",
+    );
+  }
   const response = await fetch(supersetUrl("/api/v1/security/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
