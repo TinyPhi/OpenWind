@@ -17,6 +17,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Two overlapping key-expiry runs can no longer both send the digest (short Redis lock, released only by the run
   that took it), and a failed send is retried by the queue (3 attempts, exponential backoff) instead of waiting for the next day.
+## [Unreleased — event-log protection (#777)]
+
+### Changed
+
+- **A case's history can no longer be rewritten or deleted by the request role.** `workflow_events` keeps
+  its metadata editable (comment attachments, mentions, erasure) but its state and timestamps are now
+  fixed for `app_user`, the actor can only be redacted (never re-attributed), and deleting events needs the new `event_log_maintenance_role` (migration 0147).
+  The retention sweep, tenant purge and sandbox reset use it.
 
 ---
 
