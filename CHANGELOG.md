@@ -25,7 +25,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **A case's history can no longer be rewritten or deleted by the request role.** `workflow_events` keeps
   its metadata editable (comment attachments, mentions, erasure) but its state and timestamps are now
   fixed for `app_user`, the actor can only be redacted (never re-attributed), and deleting events needs the new `event_log_maintenance_role` (migration 0147).
-  The retention sweep, tenant purge and sandbox reset use it.
+  The retention sweep, tenant purge and sandbox reset use it. A trigger (migration 0148) also fixes an
+  event's recorded `type` and other metadata keys once written; only attachments, mentions, comment text
+  and erasure redaction can still edit it.
 
 ---
 
