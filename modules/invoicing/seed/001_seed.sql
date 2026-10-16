@@ -8,14 +8,18 @@ WHERE NOT EXISTS (
   SELECT 1 FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'
 );
 
+-- Mandatory-field rule (2026-10-14): title is the only required custom field; every other
+-- field is optional and shows in the create form's Others tab. Due date, assignee, remark
+-- and severity are built-in ticket columns, required at the API layer.
 INSERT INTO entity_fields (id, entity_type_id, tenant_id, name, label, field_type, is_required, is_indexed, sort_order, config)
 VALUES
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'invoice_number', 'Invoice #',    'text',     true,  false, 0, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'client_name',   'Client Name',  'text',     true,  false, 1, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'client_email',  'Client Email', 'text',     false, false, 2, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'amount',        'Amount',       'currency', true,  false, 3, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'due_date',      'Due Date',     'date',     true,  false, 4, '{}'::jsonb),
-  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description',   'Description',  'longtext', false, false, 5, '{}'::jsonb)
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', true, true, 0, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'invoice_number', 'Invoice #',    'text',     false, false, 1, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'client_name',   'Client Name',  'text',     false, false, 2, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'client_email',  'Client Email', 'text',     false, false, 3, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'amount',        'Amount',       'currency', false, false, 4, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'due_date',      'Due Date',     'date',     false, false, 5, '{}'::jsonb),
+  (gen_random_uuid(), (SELECT id FROM entity_types WHERE name = 'Invoice' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description',   'Description',  'longtext', false, false, 6, '{}'::jsonb)
 ON CONFLICT (entity_type_id, name) DO NOTHING;
 
 -- Idempotency keyed on entity_type_id, not name — see

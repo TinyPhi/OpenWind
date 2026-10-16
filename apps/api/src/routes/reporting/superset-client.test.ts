@@ -8,21 +8,21 @@ function passExpiringIn(ttlSeconds: number): string {
   return `header.${payload}.signature`;
 }
 
-vi.mock("@platform/config", () => ({
-  env: {
-    SUPERSET_SITE_URL: "http://localhost:8088",
-    SUPERSET_INTERNAL_URL: "http://superset:8088",
-    SUPERSET_REPORTING_DB_NAME: "OpenWind Platform",
-    SUPERSET_SERVICE_ACCOUNT_USER: "service_account",
-    SUPERSET_SERVICE_ACCOUNT_PASSWORD: "pw",
-  },
+const mockEnv = vi.hoisted(() => ({
+  SUPERSET_SITE_URL: "http://localhost:8088",
+  SUPERSET_INTERNAL_URL: "http://superset:8088",
+  SUPERSET_REPORTING_DB_NAME: "OpenWind Platform",
+  SUPERSET_SERVICE_ACCOUNT_USER: "service_account",
+  SUPERSET_SERVICE_ACCOUNT_PASSWORD: "pw" as string | undefined,
 }));
+
+vi.mock("@platform/config", () => ({ env: mockEnv }));
 
 vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 
-const { resolveDatasetId, SupersetUnavailableError } =
+const { resolveDatasetId, mintDashboardPass, SupersetUnavailableError } =
   await import("./superset-client.js");
 
 // resolveDatasetId only reads `accessToken` off the session; the other fields
@@ -214,5 +214,25 @@ describe("isGuestTokenLifetimeAcceptable", () => {
     const noExp = `h.${Buffer.from("{}").toString("base64url")}.s`;
     expect(isGuestTokenLifetimeAcceptable(noExp, Date.now())).toBe(false);
     expect(isGuestTokenLifetimeAcceptable("not-a-jwt", Date.now())).toBe(false);
+  });
+});
+
+describe("service account password (ADR-023: no default in production)", () => {
+  afterEach(() => {
+    mockEnv.SUPERSET_SERVICE_ACCOUNT_PASSWORD = "pw";
+  });
+
+  it("refuses before any network call when the password is not set", async () => {
+    mockEnv.SUPERSET_SERVICE_ACCOUNT_PASSWORD = undefined;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(mintDashboardPass("slug", "tenant", [])).rejects.toThrow(
+      SupersetUnavailableError,
+    );
+    await expect(mintDashboardPass("slug", "tenant", [])).rejects.toThrow(
+      /SUPERSET_SERVICE_ACCOUNT_PASSWORD is not set/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

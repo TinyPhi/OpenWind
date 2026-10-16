@@ -54,8 +54,19 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+// The tenant's Zitadel org, for members who have never signed in (no tenant_users row).
+let orgUserIds: string[] = [];
 vi.mock("../../lib/zitadel-management.js", () => ({
-  listOrgUsers: vi.fn().mockResolvedValue([]),
+  listOrgUsers: vi.fn(() =>
+    Promise.resolve(
+      orgUserIds.map((userId) => ({
+        userId,
+        email: `${userId}@example.com`,
+        displayName: userId,
+        loginName: userId,
+      })),
+    ),
+  ),
 }));
 
 vi.mock("@platform/workflow-engine", async (importOriginal) => {
@@ -108,6 +119,7 @@ let currentFromTable: unknown;
 let currentWhereFileId: string | undefined;
 let currentInsertTable: unknown;
 const outboxInserts: Array<{ eventType: string; payload: unknown }> = [];
+const tenantUserInserts: Array<{ userId: string }> = [];
 let parentCommentActorId: string | null = null;
 
 const mockTx = {
@@ -151,8 +163,12 @@ const mockTx = {
       const payload = arg as { eventType: string };
       outboxInserts.push({ eventType: payload.eventType, payload });
     }
+    if (currentInsertTable === tenantUsersTable) {
+      tenantUserInserts.push(arg as { userId: string });
+    }
     return mockTx;
   },
+  onConflictDoNothing: () => Promise.resolve(undefined),
   returning: () =>
     Promise.resolve([{ id: "evt-1", metadata: { type: "comment" } }]),
   update: (table: unknown) => ({
@@ -204,6 +220,8 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     outboxInserts.length = 0;
     parentCommentActorId = null;
     tenantMemberIds = [OTHER_USER_ID];
+    orgUserIds = [];
+    tenantUserInserts.length = 0;
     instanceRow = {
       id: INST_ID,
       workflowId: "wf-1",
@@ -241,6 +259,21 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     // authority (not admin/agent, not creator/assignee) — the mentioned
     // OTHER_USER_ID must never receive an access grant here.
     expect(grantedUpdates.length).toBe(0);
+  });
+
+  it("rejects a comment that mentions more than 50 people", async () => {
+    const mentions = Array.from({ length: 51 }, (_, i) => ({
+      userId: `u-${i}`,
+      level: "read_comment",
+    }));
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "cc everyone", mentions }),
+    });
+
+    expect(res.status).toBe(400);
   });
 
   it("fires comment.created for a plain comment with no mentions, in addition to whatever else fires", async () => {
@@ -329,6 +362,64 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(grantedUpdates.length).toBe(1);
     const eventTypes = outboxInserts.map((o) => o.eventType);
     expect(eventTypes).not.toContain("comment.mention_access_granted");
+  });
+
+  it("notifies and grants a mentioned org member who has never signed in (no tenant_users row yet)", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+      orgId: "org-1",
+    };
+    instanceRow!.assignedTo = "someone-else";
+    tenantMemberIds = []; // never signed in
+    orgUserIds = [OTHER_USER_ID]; // but is in the tenant's Zitadel org
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_comment" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).toContain("comment.mention_access_granted");
+    // Registered as a tenant member, so later checks see them too.
+    expect(tenantUserInserts).toEqual([
+      expect.objectContaining({ userId: OTHER_USER_ID }),
+    ]);
+  });
+
+  it("still drops a mention of someone outside the tenant's org", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+      orgId: "org-1",
+    };
+    instanceRow!.assignedTo = "someone-else";
+    tenantMemberIds = [];
+    orgUserIds = ["somebody-else-in-the-org"];
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_comment" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).not.toContain("comment.mention_access_granted");
+    expect(eventTypes).not.toContain("comment.mentioned");
+    expect(tenantUserInserts).toEqual([]);
   });
 
   it("never rewrites an existing access entry through a mention", async () => {

@@ -71,7 +71,14 @@ export {
   grantProjectToOrg,
   authorizeUser,
   SANDBOX_GRANTED_ROLE_KEYS,
+  listMachineKeys,
 } from "./zitadel-management.js";
+export {
+  checkMachineKeyExpiry,
+  parseMachineKeyRef,
+  MACHINE_KEY_NAMES,
+} from "./zitadel-key-expiry.js";
+export type { MachineKeyExpiry, MachineKeyName } from "./zitadel-key-expiry.js";
 export type {
   OrgUser,
   OrgMetadata,

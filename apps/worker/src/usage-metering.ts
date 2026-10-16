@@ -1,5 +1,5 @@
 import { ne, sql } from "drizzle-orm";
-import { db, tenants, tenantUsageDaily } from "@platform/db";
+import { db, tenants, tenantUsageDaily, withTenantContext } from "@platform/db";
 import { logger } from "@platform/logger";
 import { Worker, Queue } from "bullmq";
 import { connection } from "./queues.js";
@@ -60,7 +60,9 @@ export async function runUsageMeteringSweep(): Promise<void> {
 
       try {
         // 2. Fetch storage usage
-        const storageBytes = await getTenantUsedBytes(db, tenantId);
+        const storageBytes = await withTenantContext(tenantId, (tx) =>
+          getTenantUsedBytes(tx, tenantId),
+        );
 
         // 3 + 4. Fetch yesterday's and today's Redis counters in one round trip
         const [rawYestApi, rawYestAi, rawTodayApi, rawTodayAi] =
@@ -75,69 +77,71 @@ export async function runUsageMeteringSweep(): Promise<void> {
         const todayApi = parseInt(rawTodayApi ?? "0", 10);
         const todayAi = parseInt(rawTodayAi ?? "0", 10);
 
-        // 5. Flush to DB for yesterday
-        await db
-          .insert(tenantUsageDaily)
-          .values([
-            {
-              tenantId,
-              usageDate: yesterdayStr,
-              metric: "api_calls",
-              value: yesterdayApi,
-            },
-            {
-              tenantId,
-              usageDate: yesterdayStr,
-              metric: "ai_tokens",
-              value: yesterdayAi,
-            },
-            {
-              tenantId,
-              usageDate: yesterdayStr,
-              metric: "storage_bytes",
-              value: storageBytes,
-            },
-          ])
-          .onConflictDoUpdate({
-            target: [
-              tenantUsageDaily.tenantId,
-              tenantUsageDaily.usageDate,
-              tenantUsageDaily.metric,
-            ],
-            set: { value: sql`excluded.value` },
-          });
+        // 5. Flush to DB for yesterday and today under tenant context (RLS as app_user)
+        await withTenantContext(tenantId, async (tx) => {
+          await tx
+            .insert(tenantUsageDaily)
+            .values([
+              {
+                tenantId,
+                usageDate: yesterdayStr,
+                metric: "api_calls",
+                value: yesterdayApi,
+              },
+              {
+                tenantId,
+                usageDate: yesterdayStr,
+                metric: "ai_tokens",
+                value: yesterdayAi,
+              },
+              {
+                tenantId,
+                usageDate: yesterdayStr,
+                metric: "storage_bytes",
+                value: storageBytes,
+              },
+            ])
+            .onConflictDoUpdate({
+              target: [
+                tenantUsageDaily.tenantId,
+                tenantUsageDaily.usageDate,
+                tenantUsageDaily.metric,
+              ],
+              set: { value: sql`excluded.value` },
+            });
 
-        // 6. Flush to DB for today (running totals)
-        await db
-          .insert(tenantUsageDaily)
-          .values([
-            {
-              tenantId,
-              usageDate: todayStr,
-              metric: "api_calls",
-              value: todayApi,
-            },
-            {
-              tenantId,
-              usageDate: todayStr,
-              metric: "ai_tokens",
-              value: todayAi,
-            },
-            {
-              tenantId,
-              usageDate: todayStr,
-              metric: "storage_bytes",
-              value: storageBytes,
-            },
-          ])
-          .onConflictDoUpdate({
-            target: [
-              tenantUsageDaily.tenantId,
-              tenantUsageDaily.usageDate,
-              tenantUsageDaily.metric,
-            ],
-            set: { value: sql`excluded.value` },
-          });
+          // 6. Today's running totals
+          await tx
+            .insert(tenantUsageDaily)
+            .values([
+              {
+                tenantId,
+                usageDate: todayStr,
+                metric: "api_calls",
+                value: todayApi,
+              },
+              {
+                tenantId,
+                usageDate: todayStr,
+                metric: "ai_tokens",
+                value: todayAi,
+              },
+              {
+                tenantId,
+                usageDate: todayStr,
+                metric: "storage_bytes",
+                value: storageBytes,
+              },
+            ])
+            .onConflictDoUpdate({
+              target: [
+                tenantUsageDaily.tenantId,
+                tenantUsageDaily.usageDate,
+                tenantUsageDaily.metric,
+              ],
+              set: { value: sql`excluded.value` },
+            });
+        });
 
         // 7. Check degradation limits against today's counts (real-time enforcement)
         const degradedMetrics: string[] = [];

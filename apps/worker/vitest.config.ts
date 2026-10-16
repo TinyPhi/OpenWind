@@ -1,9 +1,31 @@
 import { defineConfig } from "vitest/config";
 
+// The real outbox poller is deliberately cross-tenant: it claims any tenant's undelivered rows.
+// Two test files that each start one would race for each other's rows when vitest runs files in
+// parallel (the intermittent #873 failure), so those files run one at a time in their own project.
+const POLLER_TESTS = ["tests/isolation/outbox-poller-*.isolation.test.ts"];
+
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "tests/isolation/**/*.test.ts"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "worker",
+          include: ["src/**/*.test.ts", "tests/isolation/**/*.test.ts"],
+          exclude: POLLER_TESTS,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "outbox-poller",
+          include: POLLER_TESTS,
+          fileParallelism: false,
+        },
+      },
+    ],
     // Isolation tests import the real @platform/db (no mocking, per
     // testing-conventions.md) and need @platform/config's full required env
     // set to resolve — mirrors apps/api/vitest.config.ts's block.
