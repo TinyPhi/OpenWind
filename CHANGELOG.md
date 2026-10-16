@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — migration journal ordering (#895)]
+
+### Fixed
+
+- **A database that stopped just before migrations 0020, 0040, 0050 or 0141 no longer skips them.** The Drizzle
+  migrator runs a migration only if its journal `when` is strictly greater than the latest one applied, and
+  those four entries shared or trailed their predecessor's. Such a database skipped the migration; for 0020, 0040
+  and 0141 a later migration then failed, and for 0050 it was skipped silently. Their `when` values are now just
+  after their predecessors', and a new test keeps every journal entry strictly increasing.
+
+---
+
 ## [Unreleased — OpenBao production runbook and health alert (#911)]
 
 ### Added
