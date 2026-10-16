@@ -32,9 +32,16 @@ const store = new Map<string, string>();
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
     get: (k: string) => Promise.resolve(store.get(k) ?? null),
-    set: (k: string, v: string) => {
+    set: (k: string, v: string, ...flags: unknown[]) => {
+      if (flags.includes("NX") && store.has(k)) return Promise.resolve(null);
       store.set(k, v);
       return Promise.resolve("OK");
+    },
+    // Mirrors the check-and-delete script: only the holder of the token deletes the key.
+    eval: (_script: string, _numKeys: number, k: string, token: string) => {
+      if (store.get(k) !== token) return Promise.resolve(0);
+      store.delete(k);
+      return Promise.resolve(1);
     },
   }),
 }));
@@ -330,6 +337,57 @@ describe("runZitadelKeyExpiryCheck", () => {
   });
 });
 
+describe("overlapping runs", () => {
+  it("lets only one of two concurrent runs send, and frees the lock afterwards", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+
+    await Promise.all([
+      runZitadelKeyExpiryCheck(NOW),
+      runZitadelKeyExpiryCheck(NOW),
+    ]);
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+  });
+
+  it("holds the lock under a random token while sending, not a fixed value", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+    let held: string | undefined;
+    mockSend.mockImplementationOnce(() => {
+      held = store.get("ops:zitadel-key-expiry:lock");
+      return Promise.resolve(undefined);
+    });
+
+    await runZitadelKeyExpiryCheck(NOW);
+
+    expect(held).toMatch(/^[0-9a-f-]{36}$/);
+    expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+  });
+
+  it("does not release a lock that a later run took over after the TTL", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+    mockSend.mockImplementationOnce(() => {
+      store.set("ops:zitadel-key-expiry:lock", "later-run-token");
+      return Promise.resolve(undefined);
+    });
+
+    await runZitadelKeyExpiryCheck(NOW);
+
+    expect(store.get("ops:zitadel-key-expiry:lock")).toBe("later-run-token");
+  });
+
+  it("frees the lock when the send fails, so the retry can send", async () => {
+    mockCheck.mockResolvedValue(allThree(-1));
+    mockSend.mockRejectedValueOnce(new Error("novu down"));
+
+    await expect(runZitadelKeyExpiryCheck(NOW)).rejects.toThrow("novu down");
+    expect(store.has("ops:zitadel-key-expiry:lock")).toBe(false);
+
+    await runZitadelKeyExpiryCheck(NOW);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("stored state", () => {
   it("reads the previous digest, and treats unreadable or future-dated state as none", () => {
     const ok = JSON.stringify({
@@ -390,5 +448,11 @@ describe("scheduleZitadelKeyExpiryCheck", () => {
       repeat: { pattern: "0 6 * * *" },
     });
     expect(queueAdds[1]?.[0]).toBe("check-on-start");
+    for (const add of queueAdds) {
+      expect(add[2]).toMatchObject({
+        attempts: 3,
+        backoff: { type: "exponential" },
+      });
+    }
   });
 });

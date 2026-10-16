@@ -257,6 +257,8 @@ interface ZitadelKeyReport {
 async function readZitadelKeyReport(): Promise<ZitadelKeyReport | null> {
   const raw = await getRedis().get(ZITADEL_KEY_EXPIRY_REPORT_KEY);
   if (!raw) return null;
+  // JSON.parse returns any; the shape is untrusted Redis content, so every field is
+  // type-checked below before use.
   const parsed = JSON.parse(raw) as {
     checkedAt?: unknown;
     rows?: { name?: unknown; status?: unknown; expiresAt?: unknown }[];
