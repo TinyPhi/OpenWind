@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
-import { withTenantContext } from "@platform/db";
+import {
+  withEventLogMaintenanceContext,
+  withTenantContext,
+} from "@platform/db";
 import { env } from "@platform/config";
 import { retentionDeletedRowsTotal } from "@platform/telemetry";
 import type { RetentionPolicy } from "./retention-policy.js";
@@ -19,11 +22,10 @@ type Tx = Parameters<Parameters<typeof withTenantContext>[1]>[0];
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// Classification is structural (state columns, comment marker), never a
-// caller-writable flag: a same-state event with metadata.type = 'comment' is a
-// comment; an untyped same-state event is noise; everything else (creation, a
-// state change, or a same-state event with any other type such as an update,
-// access grant or attachment record) is evidence. Evidence is also held back while its case is open or recently active.
+// Classification reads the state columns first, then metadata.type: an event that records creation
+// or a state change is evidence, an untyped same-state event is noise, a comment has its own window,
+// and a same-state event with any other type (an update, access grant or attachment record) is
+// evidence. Evidence is also held back while its case is open or recently active.
 const SAME_STATE_PREDICATES = {
   noise: sql`e.from_state = e.to_state AND e.metadata->>'type' IS NULL`,
   comment: sql`e.from_state = e.to_state AND e.metadata->>'type' = 'comment'`,
@@ -39,12 +41,13 @@ async function deleteBatch(
 
 async function drain(
   tenantId: string,
+  run: typeof withTenantContext,
   build: (limit: number) => ReturnType<typeof sql>,
   label: { table: string; class: string },
 ): Promise<number> {
   let total = 0;
   for (;;) {
-    const n = await withTenantContext(tenantId, (tx) =>
+    const n = await run(tenantId, (tx) =>
       deleteBatch(tx, build(env.RETENTION_BATCH_SIZE)),
     );
     total += n;
@@ -103,18 +106,21 @@ export async function sweepTenant(
 
   result.workflowEventsNoise = await drain(
     tenantId,
+    withEventLogMaintenanceContext,
     (limit) =>
       workflowEventsBatch(tenantId, "noise", policy.noiseDays, 0, limit),
     { table: "workflow_events", class: "noise" },
   );
   result.workflowEventsComment = await drain(
     tenantId,
+    withEventLogMaintenanceContext,
     (limit) =>
       workflowEventsBatch(tenantId, "comment", policy.commentDays, 0, limit),
     { table: "workflow_events", class: "comment" },
   );
   result.workflowEventsEvidence = await drain(
     tenantId,
+    withEventLogMaintenanceContext,
     (limit) =>
       workflowEventsBatch(
         tenantId,
@@ -127,6 +133,7 @@ export async function sweepTenant(
   );
   result.outboxEvents = await drain(
     tenantId,
+    withTenantContext,
     (limit) => sql`DELETE FROM outbox_events WHERE id IN (
       SELECT id FROM outbox_events
       WHERE tenant_id = ${tenantId} AND delivered_at IS NOT NULL
@@ -138,6 +145,7 @@ export async function sweepTenant(
   );
   result.tenantUsageDaily = await drain(
     tenantId,
+    withTenantContext,
     (limit) => sql`DELETE FROM tenant_usage_daily WHERE ctid IN (
       SELECT ctid FROM tenant_usage_daily
       WHERE tenant_id = ${tenantId}

@@ -27,6 +27,7 @@ import {
   outboxEvents,
   automationRules,
   automationExecutions,
+  withEventLogMaintenanceContext,
 } from "@platform/db";
 import { env } from "@platform/config";
 import {
@@ -117,6 +118,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await redis.quit();
+  // app_user cannot DELETE workflow events (migration 0147).
+  await withEventLogMaintenanceContext(TENANT, (tx) =>
+    tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT)),
+  );
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
     await tx
@@ -128,7 +133,6 @@ afterAll(async () => {
     await tx
       .delete(entityRelations)
       .where(eq(entityRelations.tenantId, TENANT));
-    await tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT));
     await tx
       .delete(entityInstances)
       .where(eq(entityInstances.tenantId, TENANT));
