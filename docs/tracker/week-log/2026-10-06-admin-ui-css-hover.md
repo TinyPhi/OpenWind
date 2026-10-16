@@ -16,6 +16,11 @@
   stylesheet would remove it. Left as a follow-up.
 - `useHoverStyle` remains exported from `@platform/ui` (shared primitive); admin-ui no longer uses
   it. Whether to remove it is a separate decision.
+- Ticket rows intentionally retain only background-color hover feedback. The former
+  `transform: scale(1.012)` was dropped because transforms on `<tr>` elements can produce
+  browser-specific table-layout and painting artefacts. The trade-off is less motion polish in
+  exchange for stable row geometry; the remaining exposure is visual and requires browser checks.
+  This documentation-only decision is not stateful.
 - Needs a visual check in the browser: no automated test asserts hover styling.
 - Not in this slice: lazy routes, request dedup, the refactors, idle-logout and avatars (the other
   four PRs from the #772 split).
