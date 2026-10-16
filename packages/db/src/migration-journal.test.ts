@@ -45,17 +45,6 @@ function readEntries(): JournalEntry[] {
 
 const entries = readEntries();
 
-// Entries that already shipped with a non-increasing `when` (issue #895). Do not add to this
-// list: give a new migration a `when` greater than every migration on main instead. Remove an
-// entry when its `when` is corrected (the last test fails if it is left behind).
-const HISTORICAL_EXCEPTIONS: ReadonlyArray<readonly [string, string]> = [
-  ["0019_create_app_user", "0020_workflow_assignee"],
-  ["0039_module_visibility", "0040_notifications"],
-  ["0049_outbox_events_rls", "0050_workflow_transitions_sort_order"],
-];
-const isException = (from: string, to: string): boolean =>
-  HISTORICAL_EXCEPTIONS.some(([a, b]) => a === from && b === to);
-
 describe("migration journal", () => {
   it("numbers entries 0..n-1 with unique tags that each have a .sql file", () => {
     expect(entries.map((e) => e.idx)).toEqual(entries.map((_, i) => i));
@@ -74,18 +63,8 @@ describe("migration journal", () => {
     const violations = entries.flatMap((entry, i) => {
       const prev = entries[i - 1];
       if (!prev || entry.when > prev.when) return [];
-      if (isException(prev.tag, entry.tag)) return [];
       return [`${prev.tag} (${prev.when}) -> ${entry.tag} (${entry.when})`];
     });
     expect(violations).toEqual([]);
-  });
-
-  it("keeps the historical exception list limited to pairs that are still out of order", () => {
-    const stale = HISTORICAL_EXCEPTIONS.filter(([from, to]) => {
-      const a = entries.find((e) => e.tag === from);
-      const b = entries.find((e) => e.tag === to);
-      return !a || !b || b.when > a.when;
-    });
-    expect(stale).toEqual([]);
   });
 });

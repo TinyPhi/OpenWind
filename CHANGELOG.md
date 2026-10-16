@@ -9,10 +9,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- **A database that stopped at migration 0140 no longer skips 0141.** The Drizzle migrator runs a migration only
-  if its journal `when` is strictly greater than the latest one applied, and 0141 shared 0140's. Such a database
-  skipped `platform_admin_audit_log`, and the next migration (0142) then failed. 0141's `when` is now one
-  millisecond later. A new test keeps every new journal entry strictly increasing.
+- **A database that stopped just before migrations 0020, 0040, 0050 or 0141 no longer skips them.** The Drizzle
+  migrator runs a migration only if its journal `when` is strictly greater than the latest one applied, and
+  those four entries shared or trailed their predecessor's. Such a database skipped the migration; for 0020, 0040
+  and 0141 a later migration then failed, and for 0050 it was skipped silently. Their `when` values are now just
+  after their predecessors', and a new test keeps every journal entry strictly increasing.
 
 ---
 

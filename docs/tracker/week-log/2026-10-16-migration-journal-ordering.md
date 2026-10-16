@@ -13,7 +13,12 @@
 - **Verified end to end.** The real migrator against a throwaway database migrated to 0140 and then to the full
   journal: with the original journal 0141 is skipped and 0142 fails (`relation "platform_admin_audit_log" does not
 exist`, rolled back at 141 applied); with the fixed journal all 149 apply and the table exists.
-- **Deferred.** The three older pairs have the same hazard for a database that stopped at the earlier one:
-  0019 to 0020, 0039 to 0040 (equal) and 0049 to 0050. Each is a one-value fix that stays strictly below the next
-  entry (0020 to 1781683200001, 0040 to 1783417689001, 0050 to 1785542402000). They touch already-shipped
-  entries, so they are left for an owner decision; remove the matching test exception with each.
+- **Older pairs, fixed in the same PR.** The three older shipped pairs had the same hazard and are now fixed with one
+  value each, strictly between their neighbours: 0020 to 1781683200001 (was below 0018 and 0019), 0040 to
+  1783417689001 (was equal to 0039), 0050 to 1785542402000 (was below 0049). The real migrator against a throwaway
+  database stopped just before each: with the old values 0020 and 0040 were skipped and a later migration failed
+  (`column "assigned_to" does not exist`, `relation "notifications" does not exist`, rolled back at 20 and 40
+  applied), and 0050 was skipped silently (148 of 149 applied); with the new values all 149 apply every time.
+  Databases that already ran these migrations are unaffected: only the latest applied `created_at` is compared.
+- **Test.** With the exceptions gone the journal test no longer carries an allow-list: every `when` must be strictly
+  greater than its predecessor, full stop.
