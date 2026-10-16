@@ -271,6 +271,5 @@ To check on demand, restart `ow-worker`.
 - [ ] A restore, including key recovery, has been tested and timed.
 - [ ] Production OpenBao is durable and does not use dev mode or a root token.
 - [ ] An OpenBao restore has been tested together with a database restore.
-
 - [ ] Every Zitadel machine key has an expiry date, `OPS_ALERT_EMAIL` is set, and the
       key-expiry metrics are alerted on.

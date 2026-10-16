@@ -126,18 +126,28 @@ For a new deployment with no running instance. To move an existing one, see
    `pgbouncer.env` by hand with one line, `DB_PASSWORD=...` (the `app_user` password), and
    `postgres.env` with `POSTGRES_PASSWORD=...` (the superuser password).
 
-4. **KV values.** For each service, put its values in a `0600` JSON file, load it, and delete the
-   file:
+4. **KV values.** For each service, write its values to a JSON file in a private (mode `0700`)
+   working directory, load it, and delete the whole directory:
 
    ```bash
    umask 077
-   "${EDITOR:-vi}" /tmp/backend.json          # {"DATABASE_URL": "...", ...}
-   bao kv put -mount=secret openwind/prod/backend @/tmp/backend.json
-   shred -u /tmp/backend.json
+   W=$(mktemp -d)                              # mode 0700
+   vi -n -i NONE "$W/backend.json"             # no swap or backup copies; {"DATABASE_URL": "...", ...}
+   bao kv put -mount=secret openwind/prod/backend @"$W/backend.json"
+   shred -u "$W/backend.json"; rm -rf "$W"
    bao kv get -mount=secret -format=json openwind/prod/backend | jq '.data.data | keys'
    ```
 
-   The last line prints key **names** only. Which keys each service needs is the `BAO_REQUIRED_KEYS`
+   **`kv put` vs `kv patch`:** `kv put` writes a new version that holds **only** the keys you give
+   it, so any other key at that path disappears (KV v2 keeps the old version, so `bao kv rollback`
+   can undo it). Use `kv put` only for the first write to an empty path. Whenever a path may
+   already hold keys, add or change keys with `kv patch` instead, which keeps the rest:
+
+   ```bash
+   printf '%s' "$VALUE" | bao kv patch -mount=secret openwind/prod/backend SOME_KEY=-
+   ```
+
+   The `kv get` line prints key **names** only. Which keys each service needs is the `BAO_REQUIRED_KEYS`
    list the production override sets for it (PR 4). Rules that are easy to miss:
    - A value two services need is stored **at both paths** (no wildcards). For example
      `REPORTING_BINDING_SECRET` goes in `superset` and in `bootstrap` (the migration runner writes the
@@ -160,12 +170,54 @@ For a new deployment with no running instance. To move an existing one, see
    It fails if the production config would start the dev OpenBao, mount `.env.local`, or set a
    non-allowlisted `environment:` key (PR 4).
 
-7. **Bootstrap.** Bootstrap in production never writes `.env.local`. New secrets it creates go to a
-   file named by `BOOTSTRAP_SECRETS_OUT`, which must not exist yet; without it, bootstrap refuses
-   before rotating anything (PR 2). Load what it wrote into the right KV paths (step 4), then
-   `shred -u` the file.
+7. **Database passwords, before any app starts.** `docker/postgres/init/001_setup.sql` creates
+   `app_user`, `migration_user`, `analytics_user` and `superset_user` with passwords that are
+   published in this repo, and the `platform` superuser gets whatever `postgres.env` held when the
+   volume was created. Start **only** Postgres, rotate every role, then store the new values:
 
-8. **Start and check:**
+   ```bash
+   umask 077
+   $DC up -d postgres                          # first start creates the roles
+   W=$(mktemp -d)                              # mode 0700
+   vi -n -i NONE "$W/rotate.sql"
+   #   ALTER ROLE app_user       PASSWORD '...';
+   #   ALTER ROLE migration_user PASSWORD '...';
+   #   ALTER ROLE analytics_user PASSWORD '...';
+   #   ALTER ROLE superset_user  PASSWORD '...';
+   #   ALTER ROLE platform       PASSWORD '...';   -- superuser
+   $DC exec -T postgres psql -v ON_ERROR_STOP=1 -U platform -d platform < "$W/rotate.sql"
+   shred -u "$W/rotate.sql"; rm -rf "$W"
+   ```
+
+   Then put the new passwords everywhere they are used, before step 8:
+   - **OpenBao KV** (with `kv patch`): every URL that embeds a password: `DATABASE_URL` and
+     `DATABASE_DIRECT_URL` (backend, worker), `DATABASE_URL` and `MIGRATION_DATABASE_URL`
+     (bootstrap), the Superset `DATABASE_URL` (superset, superset-init),
+     `SUPERSET_REPORTING_DB_URI` (superset-init);
+   - **`pgbouncer.env`**: `DB_PASSWORD` = the new `app_user` password;
+   - **`postgres.env`**: `POSTGRES_PASSWORD` = the new `platform` password (only read when a new
+     volume is created, but keep it in step).
+
+   Never start the apps while any role still has its committed password.
+
+8. **Bootstrap.** Bootstrap in production never writes `.env.local`. New secrets it creates go to a
+   file named by `BOOTSTRAP_SECRETS_OUT`, which must not exist yet; without it, bootstrap refuses
+   before rotating anything (PR 2). It also stops before any change unless it has Zitadel
+   credentials: `ZITADEL_KEY_JSON` in its KV path, or, on the very first run only, a one-time
+   `ZITADEL_SETUP_PAT`:
+
+   ```bash
+   read -rs ZITADEL_SETUP_PAT && export ZITADEL_SETUP_PAT   # first run only; not echoed
+   $DC --profile bootstrap run --rm -e ZITADEL_SETUP_PAT bootstrap
+   unset ZITADEL_SETUP_PAT
+   ```
+
+   Load what it wrote into the right KV paths with **`kv patch`** (step 4; never `kv put`, which
+   would drop the keys already there), then `shred -u` the file. Bootstrap's key names map to the
+   service paths that use them (for example `ZITADEL_INTROSPECTION_CLIENT_SECRET` → `backend` and
+   `worker`; `ZITADEL_KEY_JSON` → `bootstrap` too, so later runs need no PAT).
+
+9. **Start and check:**
 
    ```bash
    $DC up -d
@@ -201,6 +253,12 @@ window, and rehearse it (including the [rollback](#rollback)) on a copy first.
   ```bash
   pnpm credential:set --tenant <tenant-uuid> --connector <connector-id> --key <name>   # value on stdin (PR 2)
   ```
+
+  In production there is no `.env.local`: the script's `dotenv -e .env.local` wrapper simply
+  finds no file and runs the script with the environment you exported. Run it from a checkout on a
+  host that reaches the database and OpenBao, with `DATABASE_URL`, `NODE_ENV=production` and
+  OpenBao AppRole settings for a role that may **encrypt** with the Transit key (ADR-023
+  Decision 8). Pass secrets in the environment or on stdin, never on the command line.
 
 ### 2. Rotate cheap, published secrets — before cutover
 
@@ -293,8 +351,14 @@ OpenBao starts **sealed** after a reboot, and OpenWind can't start until it is u
 3. Start or re-check OpenWind: `$DC up -d`, then `$DC ps`.
    - Long-running services were retrying meanwhile: the loader waits `BAO_WAIT_SECONDS` (default
      120), exits 69, and Docker's restart policy starts it again.
-   - One-shots (`superset-init`, `bootstrap`) stop retrying after a few failures. Run them again if
-     they show as failed.
+   - One-shots (`superset-init`, `bootstrap`) have `restart: "no"`: they stop on the first failure
+     and Docker never restarts them. `superset` waits for `superset-init` to succeed. Re-run them
+     by hand once OpenBao is unsealed:
+
+     ```bash
+     $DC up -d superset-init        # then superset starts after it completes
+     $DC --profile bootstrap run --rm bootstrap   # only if a bootstrap run is due
+     ```
 
 Services that don't use OpenBao (`postgres`, `pgbouncer`, `redis`) start on their own.
 
@@ -370,8 +434,11 @@ allowed addresses (a laptop, or a container not on `OPENBAO_NETWORK`), with a re
 secret ID in a `0600` file:
 
 ```bash
-curl -s -w '\n%{http_code}\n' https://openbao.example.com/v1/auth/approle/login -d @/tmp/login.json
-shred -u /tmp/login.json
+umask 077
+W=$(mktemp -d)                                  # mode 0700
+vi -n -i NONE "$W/login.json"                   # {"role_id": "...", "secret_id": "..."}
+curl -s -w '\n%{http_code}\n' https://openbao.example.com/v1/auth/approle/login -d @"$W/login.json"
+shred -u "$W/login.json"; rm -rf "$W"
 ```
 
 Expect an error and **no** `client_token`. If you get a token, the binding is missing — rotate that
