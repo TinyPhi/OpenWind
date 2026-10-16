@@ -31,7 +31,10 @@ export {
 export type { DbOrTx } from "./middleware.js";
 export * from "./schema/index.js";
 export { isOutboundNotificationsEnabled } from "./platform-settings.js";
-export { connectorInstallationFilter } from "./connector-credentials.js";
+export {
+  connectorInstallationFilter,
+  connectorDefinitionExists,
+} from "./connector-credentials.js";
 export { isUniqueViolation, isCheckViolation } from "./errors.js";
 export {
   toPlatformAdminSandboxView,
