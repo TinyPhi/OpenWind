@@ -60,13 +60,15 @@ services:
   openbao:
     profiles: [openbao-dev-disabled]
     ports: !reset []
-    entrypoint: ["/bin/sh", "-c", "echo 'dev OpenBao is disabled in production'"]
+    entrypoint:
+      ["/bin/sh", "-c", "echo 'dev OpenBao is disabled in production'"]
     command: !reset []
     healthcheck: !reset {}
     restart: "no"
   openbao-init:
     profiles: [openbao-dev-disabled]
-    entrypoint: ["/bin/sh", "-c", "echo 'dev OpenBao is disabled in production'"]
+    entrypoint:
+      ["/bin/sh", "-c", "echo 'dev OpenBao is disabled in production'"]
     depends_on: !reset {}
     environment: !reset {}
     restart: "no"
@@ -165,6 +167,10 @@ services:
 
   # ── Frontend: no OpenBao role; public values only (ADR-023 Decision 3) ──────
   ow-frontend:
+    # Loopback only: reached through the reverse proxy on the host, never
+    # directly (the base file publishes it on every interface).
+    ports: !override
+      - "127.0.0.1:${ADMIN_UI_HOST_PORT:-3001}:3001"
     environment: !override
       VITE_API_PROXY_TARGET: http://ow-backend:3000
       ZITADEL_ISSUER: ${ZITADEL_ISSUER:?set ZITADEL_ISSUER in .env (public issuer URL)}
@@ -189,6 +195,10 @@ services:
       args:
         NOVU_IMAGE: ghcr.io/novuhq/novu/api@sha256:d9550e949cf469a3124c6859844863c15881c512fcd2cf5ea2147f8b339fb4e7
     image: openwind-novu-api:openbao
+    # Loopback only: novu-api holds production secrets (the base file publishes
+    # it on every interface).
+    ports: !override
+      - "127.0.0.1:${NOVU_API_HOST_PORT:-3010}:3000"
     entrypoint: ["node", "/opt/openbao/bao-env-loader.mjs"]
     command: *novu-command
     env_file: !override
@@ -222,6 +232,8 @@ services:
 
   # Public URL only: no OpenBao role (same rule as the frontend).
   novu-web:
+    ports: !override
+      - "127.0.0.1:${NOVU_WEB_HOST_PORT:-4200}:4200"
     environment: !override
       REACT_APP_API_URL: ${NOVU_API_ROOT_URL:-http://localhost:3010}
 
@@ -234,6 +246,11 @@ services:
     environment: !override
       <<: *openbao
       BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/bootstrap
+      # Zitadel credentials are deliberately not "required" here: after the first
+      # run the path holds ZITADEL_KEY_JSON, but the very first run has no key
+      # yet and authenticates with a one-time ZITADEL_SETUP_PAT instead
+      # (`docker compose run -e ZITADEL_SETUP_PAT=... bootstrap`). Bootstrap
+      # stops before any change when neither is present (#936, #959).
       BAO_REQUIRED_KEYS: DATABASE_URL,MIGRATION_DATABASE_URL,REPORTING_BINDING_SECRET
       RUNNING_IN_DOCKER: "true"
       REDIS_URL: redis://redis:6379
@@ -267,6 +284,10 @@ services:
     environment: !override
       <<: *openbao
       BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/superset
+      # SUPERSET_OAUTH_CLIENT_ID / SUPERSET_OAUTH_CLIENT_SECRET are optional on
+      # purpose: standalone Superset sign-in (reporting Stage 2) is off unless
+      # the client id is set (ADR-019), and Superset keeps its own login. To turn
+      # Stage 2 on, store both at this path (and at superset-init's).
       BAO_REQUIRED_KEYS: SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,REPORTING_BINDING_SECRET,DATABASE_URL
       SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
       SERVER_WORKER_AMOUNT: ${SUPERSET_WORKER_AMOUNT:-2}
@@ -282,7 +303,8 @@ services:
         ipv4_address: ${OW_BAO_IP_SUPERSET:?set OW_BAO_IP_SUPERSET in .env}
 
   superset-init:
-    entrypoint: ["python3", "/opt/openbao/bao-env-loader.py", "/bin/bash", "/app/init.sh"]
+    entrypoint:
+      ["python3", "/opt/openbao/bao-env-loader.py", "/bin/bash", "/app/init.sh"]
     env_file: !override
       - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/superset-init.env
     environment: !override

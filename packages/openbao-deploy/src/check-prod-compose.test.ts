@@ -55,8 +55,9 @@ describe("checkComposeConfig", () => {
 
   it("fails on a key outside the allowlist, naming the key but not its value", () => {
     const cfg = valid();
-    cfg.services!["ow-backend"]!.environment!["DATABASE_URL"] =
-      "postgres://u:SECRET@db/x";
+    (cfg.services!["ow-backend"]!.environment as Record<string, unknown>)[
+      "DATABASE_URL"
+    ] = "postgres://u:SECRET@db/x";
     const problems = checkComposeConfig(cfg, [], FILES_OK);
     expect(problems).toEqual([expect.stringContaining("DATABASE_URL")]);
     expect(problems.join(" ")).not.toContain("SECRET");
@@ -87,7 +88,9 @@ describe("checkComposeConfig", () => {
   it("fails when a secret-holding service skips the loader or its settings", () => {
     const cfg = valid();
     cfg.services!["ow-backend"]!.entrypoint = null;
-    delete cfg.services!["ow-backend"]!.environment!["OPENBAO_NETWORK_CIDR"];
+    delete (
+      cfg.services!["ow-backend"]!.environment as Record<string, unknown>
+    )["OPENBAO_NETWORK_CIDR"];
     const problems = checkComposeConfig(cfg, [], FILES_OK).join("\n");
     expect(problems).toMatch(
       /ow-backend: does not start through the OpenBao loader/,
@@ -138,6 +141,39 @@ describe("checkComposeConfig — mounted file and pinned images", () => {
     ).toEqual([
       expect.stringContaining("novu-api: build arg NOVU_IMAGE does not match"),
     ]);
+  });
+});
+
+describe("checkComposeConfig — published ports", () => {
+  it("accepts ports bound to loopback, in both rendered forms", () => {
+    const cfg = valid();
+    cfg.services!["ow-backend"]!.ports = [
+      "127.0.0.1:${API_HOST_PORT:-3002}:3000",
+      { host_ip: "127.0.0.1", published: "4317", target: 4317 },
+    ];
+    expect(checkComposeConfig(cfg, [], FILES_OK)).toEqual([]);
+  });
+
+  it("fails on a port published on every interface, in both rendered forms", () => {
+    const cfg = valid();
+    cfg.services!["ow-frontend"]!.ports = ["${ADMIN_UI_HOST_PORT:-3001}:3001"];
+    cfg.services!["redis"]!.ports = [{ published: "3010", target: 3000 }];
+    const problems = checkComposeConfig(cfg, [], FILES_OK).join("\n");
+    expect(problems).toMatch(/ow-frontend: ports published on every interface/);
+    expect(problems).toMatch(
+      /redis: ports published on every interface .*3010:3000/,
+    );
+  });
+
+  it("reads list-form environment by key name", () => {
+    const cfg = valid();
+    cfg.services!["ow-frontend"]!.environment = [
+      "ZITADEL_ISSUER=x",
+      "SECRET_THING=y",
+    ];
+    expect(checkComposeConfig(cfg, [], FILES_OK).join("\n")).toMatch(
+      /ow-frontend: environment keys not on the non-secret allowlist: SECRET_THING/,
+    );
   });
 });
 

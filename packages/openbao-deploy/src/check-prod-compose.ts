@@ -24,12 +24,17 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
+type ComposePort =
+  | string
+  | { host_ip?: string; published?: string | number; target?: number };
+
 interface ComposeService {
   profiles?: string[] | null;
+  ports?: ComposePort[] | null;
   image?: string | null;
   build?: { args?: Record<string, string> | null } | null;
   entrypoint?: string[] | string | null;
-  environment?: Record<string, unknown> | null;
+  environment?: Record<string, unknown> | string[] | null;
   env_file?: { path?: string }[] | null;
   volumes?: { source?: string; target?: string }[] | null;
 }
@@ -168,6 +173,33 @@ function realPathKind(path: string): "file" | "directory" | "missing" {
   }
 }
 
+const LOOPBACK = ["127.0.0.1", "::1", "localhost"];
+
+// Production publishes nothing on every interface: the reverse proxy on the
+// host reaches services over loopback. A port written with a variable stays a
+// string in the uninterpolated render, so both forms are read.
+function isLoopbackPort(port: ComposePort): boolean {
+  if (typeof port === "string") {
+    return /^(127\.0\.0\.1|\[::1\]|localhost):/.test(port);
+  }
+  return port.host_ip !== undefined && LOOPBACK.includes(port.host_ip);
+}
+
+function describePort(port: ComposePort): string {
+  return typeof port === "string"
+    ? port
+    : `${port.published ?? "?"}:${port.target ?? "?"}`;
+}
+
+// `environment:` can be a map or a list of "KEY=value" strings; only the
+// names matter here.
+function envKeys(env: ComposeService["environment"]): string[] {
+  if (!env) return [];
+  if (Array.isArray(env))
+    return env.map((entry) => entry.split("=")[0] ?? entry);
+  return Object.keys(env);
+}
+
 function isEnvLocal(path: string | undefined): boolean {
   return (
     path !== undefined && basename(path.replace(/\\/g, "/")) === ".env.local"
@@ -233,8 +265,15 @@ export function checkComposeConfig(
       }
     }
 
+    const open = (service.ports ?? []).filter((port) => !isLoopbackPort(port));
+    if (open.length > 0) {
+      problems.push(
+        `${name}: ports published on every interface (bind them to 127.0.0.1): ${open.map(describePort).join(", ")}`,
+      );
+    }
+
     const allowed = new Set(ALLOWED_ENV[name] ?? []);
-    const keys = Object.keys(service.environment ?? {});
+    const keys = envKeys(service.environment);
     const unexpected = keys.filter((key) => !allowed.has(key)).sort();
     if (unexpected.length > 0) {
       const why =
@@ -254,12 +293,12 @@ export function checkComposeConfig(
     if (!entrypoint.includes("bao-env-loader")) {
       problems.push(`${name}: does not start through the OpenBao loader`);
     }
-    const env = service.environment ?? {};
+    const env = new Set(envKeys(service.environment));
     const missing = [
       "OPENBAO_ADDR",
       "OPENBAO_NETWORK_CIDR",
       "BAO_KV_PATH",
-    ].filter((key) => !(key in env));
+    ].filter((key) => !env.has(key));
     if (missing.length > 0) {
       problems.push(`${name}: loader settings missing: ${missing.join(", ")}`);
     }
