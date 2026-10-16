@@ -17,6 +17,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — OpenBao production runbook and health alert (#911)]
+
+### Added
+
+- **OpenBao secrets runbook** (`docs/runbooks/openbao-secrets.md`, ADR-023): first-time setup,
+  cutover from a running instance (rotate published secrets first, copy data-protecting keys),
+  rollback, reboot and unseal order, secret ID, secret and Transit key rotation, certificate
+  renewal, an address-binding check, and troubleshooting by loader exit code.
+- **`OpenBaoDown` and `OpenBaoSealed` alerts** (critical, 2 minutes) with promtool tests. They stay
+  quiet until the OpenBao scrape job, shipped commented out in `prometheus.yml`, is enabled for a
+  deployment.
+
+### Changed
+
+- The backup/DR runbook treats the database dump and the OpenBao snapshot as one backup set and
+  sets the restore order: OpenBao unsealed, then database, then apps.
+- `docs/local-setup.md`: the dev OpenBao loses its data on any restart, not only on a recreate.
+  `.env.example`, `docs/deployment-hardening.md`: production OpenBao notes and links.
+
+---
+
 ## [Unreleased — OpenBao production guards and secrets client hardening (#935)]
 
 ### Breaking change (production only)

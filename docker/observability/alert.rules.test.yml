@@ -653,3 +653,66 @@ tests:
             exp_annotations:
               summary: "resolve_oncall p99 latency is over 100ms"
               description: "P99 resolve_oncall duration is 4.95s over the last 15 minutes."
+
+  # OpenBao rules (ADR-023). The instance label is a placeholder.
+  - name: OpenBao failing scrapes for more than 2m raises OpenBaoDown
+    interval: 1m
+    input_series:
+      - series: 'up{job="openbao",instance="openbao.example.com:8200"}'
+        values: "1 1 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OpenBaoDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: OpenBaoDown
+        exp_alerts:
+          - exp_labels:
+              job: openbao
+              instance: openbao.example.com:8200
+              severity: critical
+              team: platform
+            exp_annotations:
+              summary: "OpenBao is not answering Prometheus scrapes"
+              description: "Scrapes of openbao.example.com:8200 have failed for more than 2 minutes. OpenWind services cannot start until OpenBao is back."
+
+  - name: a single failed OpenBao scrape stays quiet
+    interval: 1m
+    input_series:
+      - series: 'up{job="openbao",instance="openbao.example.com:8200"}'
+        values: "1 0 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OpenBaoDown
+        exp_alerts: []
+
+  - name: other jobs going down do not raise OpenBaoDown
+    interval: 1m
+    input_series:
+      - series: 'up{job="openwind-api",instance="ow-backend:3000"}'
+        values: "0 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OpenBaoDown
+        exp_alerts: []
+
+  - name: OpenBao sealed for more than 2m raises OpenBaoSealed
+    interval: 1m
+    input_series:
+      - series: 'vault_core_unsealed{job="openbao",instance="openbao.example.com:8200"}'
+        values: "1 1 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OpenBaoSealed
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: OpenBaoSealed
+        exp_alerts:
+          - exp_labels:
+              job: openbao
+              instance: openbao.example.com:8200
+              severity: critical
+              team: platform
+            exp_annotations:
+              summary: "OpenBao is sealed"
+              description: "openbao.example.com:8200 has been sealed for more than 2 minutes. OpenWind services cannot start until it is unsealed."
