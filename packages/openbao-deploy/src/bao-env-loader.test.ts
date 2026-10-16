@@ -412,6 +412,20 @@ describe.each(LOADERS)("$name", (loader) => {
     },
   );
 
+  it.skipIf(!enabled)(
+    "reaches OpenBao directly when an ambient proxy is configured in the environment",
+    async () => {
+      const deadProxy = "https://127.0.0.1:1";
+      const r = await run({
+        HTTPS_PROXY: deadProxy,
+        https_proxy: deadProxy,
+        ALL_PROXY: deadProxy,
+      });
+      expect(r.code).toBe(0);
+      expect(r.childEnv["API_KEY"]).toBe("REAL-KEY");
+    },
+  );
+
   it.skipIf(!enabled)("exits 78 when a required key is missing", async () => {
     const r = await run({ BAO_REQUIRED_KEYS: "DATABASE_URL,MISSING_KEY" });
     expect(r.code).toBe(78);

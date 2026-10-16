@@ -12,7 +12,8 @@
 #
 # Exit codes: 69 unreachable or sealed, 77 refused (including any HTTP redirect, which is
 # never followed), 78 configuration or missing/conflicting key. The login token is
-# revoked after the read, and also when the read fails.
+# revoked after the read, and also when the read fails. Proxy environment variables
+# (HTTPS_PROXY and friends) are ignored: requests go straight to OPENBAO_ADDR.
 import ipaddress
 import json
 import os
@@ -99,8 +100,13 @@ def call(ctx, addr, method, path, body=None, token=None):
     # A followed redirect would resend the AppRole login or the token to a host the
     # OPENBAO_NETWORK_CIDR check never saw. OpenBao doesn't redirect, so a 3xx comes back
     # as an HTTPError and is refused in call_with_wait.
+    # An empty ProxyHandler also stops urllib reading HTTPS_PROXY/ALL_PROXY from the environment:
+    # the login and the token go straight to the address the CIDR check validated, as they do
+    # in the Node loader.
     opener = urllib.request.build_opener(
-        _NoRedirect(), urllib.request.HTTPSHandler(context=ctx)
+        urllib.request.ProxyHandler({}),
+        _NoRedirect(),
+        urllib.request.HTTPSHandler(context=ctx),
     )
     try:
         with opener.open(req, timeout=REQUEST_TIMEOUT_S) as res:
