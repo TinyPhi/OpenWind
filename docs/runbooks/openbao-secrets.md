@@ -294,8 +294,9 @@ are, and give each a **dated** rotation plan. Until rotated, they are not consid
 
 **Blocking checklist, before you switch:**
 
-- [ ] The rollback override exists in the repository and has been **rehearsed** on a copy
-      (tracked in #943; see [Rollback](#rollback)).
+- [ ] The rollback override (`docker-compose.rollback.yml`, #970) is merged and has been
+      **rehearsed** on a copy: every service started from its rollback file, with the loader off
+      (see [Rollback](#rollback)).
 - [ ] Prometheus's scrape credential for the API and worker `/metrics` is the **production**
       `METRICS_TOKEN`, not the dev token in `docker/observability/prometheus.yml`. Otherwise metrics
       stop when the production guard refuses the dev token.
@@ -323,15 +324,23 @@ cutover.
      > "$OPENWIND_SECRETS_DIR/rollback-backend.env"
    ```
 
-2. Start **with the production override still in place**, with its loader turned off and the
-   one-time files as the source of values. Never roll back by dropping
-   `-f docker-compose.prod.yml`: that starts the dev OpenBao, and the base file's inline values
-   would win over any `env_file`.
+   Do the same for every service you start: `worker`, `superset`, `superset-init`, `bootstrap`
+   and `novu`, each into `rollback-<service>.env`. A `.env` file holds one value per line, so
+   check that no value spans lines (base64 values such as `ZITADEL_KEY_JSON` are fine).
 
-   > **Not in the repository yet (#943).** `docker-compose.prod.yml` (PR 4) has no "loader off"
-   > switch. A small rollback override is a follow-up: it resets each service's entrypoint and
-   > points `env_file` at the one-time files. **Don't cut over until it exists and has been
-   > rehearsed.**
+2. Check, then start **with the production override still in place** plus the rollback override
+   (`docker-compose.rollback.yml`, #970). It switches the loader off, so each service runs its
+   normal start command and reads its `rollback-<service>.env`. Backend and worker also keep their
+   role file, because they still need OpenBao for Transit.
+
+   ```bash
+   pnpm --filter @platform/openbao-deploy check:prod-compose --rollback
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+     -f docker-compose.rollback.yml up -d
+   ```
+
+   Never roll back by dropping `-f docker-compose.prod.yml`: that starts the dev OpenBao, and the
+   base file's inline values would win over any `env_file`.
 
 3. When the cutover is signed off (or the rollback has ended), delete the files with `shred -u`.
 
