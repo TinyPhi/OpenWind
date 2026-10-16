@@ -1,0 +1,69 @@
+# Rollback override for the ADR-023 production setup (#943).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.rollback.yml up -d
+#
+# Use it only to undo a failed cutover; rehearse it before the real one. It
+# keeps everything docker-compose.prod.yml does (dev OpenBao disabled, no
+# .env.local, loopback-only ports, allowlisted wiring) and changes only this:
+#   - the OpenBao startup loader is switched off: each service runs its normal
+#     start command again;
+#   - each service reads its secrets from a one-time rollback file,
+#     ${OPENWIND_SECRETS_DIR}/rollback-<service>.env (mode 0600), exported from
+#     OpenBao by the runbook owner and deleted after use.
+#
+# Never roll back by dropping docker-compose.prod.yml instead: that starts the
+# dev OpenBao (published root token), and the base file's inline dev values
+# would win over any env_file.
+#
+# Backend and worker keep their AppRole role file next to the rollback file:
+# they still call Transit at runtime to decrypt connector credentials, and
+# production refuses to start them without AppRole settings. The other
+# services don't call OpenBao once started, so they get the rollback file only.
+#
+# Check the render before using it:
+#   pnpm --filter @platform/openbao-deploy check:prod-compose --rollback
+
+services:
+  ow-backend:
+    entrypoint: !reset null
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/backend.env
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-backend.env
+
+  ow-worker:
+    entrypoint: !reset null
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/worker.env
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-worker.env
+
+  bootstrap:
+    entrypoint: !reset null
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-bootstrap.env
+
+  superset:
+    entrypoint: !reset null
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-superset.env
+
+  superset-init:
+    # Not the image default: superset-init's real start command is init.sh
+    # (as in docker-compose.yml).
+    entrypoint: ["/bin/bash", "/app/init.sh"]
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-superset-init.env
+
+  # Novu's images start with their own `sh -c ...` entrypoint; resetting both
+  # restores it exactly.
+  novu-api:
+    entrypoint: !reset null
+    command: !reset null
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-novu.env
+
+  novu-worker:
+    entrypoint: !reset null
+    command: !reset null
+    env_file: !override
+      - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/rollback-novu.env
