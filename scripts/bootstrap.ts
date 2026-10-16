@@ -18,6 +18,15 @@
  *   pnpm bootstrap
  *   # or directly:
  *   npx tsx scripts/bootstrap.ts
+ *
+ * The Zitadel introspection client secret is generated once and then kept.
+ * To replace it on purpose:
+ *   pnpm bootstrap --rotate-introspection-secret
+ *
+ * Production (NODE_ENV=production, ADR-023): .env.local is never written. Any
+ * secret this run creates goes to a new 0600 JSON file named by
+ * BOOTSTRAP_SECRETS_OUT (required — bootstrap stops before touching Zitadel
+ * without it). Load that file into OpenBao, then delete it.
  */
 
 import { execSync, spawnSync } from "node:child_process";
@@ -27,6 +36,18 @@ import { fileURLToPath } from "node:url";
 import { createSign } from "node:crypto";
 import { request as nodeHttpRequest } from "node:http";
 import { ensureUserProjectRoles } from "./lib/zitadel-user-grants.js";
+import {
+  ROTATE_INTROSPECTION_FLAG,
+  BootstrapSecretsError,
+  SecretsFile,
+  assertSecretsFileAvailable,
+  hasRealSecret,
+  planIntrospectionSecret,
+  resolveSecretsDestination,
+  splitProducedVars,
+  secretsDirPermissionWarning,
+  assertZitadelCredentialsAvailable,
+} from "./lib/bootstrap-secrets.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -64,6 +85,13 @@ const ZITADEL_BROWSER_URL =
       : `http://${_ZITADEL_EXTERNAL_DOMAIN}:${_ZITADEL_HOST_PORT}`
     : `http://localhost:${_ZITADEL_HOST_PORT}`;
 const TOTAL_STEPS = 10;
+const ROTATE_INTROSPECTION_SECRET = process.argv
+  .slice(2)
+  .includes(ROTATE_INTROSPECTION_FLAG);
+
+// Production secrets sink (ADR-023) — set in main() before any change is made.
+// null means "not production": secrets go to .env.local exactly as before.
+let secretsFile: SecretsFile | null = null;
 
 // Demo credentials (printed in summary, committed to docs — dev only)
 const DEMO_ADMIN_EMAIL = "owAdmin@openwind.local";
@@ -228,6 +256,26 @@ function writeEnvVars(vars: Record<string, string>): void {
   ].join("\n");
   const body = [...existing.entries()].map(([k, v]) => `${k}=${v}`).join("\n");
   writeFileSync(ENV_FILE, `${header}${body}\n`, "utf8");
+}
+
+/**
+ * Save vars bootstrap produced. Outside production this is writeEnvVars. In
+ * production, everything it produced goes to the BOOTSTRAP_SECRETS_OUT file
+ * (mode 0600): new secrets and the non-secret config alike, so no value is
+ * ever printed even if one were misclassified. Only key names are logged.
+ */
+function saveProducedVars(vars: Record<string, string>): void {
+  if (!secretsFile) {
+    writeEnvVars(vars);
+    return;
+  }
+  const { secrets, config } = splitProducedVars(vars);
+  const written = secretsFile.write({ ...config, ...secrets });
+  if (written.length > 0) {
+    ok(
+      `Wrote ${written.join(", ")} to the BOOTSTRAP_SECRETS_OUT file (values not shown)`,
+    );
+  }
 }
 
 // ── Zitadel API helper ────────────────────────────────────────────────────────
@@ -417,7 +465,10 @@ async function getTokenFromKeyJson(keyJson: ZitadelKeyJson): Promise<string> {
 }
 
 function readKeyJsonFromEnv(): ZitadelKeyJson | null {
-  const raw = readEnvLocal().get("ZITADEL_KEY_JSON");
+  // Production has no .env.local to read; the key arrives via the environment.
+  const raw =
+    readEnvLocal().get("ZITADEL_KEY_JSON") ||
+    (secretsFile ? process.env["ZITADEL_KEY_JSON"] : undefined);
   if (!raw) return null;
   try {
     return JSON.parse(
@@ -458,13 +509,15 @@ async function generateAndSaveKeyJson(token: string): Promise<void> {
 
   // keyDetails is base64-encoded JSON — re-encode the raw JSON for our env var
   const keyJsonStr = Buffer.from(keyRes.keyDetails, "base64").toString("utf8");
-  writeEnvVars({
+  saveProducedVars({
     ZITADEL_KEY_JSON: Buffer.from(keyJsonStr).toString("base64"),
     // ZITADEL_SERVICE_ACCOUNT_KEY is the raw JSON string read by the API server
     // (zitadel-management.ts) for live user/role queries at runtime.
     ZITADEL_SERVICE_ACCOUNT_KEY: keyJsonStr,
   });
-  ok("ZITADEL_KEY_JSON + ZITADEL_SERVICE_ACCOUNT_KEY saved to .env.local");
+  if (!secretsFile) {
+    ok("ZITADEL_KEY_JSON + ZITADEL_SERVICE_ACCOUNT_KEY saved to .env.local");
+  }
 }
 
 async function getAdminToken(): Promise<string> {
@@ -476,8 +529,14 @@ async function getAdminToken(): Promise<string> {
       ok("Authenticated via saved JWT key — fully headless");
       return token;
     } catch (e) {
-      warn(`Saved key auth failed (${String(e)}) — clearing stale key`);
-      writeEnvVars({ ZITADEL_KEY_JSON: "" });
+      if (secretsFile) {
+        warn(
+          `Saved key auth failed (${String(e)}) — remove the stale ZITADEL_KEY_JSON from OpenBao`,
+        );
+      } else {
+        warn(`Saved key auth failed (${String(e)}) — clearing stale key`);
+        writeEnvVars({ ZITADEL_KEY_JSON: "" });
+      }
     }
   }
 
@@ -705,6 +764,7 @@ async function runZitadelSetup(
   })) as { result?: Array<{ id: string }> };
 
   let saId = saSearch.result?.[0]?.id ?? null;
+  let serviceAccountCreated = false;
   if (!saId) {
     const sa = (await zCall("/management/v1/users/machine", pat, {
       method: "POST",
@@ -716,23 +776,55 @@ async function runZitadelSetup(
       },
     })) as { userId: string };
     saId = sa.userId;
+    serviceAccountCreated = true;
     ok(`Created introspection service account`);
   } else {
     ok("Introspection service account already exists");
   }
 
   // 5. Machine client credentials
-  let introspectionClientId = saId;
-  let introspectionClientSecret = "";
-  try {
-    const creds = (await zCall(`/management/v1/users/${saId}/secret`, pat, {
-      method: "PUT",
-      body: {},
-    })) as { clientId: string; clientSecret: string };
-    introspectionClientId = creds.clientId;
-    introspectionClientSecret = creds.clientSecret;
-  } catch {
-    warn("Could not generate introspection credentials — using PAT fallback");
+  // PUT .../secret invalidates the previous secret, so only call it when
+  // needed (ADR-023 Decision 6). "<existing>" leaves the stored id/secret
+  // pair untouched in writeEnvVars.
+  let introspectionClientId = "<existing>";
+  let introspectionClientSecret = "<existing>";
+  const envSecret = process.env["ZITADEL_INTROSPECTION_CLIENT_SECRET"];
+  const secretPlan = planIntrospectionSecret({
+    rotateRequested: ROTATE_INTROSPECTION_SECRET,
+    serviceAccountCreated,
+    existingSecret: hasRealSecret(envSecret)
+      ? envSecret
+      : readEnvLocal().get("ZITADEL_INTROSPECTION_CLIENT_SECRET"),
+    production: secretsFile !== null,
+  });
+  if (secretPlan.action === "keep") {
+    ok(
+      `ZITADEL_INTROSPECTION_CLIENT_SECRET already set — keeping it (pass ${ROTATE_INTROSPECTION_FLAG} to rotate)`,
+    );
+  } else if (secretPlan.action === "leave") {
+    warn(
+      `ZITADEL_INTROSPECTION_CLIENT_SECRET is not in bootstrap's environment — leaving the service account's current secret as is (pass ${ROTATE_INTROSPECTION_FLAG} to generate a new one)`,
+    );
+  } else {
+    const why = {
+      "rotate-flag": `${ROTATE_INTROSPECTION_FLAG} was passed`,
+      "new-service-account": "the service account was just created",
+      missing: "no existing secret was found",
+    }[secretPlan.reason];
+    info(`Generating ZITADEL_INTROSPECTION_CLIENT_SECRET (${why})`);
+    introspectionClientId = saId;
+    introspectionClientSecret = "";
+    try {
+      const creds = (await zCall(`/management/v1/users/${saId}/secret`, pat, {
+        method: "PUT",
+        body: {},
+      })) as { clientId: string; clientSecret: string };
+      introspectionClientId = creds.clientId;
+      introspectionClientSecret = creds.clientSecret;
+      ok("Generated new ZITADEL_INTROSPECTION_CLIENT_SECRET");
+    } catch {
+      warn("Could not generate introspection credentials — using PAT fallback");
+    }
   }
 
   // 6. Grant admin role to root admin user
@@ -791,7 +883,7 @@ async function runZitadelSetup(
   // internal Docker name — the frontend calls this from the user's browser.
   // VITE_ prefixed copies are needed because Vite only exposes VITE_* vars
   // to import.meta.env in the dev server.
-  writeEnvVars({
+  saveProducedVars({
     // Base URL vars — set these and the derived vars below are optional.
     ZITADEL_URL: ZITADEL_BROWSER_URL,
     // Keep explicit derived vars so existing setups that read them directly still work.
@@ -911,6 +1003,32 @@ async function createDemoUser(
 async function main(): Promise<void> {
   banner();
 
+  // Resolved before anything else so a production run without
+  // BOOTSTRAP_SECRETS_OUT stops before any Zitadel key or secret is created
+  // or rotated.
+  try {
+    const dest = resolveSecretsDestination({
+      NODE_ENV: process.env["NODE_ENV"],
+      BOOTSTRAP_SECRETS_OUT: process.env["BOOTSTRAP_SECRETS_OUT"],
+    });
+    if (dest.kind === "secrets-file") {
+      assertSecretsFileAvailable(dest.path);
+      assertZitadelCredentialsAvailable({
+        ZITADEL_KEY_JSON: process.env["ZITADEL_KEY_JSON"],
+        ZITADEL_SETUP_PAT: process.env["ZITADEL_SETUP_PAT"],
+      });
+      const dirWarning = secretsDirPermissionWarning(dirname(dest.path));
+      if (dirWarning) warn(dirWarning);
+      secretsFile = new SecretsFile(dest.path);
+      info(
+        `Production mode — new secrets go to the BOOTSTRAP_SECRETS_OUT file; .env.local will not be written`,
+      );
+    }
+  } catch (e) {
+    if (e instanceof BootstrapSecretsError) fail(e.message);
+    throw e;
+  }
+
   // ── 1. Preflight ─────────────────────────────────────────────────────────────
 
   step(1, "Checking prerequisites");
@@ -942,7 +1060,9 @@ async function main(): Promise<void> {
 
   step(2, "Setting up environment");
 
-  if (IN_DOCKER) {
+  if (secretsFile) {
+    ok("Production mode — not creating .env.local");
+  } else if (IN_DOCKER) {
     ok("Running inside Docker — .env.local is mounted from host");
   } else if (!existsSync(ENV_FILE)) {
     if (!existsSync(ENV_EXAMPLE)) {
@@ -1024,7 +1144,18 @@ async function main(): Promise<void> {
   const { projectId, oidcClientId } = await runZitadelSetup(authToken);
   ok(`Project configured (id=${projectId})`);
   ok(`OIDC client id: ${oidcClientId}`);
-  ok(".env.local updated with Zitadel credentials");
+  if (secretsFile) {
+    const names = secretsFile.keyNames;
+    if (names.length > 0) {
+      warn(
+        `New secrets written to the BOOTSTRAP_SECRETS_OUT file: ${names.join(", ")}. Load them into OpenBao (kv patch the service paths that use them — kv put replaces the whole path), then delete the file.`,
+      );
+    } else {
+      ok("No new secrets were created — nothing written");
+    }
+  } else {
+    ok(".env.local updated with Zitadel credentials");
+  }
 
   // Recreate api + frontend so both pick up the new env vars written above.
   // `docker restart` reuses the baked-in env; `docker compose up -d` re-reads

@@ -21,6 +21,14 @@
  * produces as delivered immediately, mirroring the outbox-row-supersession pattern
  * already used by packages/workflow-engine/src/engine.ts's rescheduleDueDate.
  *
+ * Every query runs inside the sandbox tenant's RLS context (withTenantContext). It used to
+ * run on plain `db`; on the compose app_user connection RLS then rejected the very first
+ * entity_types lookup, so every module's data seed failed and sandboxes arrived empty.
+ *
+ * Each record gets what a real ticket has: a title (the one required custom field), a due
+ * date, a severity, an assignee from the sandbox's seeded accounts and a remark -- plus a
+ * value for every other non-reference field, so the create form's Others tab isn't blank.
+ *
  * Per-module target states/transition-path table below is derived directly from each
  * module's seed SQL (modules/<slug>/seed/*.sql) -- stable schema, not worth re-deriving
  * from the DB at runtime. None of the 7 core modules' transitions have requiresFields or
@@ -29,19 +37,26 @@
  */
 import { and, eq, gte, isNull } from "drizzle-orm";
 import {
-  db,
+  withTenantContext,
   entityTypes,
   entityFields,
   workflows,
   workflowTransitions,
   outboxEvents,
 } from "@platform/db";
+import type { DbOrTx } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import { executeTransition } from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
 
 const SEED_ACTOR_ROLES = ["admin", "agent", "user"];
 const SEED_COMMENT = "Seeded by platform admin sandbox provisioning";
+const SEED_SEVERITIES = ["low", "medium", "high", "critical"] as const;
+// Filled by other means or not meaningful as dummy data: references need a real target,
+// and team_id is written only by the create form's User/Team assign toggle.
+const SKIPPED_FIELD_TYPES = new Set(["entity_ref", "user_ref", "file"]);
+const SKIPPED_FIELD_NAMES = new Set(["title", "team_id"]);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface ModuleSeedPlan {
   slug: string;
@@ -49,6 +64,8 @@ interface ModuleSeedPlan {
   /** Each entry is one record's hop sequence of toState values from the workflow's
    * initial state -- `[]` means "leave it at the initial state". */
   recordPaths: string[][];
+  /** One realistic title per record, same length as recordPaths. */
+  titles: string[];
 }
 
 // Core-module coverage only (ADR-005 category='core') -- tender/vendor-approval are
@@ -64,6 +81,12 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["in_progress", "pending"],
       ["in_progress", "resolved"],
     ],
+    titles: [
+      "Cannot log in after password reset",
+      "Invoice PDF shows the wrong billing address",
+      "Export to CSV times out for large reports",
+      "Request to add two new team members",
+    ],
   },
   {
     slug: "crm",
@@ -74,6 +97,13 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["qualified", "proposal"],
       ["qualified", "proposal", "negotiation"],
       ["qualified", "proposal", "negotiation", "won"],
+    ],
+    titles: [
+      "Northwind Traders: initial enquiry",
+      "Brightwater Logistics: annual platform licence",
+      "Halcyon Foods: support plan upgrade",
+      "Kestrel Manufacturing: multi-site rollout",
+      "Acme Ltd: renewal and expansion",
     ],
   },
   {
@@ -86,6 +116,13 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["under_review", "rejected"],
       ["cancelled"],
     ],
+    titles: [
+      "Annual leave: family trip",
+      "Sick leave: two days",
+      "Annual leave: year-end break",
+      "Unpaid leave: personal matters",
+      "Annual leave: conference week",
+    ],
   },
   {
     slug: "reimbursements",
@@ -96,6 +133,13 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["submitted", "approved"],
       ["submitted", "rejected"],
       ["submitted", "approved", "paid"],
+    ],
+    titles: [
+      "Client visit: train tickets",
+      "Team lunch with new hires",
+      "Conference registration fee",
+      "Taxi to the airport",
+      "Office supplies for the new desk",
     ],
   },
   {
@@ -108,6 +152,13 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["todo", "in_progress", "in_review"],
       ["todo", "in_progress", "in_review", "done"],
     ],
+    titles: [
+      "Draft the Q4 roadmap",
+      "Set up the staging environment",
+      "Write onboarding guide for new users",
+      "Review the analytics dashboard design",
+      "Migrate customer list to the new CRM",
+    ],
   },
   {
     slug: "invoicing",
@@ -119,6 +170,13 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["sent", "overdue"],
       ["sent", "viewed", "paid"],
     ],
+    titles: [
+      "INV-1001: Brightwater Logistics consulting, October",
+      "INV-1002: Halcyon Foods support retainer",
+      "INV-1003: Northwind training workshop",
+      "INV-1004: Kestrel Manufacturing licence renewal",
+      "INV-1005: Acme Ltd implementation",
+    ],
   },
   {
     slug: "procurement",
@@ -129,6 +187,13 @@ const MODULE_SEED_PLANS: ModuleSeedPlan[] = [
       ["under_review", "approved"],
       ["under_review", "approved", "ordered"],
       ["under_review", "approved", "ordered", "received"],
+    ],
+    titles: [
+      "Laptops for the new support team",
+      "Annual design tool licences",
+      "Standing desks for the office",
+      "Cloud backup storage upgrade",
+      "Conference room display screens",
     ],
   },
 ];
@@ -202,11 +267,24 @@ function defaultValueForField(
 async function seedModuleData(
   tenantId: string,
   slug: string,
+  assigneeIds: string[],
 ): Promise<{ seeded: number }> {
   const plan = MODULE_SEED_PLANS.find((p) => p.slug === slug);
   if (!plan) return { seeded: 0 };
 
-  const [entityType] = await db
+  return withTenantContext(tenantId, (tx) =>
+    seedModuleDataInTx(tx, tenantId, slug, plan, assigneeIds),
+  );
+}
+
+async function seedModuleDataInTx(
+  tx: DbOrTx,
+  tenantId: string,
+  slug: string,
+  plan: ModuleSeedPlan,
+  assigneeIds: string[],
+): Promise<{ seeded: number }> {
+  const [entityType] = await tx
     .select({ id: entityTypes.id })
     .from(entityTypes)
     .where(
@@ -224,7 +302,7 @@ async function seedModuleData(
     return { seeded: 0 };
   }
 
-  const [workflow] = await db
+  const [workflow] = await tx
     .select({ id: workflows.id })
     .from(workflows)
     .where(
@@ -242,7 +320,7 @@ async function seedModuleData(
     return { seeded: 0 };
   }
 
-  const requiredFields = await db
+  const fieldRows = await tx
     .select({
       name: entityFields.name,
       fieldType: entityFields.fieldType,
@@ -253,14 +331,22 @@ async function seedModuleData(
       and(
         eq(entityFields.entityTypeId, entityType.id),
         eq(entityFields.tenantId, tenantId),
-        eq(entityFields.isRequired, true),
       ),
     );
+  const valueFields = fieldRows.filter(
+    (f) =>
+      !SKIPPED_FIELD_TYPES.has(f.fieldType) && !SKIPPED_FIELD_NAMES.has(f.name),
+  );
 
-  const transitionRows = await db
+  const transitionRows = await tx
     .select()
     .from(workflowTransitions)
-    .where(eq(workflowTransitions.workflowId, workflow.id));
+    .where(
+      and(
+        eq(workflowTransitions.workflowId, workflow.id),
+        eq(workflowTransitions.tenantId, tenantId),
+      ),
+    );
   const transitionLookup = new Map<string, (typeof transitionRows)[number]>();
   for (const t of transitionRows) {
     transitionLookup.set(`${t.fromState}->${t.toState}`, t);
@@ -268,8 +354,10 @@ async function seedModuleData(
 
   let seeded = 0;
   for (let i = 0; i < plan.recordPaths.length; i++) {
-    const fields: Record<string, unknown> = {};
-    for (const field of requiredFields) {
+    const fields: Record<string, unknown> = {
+      title: plan.titles[i] ?? `${plan.entityTypeName} ${i + 1}`,
+    };
+    for (const field of valueFields) {
       fields[field.name] = defaultValueForField(
         field.fieldType,
         field.config,
@@ -277,12 +365,18 @@ async function seedModuleData(
       );
     }
 
-    const instance = await createEntity(db, tenantId, {
+    const instance = await createEntity(tx, tenantId, {
       entityTypeId: entityType.id,
       workflowId: workflow.id,
       fields,
       actorId: "system",
       actorType: "system",
+      dueDate: new Date(Date.now() + (i + 1) * 3 * DAY_MS).toISOString(),
+      severity: SEED_SEVERITIES[i % SEED_SEVERITIES.length],
+      remark: SEED_COMMENT,
+      ...(assigneeIds.length > 0
+        ? { assignedTo: assigneeIds[i % assigneeIds.length] }
+        : {}),
     });
 
     let currentState = instance.currentState;
@@ -295,7 +389,7 @@ async function seedModuleData(
         );
         break;
       }
-      await executeTransition(db, tenantId, {
+      await executeTransition(tx, tenantId, {
         instanceId: instance.id,
         transitionId: transition.id,
         actorId: "system",
@@ -319,12 +413,14 @@ async function seedModuleData(
 export async function seedAllModulesData(
   tenantId: string,
   moduleSlugs: string[],
+  /** Zitadel user ids of the sandbox's seeded accounts; records are assigned round-robin. */
+  assigneeIds: string[] = [],
 ): Promise<void> {
   const seedStartedAt = new Date();
 
   for (const slug of moduleSlugs) {
     try {
-      await seedModuleData(tenantId, slug);
+      await seedModuleData(tenantId, slug, assigneeIds);
     } catch (err) {
       logger.error(
         { err, tenantId, slug },
@@ -333,14 +429,20 @@ export async function seedAllModulesData(
     }
   }
 
-  await db
-    .update(outboxEvents)
-    .set({ deliveredAt: new Date(), notifiedDeliveredAt: new Date() })
-    .where(
-      and(
-        eq(outboxEvents.tenantId, tenantId),
-        isNull(outboxEvents.deliveredAt),
-        gte(outboxEvents.createdAt, seedStartedAt),
+  // Runs as app_user inside the tenant context, like the rest of this file: migration 0019
+  // grants app_user SELECT/INSERT/UPDATE/DELETE on outbox_events, and the table's tenant RLS
+  // policy (outbox_events_tenant_isolation) admits rows of the tenant set here. A refusal
+  // throws rather than updating nothing, so it cannot fail silently.
+  await withTenantContext(tenantId, (tx) =>
+    tx
+      .update(outboxEvents)
+      .set({ deliveredAt: new Date(), notifiedDeliveredAt: new Date() })
+      .where(
+        and(
+          eq(outboxEvents.tenantId, tenantId),
+          isNull(outboxEvents.deliveredAt),
+          gte(outboxEvents.createdAt, seedStartedAt),
+        ),
       ),
-    );
+  );
 }

@@ -41,6 +41,43 @@ describe("handleWorkflowError", () => {
     expect(json.error).toBe("SLA_TIMER_FAILED");
   });
 
+  it("returns 422 with the unknown step names for WORKFLOW_CONDITION_STATE_UNKNOWN", async () => {
+    const err = new WorkflowError("WORKFLOW_CONDITION_STATE_UNKNOWN", {
+      unknown: ["aproval"],
+    });
+    const res = handleWorkflowError(fakeContext(), err);
+
+    expect(res.status).toBe(422);
+    const json = (await res.json()) as {
+      error: string;
+      meta: { unknown: string[] };
+    };
+    expect(json.error).toBe("WORKFLOW_CONDITION_STATE_UNKNOWN");
+    expect(json.meta.unknown).toEqual(["aproval"]);
+  });
+
+  it.each([
+    ["OVERRIDE_NOT_ENABLED", 409],
+    ["OVERRIDE_FORBIDDEN", 403],
+    ["OVERRIDE_REASON_REQUIRED", 422],
+    ["OVERRIDE_NO_CHANGE", 409],
+  ] as const)("maps the state-override code %s to %i", async (code, status) => {
+    const res = handleWorkflowError(fakeContext(), new WorkflowError(code));
+    expect(res.status).toBe(status);
+    expect(((await res.json()) as { error: string }).error).toBe(code);
+  });
+
+  it("OVERRIDE_REASON_REQUIRED tells the client the real length bounds", async () => {
+    const res = handleWorkflowError(
+      fakeContext(),
+      new WorkflowError("OVERRIDE_REASON_REQUIRED", { min: 10, max: 1000 }),
+    );
+    expect(((await res.json()) as { meta: unknown }).meta).toEqual({
+      min: 10,
+      max: 1000,
+    });
+  });
+
   // Regression baseline — an existing, already-handled case must be unaffected.
   it("still returns 404 for WORKFLOW_NOT_FOUND", async () => {
     const err = new WorkflowError("WORKFLOW_NOT_FOUND");

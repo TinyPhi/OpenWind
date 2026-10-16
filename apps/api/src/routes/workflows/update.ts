@@ -9,7 +9,10 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { logger } from "@platform/logger";
-import { auditWorkflowAdminsChange } from "../../lib/audit-workflow-access.js";
+import {
+  auditWorkflowAdminsChange,
+  auditOverridePolicyChange,
+} from "../../lib/audit-workflow-access.js";
 
 const UpdateWorkflowSchema = z.object({
   isActive: z.boolean().optional(),
@@ -18,6 +21,7 @@ const UpdateWorkflowSchema = z.object({
   maxChildrenPerParent: z.number().int().min(1).max(100).nullable().optional(),
   initialState: z.string().min(1).max(100).optional(),
   allowAutoGrantOnMention: z.boolean().optional(),
+  allowStateOverride: z.boolean().optional(),
 });
 
 export const updateWorkflowHandler = factory.createHandlers(
@@ -29,6 +33,23 @@ export const updateWorkflowHandler = factory.createHandlers(
     const auth = c.get("auth");
     const { tenantId, orgId } = auth;
     const input = c.req.valid("json");
+
+    // Whether a record's state may be overridden is a control over the workflow's own rules, so
+    // it is a tenant admin's decision, not any workflow admin's.
+    // A person, not a key: an API key can carry the admin scope, and a leaked or over-scoped one
+    // must not be able to arm overrides for someone else to use.
+    if (
+      input.allowStateOverride !== undefined &&
+      (!auth.roles.includes("admin") || auth.userId.startsWith("apikey:"))
+    ) {
+      return c.json(
+        {
+          error: "FORBIDDEN",
+          message: "Only an admin can change whether state override is allowed",
+        },
+        403,
+      );
+    }
 
     // Verify every workflow-admin user id is a real member of this Zitadel
     // org before writing. assignedTo here is the workflow-admins array (see
@@ -71,9 +92,13 @@ export const updateWorkflowHandler = factory.createHandlers(
     try {
       const workflow = await withTenantContext(tenantId, async (tx) => {
         const [before] =
-          input.assignedTo !== undefined
+          input.assignedTo !== undefined ||
+          input.allowStateOverride !== undefined
             ? await tx
-                .select({ assignedTo: workflows.assignedTo })
+                .select({
+                  assignedTo: workflows.assignedTo,
+                  allowStateOverride: workflows.allowStateOverride,
+                })
                 .from(workflows)
                 .where(
                   and(eq(workflows.id, id), eq(workflows.tenantId, tenantId)),
@@ -87,13 +112,22 @@ export const updateWorkflowHandler = factory.createHandlers(
           toWorkflowCaller(auth),
           input,
         );
-        if (before) {
+        if (before && input.assignedTo !== undefined) {
           await auditWorkflowAdminsChange(tx, {
             tenantId,
             actorId: auth.userId,
             workflowId: id,
             before: before.assignedTo ?? [],
             after: updated.assignedTo,
+          });
+        }
+        if (before && input.allowStateOverride !== undefined) {
+          await auditOverridePolicyChange(tx, {
+            tenantId,
+            actorId: auth.userId,
+            workflowId: id,
+            before: before.allowStateOverride,
+            after: updated.allowStateOverride,
           });
         }
         return updated;

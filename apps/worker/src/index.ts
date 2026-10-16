@@ -50,6 +50,10 @@ import {
   stopRetentionArchivalWorker,
 } from "./retention-archival.js";
 import {
+  scheduleZitadelKeyExpiryCheck,
+  stopZitadelKeyExpiryWorker,
+} from "./zitadel-key-expiry.js";
+import {
   startScheduleTickWorker,
   stopScheduleTickWorker,
 } from "./schedule-tick-worker.js";
@@ -80,6 +84,7 @@ void scheduleAttachmentCleanup();
 void scheduleAccessLogRetention();
 void scheduleUsageMetering();
 void scheduleRetentionArchival();
+void scheduleZitadelKeyExpiryCheck();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
@@ -115,6 +120,7 @@ async function shutdown(): Promise<void> {
     stopAccessLogRetentionWorker(),
     stopUsageMeteringWorker(),
     stopRetentionArchivalWorker(),
+    stopZitadelKeyExpiryWorker(),
     stopScheduleTickWorker(),
     stopOrgDirectorySyncScheduler(),
     stopSandboxProvisioningWorker(),

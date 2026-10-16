@@ -11,6 +11,7 @@ import Redis from "ioredis";
 import {
   db,
   withTenantContext,
+  withEventLogMaintenanceContext,
   outboxEvents,
   automationExecutions,
   entityInstances,
@@ -183,6 +184,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await redis.quit();
   for (const tenantId of [TENANT_A, TENANT_B]) {
+    // app_user cannot DELETE workflow events (migration 0147).
+    await withEventLogMaintenanceContext(tenantId, (tx) =>
+      tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, tenantId)),
+    );
     await withTenantContext(tenantId, async (tx) => {
       // Pre-existing gap, fixed here: this suite never deleted its own
       // automation_rules rows, so re-running this file during iteration
@@ -194,9 +199,6 @@ afterAll(async () => {
       // workflowEvents (comments this test's own runs may have posted)
       // reference both entityInstances and workflows -- must go first, or
       // the instance/workflow deletes below hit a FK violation.
-      await tx
-        .delete(workflowEvents)
-        .where(eq(workflowEvents.tenantId, tenantId));
       await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, tenantId));
       // automationExecutions references automationRules -- must go first.
       await tx

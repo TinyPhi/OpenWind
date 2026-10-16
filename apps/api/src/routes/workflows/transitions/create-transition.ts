@@ -4,16 +4,20 @@ import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
 import { addWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
+import { TransitionConditionsSchema } from "./condition-schema.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
-import { auditTransitionRoleChanges } from "../../../lib/audit-workflow-access.js";
+import {
+  auditTransitionRoleChanges,
+  auditTransitionConditionChanges,
+} from "../../../lib/audit-workflow-access.js";
 
 const CreateTransitionSchema = z.object({
   fromState: z.string().min(1).max(100),
   toState: z.string().min(1).max(100),
   label: z.string().max(200).optional(),
   allowedRoles: z.array(z.string()).optional(),
-  conditions: z.unknown().optional(),
+  conditions: TransitionConditionsSchema.nullable().optional(),
   requiresComment: z.boolean().optional(),
   requiresFields: z.array(z.string()).optional(),
 });
@@ -39,7 +43,7 @@ export const createTransitionHandler = factory.createHandlers(
             toState: input.toState,
             label: input.label,
             allowedRoles: input.allowedRoles,
-            conditions: input.conditions as never,
+            conditions: input.conditions,
             requiresComment: input.requiresComment,
             requiresFields: input.requiresFields,
           },
@@ -55,6 +59,20 @@ export const createTransitionHandler = factory.createHandlers(
               toState: created.toState,
               before: null,
               after: created.allowedRoles,
+            },
+          ],
+        });
+        await auditTransitionConditionChanges(tx, {
+          tenantId,
+          actorId: auth.userId,
+          workflowId,
+          changes: [
+            {
+              transitionId: created.id,
+              fromState: created.fromState,
+              toState: created.toState,
+              before: null,
+              after: created.conditions,
             },
           ],
         });
