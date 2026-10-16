@@ -141,6 +141,8 @@ describe("provisionTenant", () => {
       ACTOR_ID,
     );
 
+    // The provisioning operator isn't a tenant member, so isn't recorded as workflow owner
+    // (docs/specs/mandatory-ticket-fields.md R7, ADR-006).
     expect(mockInstallCoreModules).toHaveBeenCalledWith(TENANT_ID);
     expect(result).toEqual({
       id: TENANT_ID,

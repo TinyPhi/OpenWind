@@ -48,6 +48,7 @@ import type { DbOrTx } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import { executeTransition } from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
+import { resolveFallbackAssignee } from "./fallback-assignee.js";
 
 const SEED_ACTOR_ROLES = ["admin", "agent", "user"];
 const SEED_COMMENT = "Seeded by platform admin sandbox provisioning";
@@ -338,6 +339,23 @@ async function seedModuleDataInTx(
       !SKIPPED_FIELD_TYPES.has(f.fieldType) && !SKIPPED_FIELD_NAMES.has(f.name),
   );
 
+  // Every seeded record has an assignee (docs/specs/mandatory-ticket-fields.md R4): the
+  // sandbox's seeded accounts round-robin, else the fallback (workflow owner, then the
+  // longest-standing admin). With nobody at all the module is skipped, not seeded unassigned.
+  const assignees =
+    assigneeIds.length > 0
+      ? assigneeIds
+      : [await resolveFallbackAssignee(tx, tenantId, workflow.id)].filter(
+          (id): id is string => id !== null,
+        );
+  if (assignees.length === 0) {
+    logger.warn(
+      { tenantId, slug },
+      "sandbox module data seed: no one to assign records to — skipping",
+    );
+    return { seeded: 0 };
+  }
+
   const transitionRows = await tx
     .select()
     .from(workflowTransitions)
@@ -369,9 +387,7 @@ async function seedModuleDataInTx(
       dueDate: new Date(Date.now() + (i + 1) * 3 * DAY_MS).toISOString(),
       severity: SEED_SEVERITIES[i % SEED_SEVERITIES.length],
       remark: SEED_COMMENT,
-      ...(assigneeIds.length > 0
-        ? { assignedTo: assigneeIds[i % assigneeIds.length] }
-        : {}),
+      assignedTo: assignees[i % assignees.length],
     });
 
     let currentState = instance.currentState;

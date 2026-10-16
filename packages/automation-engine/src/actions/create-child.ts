@@ -6,6 +6,7 @@ import {
 } from "@platform/entity-engine";
 import type { TriggerEvent } from "../event-schemas.js";
 import type { CreateChildConfig } from "../types.js";
+import { resolveTicketValues } from "./ticket-template.js";
 
 export type { CreateChildConfig };
 
@@ -55,6 +56,7 @@ export async function executeCreateChildAction(
   event: TriggerEvent,
   config: CreateChildConfig,
   depth: number,
+  ruleName: string,
 ): Promise<void> {
   const parentId =
     "instanceId" in event ? (event.instanceId as string) : undefined;
@@ -80,11 +82,29 @@ export async function executeCreateChildAction(
     );
   }
 
+  // docs/specs/mandatory-ticket-fields.md R7: the sub-task always carries all five mandatory
+  // values -- the rule's template, else the defaults (title "<rule>: <parent title>").
+  const parentTitle =
+    typeof parent.fields["title"] === "string" ? parent.fields["title"] : "";
+  const values = await resolveTicketValues(db, tenantId, {
+    template: config.template,
+    ruleName,
+    fieldsTitle: childFields["title"],
+    defaultTitle: parentTitle ? `${ruleName}: ${parentTitle}` : ruleName,
+    legacyAssignee: config.assignToUserId,
+    workflowId: parent.workflowId,
+  });
+  childFields["title"] = values.title;
+
   const { instance: child } = await createChildRelation(db, tenantId, {
     parentId,
     childFields,
     entityTypeId,
-    ...(config.assignToUserId ? { assignedTo: config.assignToUserId } : {}),
+    dueDate: values.dueDate,
+    remark: values.remark,
+    severity: values.severity,
+    ...(values.assignedTo !== undefined && { assignedTo: values.assignedTo }),
+    ...(values.teamId !== undefined && { teamId: values.teamId }),
   });
 
   if (config.writeBackField) {

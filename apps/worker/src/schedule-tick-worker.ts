@@ -23,7 +23,7 @@ import {
   scheduleRules,
   scheduleExecutions,
 } from "@platform/db";
-import { createEntity } from "@platform/entity-engine";
+import { createEntity, DEFAULT_TICKET_SEVERITY } from "@platform/entity-engine";
 import type { EntityError, ValidationError } from "@platform/entity-engine";
 import {
   computeNextFireAt,
@@ -259,12 +259,11 @@ async function fireRule(
         );
         const rendered = renderTemplate(template, vars);
 
-        // due_days is an offset from THIS fire's own scheduled instant, not
-        // tickTime (docs/specs/schedule-rules-mandate-fields.md R4) --
-        // scheduledAt is the canonical fire time even for a catch-up run
-        // executed late.
+        // due_days counts from the ticket's creation, not the scheduled fire time (owner
+        // decision 2026-10-16, docs/specs/mandatory-ticket-fields.md): a late catch-up run
+        // still gets its full N days instead of being created already past due and rejected.
         const dueDate = new Date(
-          scheduledAt.getTime() + rendered.due_days * 24 * 60 * 60 * 1000,
+          Date.now() + rendered.due_days * 24 * 60 * 60 * 1000,
         ).toISOString();
 
         // Exactly one of assignedTo/teamId (TemplateSchema's superRefine
@@ -281,11 +280,18 @@ async function fireRule(
         // here every auto-created ticket fails FIELD_VALIDATION_FAILED.
         // Placed before ...rendered.fields so an explicit
         // template.fields.priority/category still overrides them.
+        // Severity and remark go to their own columns, like a manually created ticket
+        // (docs/specs/mandatory-ticket-fields.md R4); the team goes through teamId so it
+        // survives on types with no team_id field. fields.severity stays for the
+        // severity-notification rule, which reads it from the event.
         const instance = await createEntity(tx, rule.tenantId, {
           entityTypeId: rule.entityTypeId,
           workflowId: rule.workflowId ?? undefined,
           assignedTo: rendered.assignedTo,
+          ...(rendered.teamId ? { teamId: rendered.teamId } : {}),
           dueDate,
+          remark: rendered.remark,
+          severity: rendered.severity ?? DEFAULT_TICKET_SEVERITY,
           createdBy: rule.createdBy,
           fields: {
             priority: DEFAULT_SCHEDULED_TICKET_PRIORITY,
@@ -296,7 +302,6 @@ async function fireRule(
               ? { description: rendered.description }
               : {}),
             ...(rendered.severity ? { severity: rendered.severity } : {}),
-            ...(rendered.teamId ? { team_id: rendered.teamId } : {}),
             ...(rendered.service_id ? { service_id: rendered.service_id } : {}),
           },
         });

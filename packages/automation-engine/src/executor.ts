@@ -187,6 +187,7 @@ export async function executeAutomationRules(
               ruleTx,
               tenantId,
               rule.id,
+              rule.name,
               execRow.id,
               event,
               action,
@@ -311,6 +312,7 @@ async function runAction(
   db: DbOrTx,
   tenantId: string,
   ruleId: string,
+  ruleName: string,
   execId: string,
   event: TriggerEvent,
   action: ActionConfig,
@@ -358,6 +360,7 @@ async function runAction(
           event,
           action.config,
           depth,
+          ruleName,
         );
         break;
       case "create_child":
@@ -367,6 +370,7 @@ async function runAction(
           event,
           action.config,
           depth,
+          ruleName,
         );
         break;
       case "transition":
@@ -424,7 +428,11 @@ async function runAction(
     }
     await reset(redis, tenantId, action.type);
   } catch (err) {
-    await recordFailure(redis, tenantId, action.type);
+    // A rule with nobody to assign its ticket to is a configuration problem, not a failing
+    // service: it must not trip the tenant-wide breaker and switch off the correct rules.
+    if (!(err instanceof AutomationError && err.code === "NO_ASSIGNEE")) {
+      await recordFailure(redis, tenantId, action.type);
+    }
     throw err;
   }
 

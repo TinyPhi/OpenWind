@@ -267,8 +267,10 @@ describe("processSandboxProvisioningJob", () => {
 
     // T9/T10: core modules are installed, then data is seeded only for the modules
     // that installed successfully.
+    // The sandbox's admin owns the seeded workflows (docs/specs/mandatory-ticket-fields.md R7).
     expect(mockInstallCoreModulesForSandbox).toHaveBeenCalledWith(
       result.tenantId,
+      "user-x",
     );
     // Records are assigned across the seeded accounts: the admin plus both members.
     expect(mockSeedAllModulesData).toHaveBeenCalledWith(

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   db,
   withTenantContext,
@@ -230,7 +230,10 @@ export class ModuleService {
    * be safely retried later via `POST /modules/:slug/install` without
    * re-provisioning the tenant or risking duplicate rows.
    */
-  static async installCoreModules(tenantId: string): Promise<{
+  static async installCoreModules(
+    tenantId: string,
+    options?: { installedBy?: string },
+  ): Promise<{
     succeeded: string[];
     failed: { slug: string; error: string }[];
   }> {
@@ -244,7 +247,11 @@ export class ModuleService {
 
     for (const { slug } of coreModules) {
       try {
-        await ModuleService.installModule(tenantId, slug);
+        await ModuleService.installModule(
+          tenantId,
+          slug,
+          options?.installedBy ? { installedBy: options.installedBy } : {},
+        );
         succeeded.push(slug);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -265,7 +272,7 @@ export class ModuleService {
   static async installModule(
     tenantId: string,
     slug: string,
-    options?: { workflowName?: string },
+    options?: { workflowName?: string; installedBy?: string },
   ): Promise<void> {
     // Validate slug against allowlist before any filesystem access (path traversal guard)
     if (!SLUG_RE.test(slug)) {
@@ -335,6 +342,36 @@ export class ModuleService {
       logger.warn(
         { slug, seedDir },
         "No seed directory found for module during install",
+      );
+    }
+
+    // The installer owns the module's seeded workflows, so a ticket that names nobody has
+    // someone to fall back to (docs/specs/mandatory-ticket-fields.md R7). Only where no owner
+    // is set: a re-install never takes a workflow from its existing owner.
+    if (options?.installedBy) {
+      const installedBy = options.installedBy;
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .update(workflows)
+          .set({ createdBy: installedBy })
+          .where(
+            and(
+              eq(workflows.tenantId, tenantId),
+              isNull(workflows.createdBy),
+              inArray(
+                workflows.entityTypeId,
+                tx
+                  .select({ id: entityTypes.id })
+                  .from(entityTypes)
+                  .where(
+                    and(
+                      eq(entityTypes.tenantId, tenantId),
+                      eq(entityTypes.moduleId, moduleRecord.id),
+                    ),
+                  ),
+              ),
+            ),
+          ),
       );
     }
 

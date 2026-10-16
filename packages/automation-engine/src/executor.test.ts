@@ -47,12 +47,20 @@ const dbMock = {
 vi.mock("@platform/db", () => ({
   automationRules: {},
   automationExecutions: {},
+  workflows: {
+    id: "id",
+    tenantId: "tenant_id",
+    entityTypeId: "entity_type_id",
+    isActive: "is_active",
+  },
   db: dbMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
   and: vi.fn((...args: unknown[]) => args),
+  or: vi.fn((...args: unknown[]) => args),
+  isNull: vi.fn(),
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({
       strings,
@@ -83,6 +91,8 @@ vi.mock("@platform/config", () => ({
 }));
 
 const { executeAutomationRules } = await import("./executor.js");
+const { registerFallbackAssigneeResolver } =
+  await import("./actions/ticket-template.js");
 
 const TENANT_ID = "aaaaaaaa-0000-4000-a000-000000000001";
 
@@ -110,6 +120,7 @@ const BASE_EVENT = {
 const EXEC_ROW = { id: "exec-001" };
 const NOTIFY_RULE = {
   id: "rule-001",
+  name: "Costing review",
   tenantId: TENANT_ID,
   isEnabled: true,
   triggerType: "workflow.transitioned",
@@ -133,6 +144,8 @@ describe("executeAutomationRules", () => {
     );
     MOCK_REDIS.get.mockResolvedValue(null); // reset to closed circuit
     MOCK_REDIS.del.mockResolvedValue(1);
+    // The worker registers the real one; spec R7's fallback assignee.
+    registerFallbackAssigneeResolver(() => Promise.resolve("u-fallback"));
   });
 
   it("executes matching rules and writes execution row with success status", async () => {
@@ -249,6 +262,8 @@ describe("executeAutomationRules", () => {
   });
 
   it("executes create_entity action by calling createEntity", async () => {
+    // The entity type has a workflow (workflowOfType's .limit() lookup), so it's a ticket.
+    mockDedupSelect.mockResolvedValue([{ id: "wf-1" }]);
     mockSelect.mockResolvedValue([
       {
         ...NOTIFY_RULE,
@@ -279,8 +294,79 @@ describe("executeAutomationRules", () => {
       expect.objectContaining({
         entityTypeId: "00000000-0000-0000-0000-000000000042",
         fields: { title: "Follow-up" },
+        // docs/specs/mandatory-ticket-fields.md R7 defaults: no template on this rule.
+        remark: "Created by automation: Costing review",
+        severity: "medium",
+        assignedTo: "u-fallback",
+        dueDate: expect.any(String),
       }),
     );
+  });
+
+  // A rule with nobody to assign to is misconfigured, not a failing service: it fails, with a
+  // readable reason, but never trips the tenant-wide circuit breaker.
+  it("fails a ticket rule with nobody to assign, without counting a circuit-breaker failure", async () => {
+    registerFallbackAssigneeResolver(() => Promise.resolve(null));
+    mockDedupSelect.mockResolvedValue([{ id: "wf-1" }]);
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [
+          {
+            type: "create_entity",
+            config: { entityTypeId: "00000000-0000-0000-0000-000000000042" },
+          },
+        ],
+      },
+    ]);
+    const incr = vi.fn().mockResolvedValue(1);
+    const redis = { ...MOCK_REDIS, incr, expire: vi.fn() };
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      redis as never,
+    );
+
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+    expect(incr).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalled();
+  });
+
+  // docs/specs/mandatory-ticket-fields.md R7 covers tickets only: a type with no workflow is
+  // created as before, with no defaults and no fallback-assignee lookup.
+  it("creates a record of a type with no workflow without the ticket defaults", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [
+          {
+            type: "create_entity",
+            config: {
+              entityTypeId: "00000000-0000-0000-0000-000000000043",
+              fields: { name: "Acme" },
+            },
+          },
+        ],
+      },
+    ]);
+    mockCreateEntity.mockResolvedValue({ id: "new-contact-1" });
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
+
+    expect(mockCreateEntity).toHaveBeenCalledWith(dbMock, TENANT_ID, {
+      entityTypeId: "00000000-0000-0000-0000-000000000043",
+      fields: { name: "Acme" },
+      depth: 0,
+    });
   });
 
   it("executes create_child action: creates the child, interpolates the description from parent fields, and writes the child id back onto the parent", async () => {
@@ -323,7 +409,15 @@ describe("executeAutomationRules", () => {
       expect.objectContaining({
         parentId: BASE_EVENT.instanceId,
         entityTypeId: BASE_EVENT.entityTypeId,
-        childFields: { description: "Tender A\n\nRoof replacement" },
+        childFields: {
+          description: "Tender A\n\nRoof replacement",
+          // docs/specs/mandatory-ticket-fields.md R7 default title: "<rule>: <parent title>".
+          title: "Costing review: Tender A",
+        },
+        remark: "Created by automation: Costing review",
+        severity: "medium",
+        assignedTo: "u-fallback",
+        dueDate: expect.any(String),
       }),
     );
     expect(mockUpdateEntity).toHaveBeenCalledWith(

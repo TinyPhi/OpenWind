@@ -184,6 +184,10 @@ export async function provisionTenant(
     }),
   );
 
+  // No installer is recorded here: the provisioning actor is a platform operator, not a
+  // member of the new tenant, and ADR-006 makes a workflow's creator its admin. These
+  // workflows fall back to the tenant's longest-standing admin at run time
+  // (docs/specs/mandatory-ticket-fields.md R7).
   const moduleResult = await ModuleService.installCoreModules(row.id);
   if (moduleResult.failed.length > 0) {
     logger.error(
