@@ -136,6 +136,61 @@ describe("openbaoRequest", () => {
     expect(callsTo("/auth/approle/login")).toHaveLength(2);
   });
 
+  it("does not force another login on a 403 within 5 s (policy denial)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(loginOk("t1"))
+      .mockResolvedValueOnce(json(403, { errors: ["permission denied"] }))
+      .mockResolvedValueOnce(loginOk("t2"))
+      .mockResolvedValueOnce(json(403, { errors: ["permission denied"] }))
+      .mockResolvedValueOnce(json(403, { errors: ["permission denied"] }));
+
+    await expect(
+      openbaoRequest("POST", "transit/decrypt/k", {}),
+    ).rejects.toThrow("OpenBao error 403");
+    // Second request right away: the fresh token is kept, no new login.
+    await expect(
+      openbaoRequest("POST", "transit/decrypt/k", {}),
+    ).rejects.toThrow("OpenBao error 403");
+    expect(callsTo("/auth/approle/login")).toHaveLength(2);
+  });
+
+  it("allows a forced re-login again once 5 s have passed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    fetchMock
+      .mockResolvedValueOnce(loginOk("t1"))
+      .mockResolvedValueOnce(json(403, { errors: ["permission denied"] }))
+      .mockResolvedValueOnce(loginOk("t2"))
+      .mockResolvedValueOnce(json(200, { data: { ok: true } }));
+    await openbaoRequest("POST", "transit/decrypt/k", {});
+
+    vi.setSystemTime(new Date("2026-01-01T00:00:06Z"));
+    fetchMock
+      .mockResolvedValueOnce(json(403, { errors: ["permission denied"] }))
+      .mockResolvedValueOnce(loginOk("t3"))
+      .mockResolvedValueOnce(json(200, { data: { ok: true } }));
+    await openbaoRequest("POST", "transit/decrypt/k", {});
+
+    expect(callsTo("/auth/approle/login")).toHaveLength(3);
+  });
+
+  it("puts only a short summary of the error body in the log and the error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(loginOk("t1"))
+      .mockResolvedValueOnce(
+        json(400, { errors: ["bad request: " + "x".repeat(500)] }),
+      );
+
+    const err = await openbaoRequest("POST", "transit/decrypt/k", {}).catch(
+      (e: unknown) => e as Error,
+    );
+    expect(err.message.startsWith("OpenBao error 400: bad request: ")).toBe(
+      true,
+    );
+    expect(err.message.length).toBeLessThan(260);
+    expect(err.message).not.toContain('"errors"');
+  });
+
   it("does not retry a refused login", async () => {
     fetchMock.mockResolvedValueOnce(
       json(400, { errors: ["invalid role or secret ID"] }),

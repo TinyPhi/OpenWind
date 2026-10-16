@@ -6,8 +6,9 @@ type AppRoleAuth = { type: "approle"; roleId: string; secretId: string };
 type Auth = TokenAuth | AppRoleAuth;
 
 // A slow or unreachable OpenBao must not hang a webhook request or a worker job
-// until the socket gives up (ADR-023 Decision 4).
-const REQUEST_TIMEOUT_MS = 10_000;
+// until the socket gives up (ADR-023 Decision 4). With 3 attempts this bounds
+// an outage to roughly 15 s per call, inside most webhook senders' timeouts.
+const REQUEST_TIMEOUT_MS = 5_000;
 // Network errors, 429 and 5xx (503 while sealed) are retried; 4xx never is.
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 100;
@@ -16,6 +17,12 @@ const RETRY_BASE_DELAY_MS = 100;
 const RENEW_AT_FRACTION = 2 / 3;
 // A renewal that leaves less than this is near token_max_ttl: log in again.
 const MIN_USEFUL_LEASE_MS = 60_000;
+// A 403 forces a fresh login at most this often. A 403 straight after a login
+// is a policy denial, not an expired token, and must not turn every request on
+// a misconfigured path into another login.
+const FORCED_RELOGIN_MIN_INTERVAL_MS = 5_000;
+// Error bodies are logged and thrown only as a short summary.
+const MAX_ERROR_DETAIL_CHARS = 200;
 
 interface CachedToken {
   token: string;
@@ -31,6 +38,23 @@ let cached: CachedToken | null = null;
 // Single flight: concurrent callers share one login or renewal instead of each
 // starting their own (wasted calls and audit noise after every expiry).
 let refreshInFlight: Promise<CachedToken> | null = null;
+let lastForcedReloginAt = -Infinity;
+
+// OpenBao error bodies are normally {"errors": [...]}; keep just those
+// messages, truncated, rather than the raw body.
+function errorDetail(text: string): string {
+  let detail = text;
+  try {
+    const parsed = JSON.parse(text) as { errors?: unknown };
+    if (Array.isArray(parsed.errors))
+      detail = parsed.errors.map(String).join("; ");
+  } catch {
+    // Not JSON: fall back to the (truncated) text.
+  }
+  return detail.length > MAX_ERROR_DETAIL_CHARS
+    ? `${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}…`
+    : detail;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -166,20 +190,28 @@ export async function openbaoRequest<T>(
     });
 
     // A 403 can mean the AppRole token expired or was revoked: drop it, log in
-    // again and retry the same request once.
-    if (res.status === 403 && auth.type === "approle" && authAttempt === 1) {
+    // again and retry the same request once, but no more often than
+    // FORCED_RELOGIN_MIN_INTERVAL_MS.
+    if (
+      res.status === 403 &&
+      auth.type === "approle" &&
+      authAttempt === 1 &&
+      Date.now() - lastForcedReloginAt >= FORCED_RELOGIN_MIN_INTERVAL_MS
+    ) {
+      lastForcedReloginAt = Date.now();
       if (cached?.token === token) cached = null;
       continue;
     }
 
     if (!res.ok) {
-      const text = await res.text();
+      // A 403 here came with a fresh or recently refreshed token: a policy
+      // denial. The token stays cached so the next call doesn't log in again.
+      const detail = errorDetail(await res.text());
       logger.error(
-        { path, status: res.status, body: text },
+        { path, status: res.status, detail },
         "OpenBao request failed",
       );
-      if (res.status === 403) cached = null;
-      throw new Error(`OpenBao error ${res.status}: ${text}`);
+      throw new Error(`OpenBao error ${res.status}: ${detail}`);
     }
 
     return res.json() as Promise<T>;
@@ -190,4 +222,5 @@ export async function openbaoRequest<T>(
 export function __resetOpenBaoClientForTests(): void {
   cached = null;
   refreshInFlight = null;
+  lastForcedReloginAt = -Infinity;
 }

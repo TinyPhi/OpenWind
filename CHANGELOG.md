@@ -24,8 +24,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- `@platform/secrets`: 10 s request timeout, retry on network errors / 429 / 5xx, AppRole token
-  renewal at about 2/3 of its lease, one shared login for concurrent callers, one re-login on 403.
+- `@platform/secrets`: 5 s request timeout, retry on network errors / 429 / 5xx, AppRole token
+  renewal at about 2/3 of its lease, one shared login for concurrent callers, one re-login on 403
+  (at most once every 5 s), and only a short summary of OpenBao's errors in logs.
 - In production the Superset secrets have no development defaults; each service holds only the
   ones it uses (the API: the service account password; the worker: none).
 

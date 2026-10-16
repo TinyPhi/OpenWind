@@ -47,10 +47,15 @@ Empty values count as unset.
 
 ## Client behavior
 
-- Every request has a 10-second timeout.
+- Every request has a 5-second timeout, so with 3 attempts an outage holds a call for roughly
+  15 s, not longer.
 - Network errors, 429 and 5xx (including 503 while OpenBao is sealed) are retried up to 3
   attempts with short backoff. 4xx responses are not retried.
 - The AppRole token is cached, renewed at about 2/3 of its lease, and replaced by a new login
   when renewal is refused or nearly exhausted. Concurrent callers share one login.
-- On a 403 the client logs in again once and retries the request; a second 403 fails.
+- On a 403 the client logs in again once and retries the request; a second 403 fails. A forced
+  re-login happens at most once every 5 s, so a policy denial on a busy path doesn't turn every
+  request into a login.
+- Errors log and throw only a short summary of OpenBao's `errors` (at most 200 characters), not
+  the raw response body.
 - A static `OPENBAO_TOKEN` is used as is, with no login.
