@@ -14,6 +14,6 @@
 - **Noted.** Sandbox reset's other pre-step deletes (`schedule_executions`, `saved_views`) still run on plain
   `db`, the same blind spot #928 fixed for tenant purge. Left alone here.
 - **Follow-up (migration 0148).** Trigger limiting which `metadata` keys an UPDATE may change; branch `feat/PLAT-hardening-event-metadata-guard-2`, based on `main` after #961.
-- **Found, not fixed.** Deleting the last attachment of a comment fails: `jsonb_agg` over zero rows is NULL, so
-  `jsonb_set` returns NULL (`delete-comment-attachment.ts`). It failed on NOT NULL before 0148 and now fails on the
-  guard first; wrapping the aggregate in `COALESCE(..., '[]')` fixes it. Out of scope here.
+- **Found, fixed separately (#966).** Deleting the last attachment of a comment fails: `jsonb_agg` over zero rows is
+  NULL, so `jsonb_set` returns NULL (`delete-comment-attachment.ts`). It fails on NOT NULL on `main` today and fails on
+  the guard first once 0148 is in; #966 wraps the aggregate in `COALESCE(..., '[]')`. Out of scope here.
