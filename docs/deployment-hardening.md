@@ -182,6 +182,82 @@ production override and its `.env.production.example`, and the production
 guards in `@platform/config`). Until they are merged, treat this list as the
 target, not as current behaviour.
 
+## Zitadel machine-key rotation
+
+OpenWind talks to Zitadel with three machine-user private keys. Each one is exchanged for a
+short-lived access token on demand; the key file itself is the long-lived secret.
+
+| Key          | Env                                                                           | Used for                                                                  |
+| ------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| management   | `ZITADEL_SERVICE_ACCOUNT_KEY` or `ZITADEL_KEY_JSON`                           | Reading users, roles and org metadata                                     |
+| provisioning | `ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY` or `ZITADEL_PROVISIONING_KEY_JSON` | Sandbox org and user creation/deletion (instance-level `IAM_ORG_MANAGER`) |
+| notification | `NOTIFICATION_ZITADEL_KEY_JSON`                                               | Authenticating calls to the outbound email/SMS service                    |
+
+Rotation is manual. Give every key an expiry date when you create it and rotate all three
+together, so they share one expiry.
+
+### Expiry digest
+
+A worker job (`apps/worker/src/zitadel-key-expiry.ts`) runs daily at 06:00 and once at every
+worker start. It reads each configured key's id and machine user, asks Zitadel for that key's
+live expiry and classifies it. The lookup is UserService `ListKeys`, made with the management
+machine user, which needs `user.read` in each machine user's organization; it was confirmed
+against the hosted Zitadel this deployment uses. The classes are:
+
+- ok: more than 30 days left;
+- a warning at 30, 14, 7, 3 and 1 day(s);
+- expired;
+- long-lived: expires more than a year away;
+- never expires: no expiry date, or a far-future placeholder (Zitadel reports `9999-12-31`);
+- missing: Zitadel doesn't list the key id in use: the key was deleted, or the management
+  machine user can't see that machine user (grant it `user.read` in that user's organization,
+  nothing broader);
+- unknown: the lookup failed or the key file can't be read the way its consumer reads it, with
+  the reason (for example `forbidden` or `unreadable_key_config`).
+
+It emails one digest covering every key to `OPS_ALERT_EMAIL` (comma-separated addresses), only
+when a key's state changed since the last digest. Expired, missing and unknown keys repeat daily;
+long-lived and never-expiring keys repeat weekly. A first run where every key is fine sends nothing. Without
+`OPS_ALERT_EMAIL` the job only logs.
+
+The notification service treats an email body as one line of plain text: it doesn't render HTML
+or keep line breaks. So the digest is a paragraph of plain sentences, most urgent first, for
+example: "The provisioning key (...887810) never expires. Please swap it for a key with an
+expiry date. The management key (...793090) expires in 2,999 days, on 1 January 2035. That is
+more than a year away, so please swap it for a key with a shorter expiry."
+
+Nothing about a key's expiry is stored in configuration. The check always follows whichever key
+is configured, so after a rotation the next run reports the new dates.
+
+The notification key is the one email depends on. Every run also logs a summary and exposes these
+metrics, so alert on them as well as on the email:
+
+- `openwind_zitadel_key_days_remaining{key}`, computed at scrape time;
+- `openwind_zitadel_key_status{key,status}`;
+- `openwind_zitadel_key_check_age_seconds`. Alert when it passes about 36 hours, because the
+  daily check has stopped. The stored result expires after 3 days, and the metrics disappear
+  with it.
+
+### Rotating the keys
+
+1. In the Zitadel console, for each machine user, add a new key **with an expiration date** (for
+   example 90 days ahead, the same date for all three) and download the JSON.
+2. Put the new values in the environment (`.env.local`, or the secret store in production),
+   encoded the way each variable is read:
+   - **raw JSON:** `ZITADEL_SERVICE_ACCOUNT_KEY`, `ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY` and
+     `NOTIFICATION_ZITADEL_KEY_JSON` (despite its name);
+   - **base64 of the JSON:** `ZITADEL_KEY_JSON` and `ZITADEL_PROVISIONING_KEY_JSON`.
+
+   A wrongly encoded key shows as "unknown [unreadable_key_config]".
+
+3. Restart `ow-backend` and `ow-worker`. The worker runs the check on start, and its
+   `zitadel-key-expiry: check complete` log line should show every key with the new date. If
+   the previous digest reported a problem, a confirming digest is emailed.
+4. Delete the old keys in the Zitadel console. A key that is still configured but deleted shows as
+   "missing", which catches a half-finished rotation.
+
+To check on demand, restart `ow-worker`.
+
 ## Go-live checklist
 
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.
@@ -195,3 +271,6 @@ target, not as current behaviour.
 - [ ] A restore, including key recovery, has been tested and timed.
 - [ ] Production OpenBao is durable and does not use dev mode or a root token.
 - [ ] An OpenBao restore has been tested together with a database restore.
+
+- [ ] Every Zitadel machine key has an expiry date, `OPS_ALERT_EMAIL` is set, and the
+      key-expiry metrics are alerted on.

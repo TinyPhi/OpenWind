@@ -63,6 +63,10 @@ vi.mock("@platform/db", () => ({
     select: mockSelect,
     insert: mockInsert,
   },
+  withTenantContext: (
+    _tenantId: string,
+    fn: (tx: { insert: typeof mockInsert }) => Promise<unknown>,
+  ) => fn({ insert: mockInsert }),
   tenants: { id: "tenants.id", plan: "tenants.plan", status: "tenants.status" },
   tenantUsageDaily: {
     tenantId: "tenant_usage_daily.tenant_id",

@@ -110,7 +110,9 @@ vi.mock("@platform/logger", () => ({
 
 vi.mock("./queues.js", () => ({ connection: {} }));
 
-await import("./notification-outbound-worker.js");
+const { maskEmail } = await import("./notification-outbound-worker.js");
+const { getUserById } = await import("@platform/auth");
+const { logger } = await import("@platform/logger");
 
 describe("notification outbound worker: de-dupe gate", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -152,6 +154,75 @@ describe("notification outbound worker: de-dupe gate", () => {
     expect(mockUpdate).toHaveBeenCalledWith(expect.anything());
     // Two update() calls: the "attempted" claim and the final "sent" update.
     expect(mockUpdate.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("looks recipients up a few at a time, not all at once", async () => {
+    claimedRows = [{ title: "T", body: "B", link: null }];
+    recipientRows = Array.from({ length: 23 }, (_, i) => ({
+      userId: `u-${i}`,
+    }));
+    let inFlight = 0;
+    let peak = 0;
+    vi.mocked(getUserById).mockImplementation(async (userId: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight--;
+      return {
+        userId,
+        email: `${userId}@example.com`,
+        displayName: "U",
+        loginName: "u",
+      };
+    });
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-many", tenantId: "t-1" },
+    });
+
+    expect(getUserById).toHaveBeenCalledTimes(23);
+    expect(peak).toBeLessThanOrEqual(5);
+    vi.mocked(getUserById).mockReset();
+    vi.mocked(getUserById).mockResolvedValue({
+      userId: "u-1",
+      email: "u@example.com",
+      displayName: "U",
+      loginName: "u",
+    });
+  });
+
+  it("reads each recipient's email fresh from Zitadel and sends that address", async () => {
+    claimedRows = [{ title: "T", body: "B", link: null }];
+    vi.mocked(getUserById).mockResolvedValueOnce({
+      userId: "u-1",
+      email: "new.address@gmail.com",
+      displayName: "U",
+      loginName: "u",
+    });
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-fresh", tenantId: "t-1" },
+    });
+
+    expect(getUserById).toHaveBeenCalledWith("u-1", { fresh: true });
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const sent = JSON.parse(init.body) as {
+      recipients: { userId: string; email: string | null }[];
+    };
+    expect(sent.recipients).toEqual([
+      { userId: "u-1", email: "new.address@gmail.com" },
+    ]);
+    // The log names the recipient's address only in masked form.
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificationId: "n-fresh",
+        recipients: [{ userId: "u-1", email: "n***@gmail.com" }],
+      }),
+      "Notification outbound: dispatching",
+    );
+    expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toContain(
+      "new.address@gmail.com",
+    );
   });
 
   it("includes tenantId in the outbound payload (regression: the external service rejects requests missing it)", async () => {
@@ -263,5 +334,17 @@ describe("notification outbound worker: system.error cascade prevention", () => 
 
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("maskEmail", () => {
+  it.each([
+    ["tusharsh@gmail.com", "t***@gmail.com"],
+    ["a@b.co", "a***@b.co"],
+    ["no-at-sign", "***"],
+    ["", null],
+    [null, null],
+  ])("%j -> %j", (input, expected) => {
+    expect(maskEmail(input)).toBe(expected);
   });
 });

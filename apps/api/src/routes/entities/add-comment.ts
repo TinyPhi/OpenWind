@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { logger } from "@platform/logger";
 import { z } from "zod";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import {
   workflowEvents,
@@ -14,6 +14,7 @@ import {
 } from "@platform/db";
 import { isNull } from "drizzle-orm";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
+import { resolveTenantMembers } from "../../lib/ensure-user-refs.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -31,9 +32,12 @@ const MentionSchema = z.object({
     .default("read_comment"),
 });
 
+// Each mention can cost a Zitadel lookup and a notification row, so the list is bounded.
+const MAX_MENTIONS = 50;
+
 const AddCommentSchema = z.object({
   text: z.string().min(1).max(4000),
-  mentions: z.array(MentionSchema).default([]),
+  mentions: z.array(MentionSchema).max(MAX_MENTIONS).default([]),
   replyTo: z.string().uuid().nullable().default(null),
   fileIds: z.array(z.string().uuid()).max(10).default([]),
 });
@@ -241,22 +245,13 @@ export const addCommentHandler = factory.createHandlers(
     // Only members of this tenant are granted access or notified by @mention —
     // the same membership rule grant-access.ts enforces. The schema only checks
     // that a userId is a non-empty string, so without this an arbitrary id could
-    // be written into __accessUsers or get a notification row.
-    const mentionMemberIds = new Set<string>();
-    if (mentionUserIds.length > 0) {
-      const members = await withTenantContext(tenantId, (tx) =>
-        tx
-          .select({ userId: tenantUsers.userId })
-          .from(tenantUsers)
-          .where(
-            and(
-              eq(tenantUsers.tenantId, tenantId),
-              inArray(tenantUsers.userId, mentionUserIds),
-            ),
-          ),
-      );
-      for (const m of members) mentionMemberIds.add(m.userId);
-    }
+    // be written into __accessUsers or get a notification row. A member is anyone
+    // in tenant_users or in this tenant's Zitadel org: a colleague who has never
+    // signed in used to be silently dropped, so mentioning them notified nobody.
+    const mentionMemberIds =
+      mentionUserIds.length > 0
+        ? await resolveTenantMembers(tenantId, mentionUserIds, orgId)
+        : new Set<string>();
 
     // Classify mentions once, up front, and reuse for both notification
     // routing (below) and the actual access grant (further down) — a mention

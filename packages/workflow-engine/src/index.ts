@@ -4,9 +4,15 @@ export { isWorkflowAdmin, isWorkflowAdminListEditor } from "./authorization.js";
 export {
   executeTransition,
   getAvailableTransitions,
+  overrideWorkflowState,
   getWorkflowEventLog,
 } from "./engine.js";
-export { evaluateConditionTree } from "./condition-evaluator.js";
+export {
+  evaluateConditionTree,
+  treeNeedsPriorActors,
+  treeUsesActorRule,
+  collectRuleStates,
+} from "./condition-evaluator.js";
 export { redactMetadata, buildSensitivityMap } from "./redact.js";
 export type { FieldSensitivity } from "@platform/entity-engine";
 export {

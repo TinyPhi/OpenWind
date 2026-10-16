@@ -26,6 +26,115 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — Zitadel machine-key expiry digest follow-ups (#953)]
+
+### Added
+
+- **Daily email digest of Zitadel machine-key expiry** (#948). Set `OPS_ALERT_EMAIL` (comma-separated) to
+  receive one digest at 06:00 and after a worker start, only when a key crossed a threshold, was replaced or
+  went missing; expired, missing and unknown keys repeat daily, never-expiring ones weekly.
+
+### Fixed
+
+- Two overlapping key-expiry runs can no longer both send the digest (short Redis lock, released only by the run
+  that took it), and a failed send is retried by the queue (3 attempts, exponential backoff) instead of waiting for the next day.
+
+## [Unreleased — event-log protection (#777)]
+
+### Changed
+
+- **A case's history can no longer be rewritten or deleted by the request role.** `workflow_events` keeps
+  its metadata editable (comment attachments, mentions, erasure) but its state and timestamps are now
+  fixed for `app_user`, the actor can only be redacted (never re-attributed), and deleting events needs the new `event_log_maintenance_role` (migration 0147).
+  The retention sweep, tenant purge and sandbox reset use it.
+
+---
+
+## [Unreleased — retention classes and tenant-context sweeps]
+
+### Fixed
+
+- **The daily retention sweep now actually deletes.** It ran outside tenant context, so under the
+  default database role it matched no rows. Both it and the usage-metering sweep now run each
+  tenant's work inside the tenant context.
+
+### Added
+
+- **Retention classes for the workflow event log**: state-change history is kept for
+  `RETENTION_EVIDENCE_DAYS` (default 2555) and never swept while its case is open or recently
+  active; comments use `RETENTION_COMMENT_DAYS` (365); other events use `RETENTION_DEFAULT_DAYS`
+  (90). Per-tenant overrides: `retention_days`, `retention_comment_days`, `retention_evidence_days`.
+  The comment and evidence defaults are placeholders pending confirmation.
+- `tenants.config.retention_hold: true` pauses all retention sweeps for a tenant.
+- Batched deletes (`RETENTION_BATCH_SIZE`, `RETENTION_BATCH_PAUSE_MS`) and the
+  `openwind_retention_deleted_rows_total{table,class}` metric.
+
+---
+
+---
+
+## [Unreleased — guarded state override]
+
+### Added
+
+- **A recorded, reasoned way for an admin to move a record to a chosen step** outside its workflow's transitions:
+  `POST /entities/:id/override-state` with `{ state, reason }`. It is admin-only, needs the workflow's new
+  `allowStateOverride` switch (off by default; only a tenant admin can change it, and the change is audited), needs a
+  reason of 10 to 1000 characters, and refuses the record's creator. It locks the row, writes the event and an
+  admin audit entry (`workflow.state_overridden`) in one transaction, emits `workflow.transitioned` with
+  `override: true`, and moves SLA timers like a transition. It counts as acting for segregation-of-duties rules.
+- Migration 0146: `workflows.allow_state_override`, and the two audit actions `workflow.state_overridden` and
+  `workflow.override_policy_updated`.
+
+## [Unreleased — segregation-of-duties transition conditions]
+
+### Added
+
+- **Three actor-aware transition conditions**: `actor_not_creator` ("the requester cannot approve"),
+  `actor_is_creator` ("only the requester may withdraw") and `actor_not_prior_actor` ("each stage needs a
+  different person", optionally limited to people who left given states). The engine evaluates them inside
+  the transition lock and fails closed: an unidentified actor, an API-key or system identity satisfies none,
+  and an actor rule under `not` is never satisfied. No schema change; they live in a transition's existing `conditions`.
+  `getAvailableTransitions` takes the actor id, so the list matches the guard.
+
+- **A segregation rule's `states` are checked and protected.** Saving a rule that names a step the workflow does
+  not have is rejected with 422 `WORKFLOW_CONDITION_STATE_UNKNOWN` (a typo would otherwise block nobody), and a
+  step that a rule names can no longer be renamed or deleted until the rule is changed.
+- **Changes to a transition's conditions are audited** (`workflow.transition_conditions_updated`, migration 0145) on create, update, delete and canvas save, so a segregation rule cannot be removed without a record.
+
+### Known limits
+
+- **Not a complete control until #941 merges.** A direct state write (`PATCH /entities/:id` with `currentState`,
+  or the child-status route) does not run transition guards, so the record's creator can bypass
+  `actor_not_creator`. Do not enable these rules on a real workflow before the guarded override lands.
+
+### Changed
+
+- **Transition conditions are validated when saved.** The create and update transition routes now reject an
+  unknown operator or a malformed tree with 400 instead of storing it. A condition nested deeper than 8 levels, or
+  a group of more than 20, is rejected.
+
+---
+
+## [Unreleased — mention and notification follow-ups (#952)]
+
+### Fixed
+
+- **@mention and grant lookups no longer drop org members past the first 500.** `listOrgUsers` now pages
+  through the whole Zitadel org (capped at 10,000 members, logged when truncated).
+- Adding a comment or granting access no longer holds a database connection while it waits on Zitadel:
+  membership is read, Zitadel is called, then the new members are recorded in a second short step.
+- A failed Zitadel org-member lookup (for example a rate limit) is no longer cached as an empty org until the
+  process restarts; the next mention or grant retries.
+- A Zitadel rate limit (429) while resolving a notification recipient now falls back to the cached profile
+  instead of treating the user as not found, and recipient lookups run five at a time.
+
+### Changed
+
+- A comment may mention at most 50 people.
+
+---
+
 ## [Unreleased — step-up MFA for sandbox reset and delete (#865, #801)]
 
 ### Added

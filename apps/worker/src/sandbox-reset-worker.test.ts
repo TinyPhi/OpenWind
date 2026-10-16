@@ -20,8 +20,30 @@ const mockSelect = vi.fn(() => ({
 }));
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
-const mockTx = { delete: mockDelete };
+// The sandbox's people, read from the org chart to assign reseeded records.
+let orgEmployeeRows: { userId: string | null }[] = [];
+const mockTx = {
+  delete: mockDelete,
+  select: () => ({
+    from: () => ({ where: () => Promise.resolve(orgEmployeeRows) }),
+  }),
+};
 const mockWithTenantContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTx),
+);
+// Privileged pre-step (migration 0144): records which tables it deleted from.
+const purgeDeletes: unknown[] = [];
+const mockWithTenantPurgeContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn({
+      delete: (table: unknown) => {
+        purgeDeletes.push(table);
+        return { where: () => Promise.resolve(undefined) };
+      },
+    }),
+);
+
+const mockWithEventLogMaintenanceContext = vi.fn(
   (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTx),
 );
 const mockLockRelease = vi.fn().mockResolvedValue(undefined);
@@ -37,6 +59,13 @@ vi.mock("@platform/db", () => ({
   },
   withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
     mockWithTenantContext(...args),
+  withTenantPurgeContext: (
+    ...args: Parameters<typeof mockWithTenantPurgeContext>
+  ) => mockWithTenantPurgeContext(...args),
+  orgEmployees: { tenantId: "tenantId", userId: "userId" },
+  withEventLogMaintenanceContext: (
+    ...args: Parameters<typeof mockWithEventLogMaintenanceContext>
+  ) => mockWithEventLogMaintenanceContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
   recordPlatformAdminAction: (...args: unknown[]) =>
@@ -56,14 +85,18 @@ vi.mock("@platform/db", () => ({
   files: { tenantId: "tenantId" },
   notifications: { tenantId: "tenantId" },
   notificationRecipients: { tenantId: "tenantId" },
-  savedViews: { tenantId: "tenantId" },
+  savedViews: { table: "savedViews", tenantId: "tenantId" },
   labels: { tenantId: "tenantId" },
   ticketLabels: { tenantId: "tenantId" },
   entityInstanceTags: { tenantId: "tenantId" },
-  scheduleExecutions: { tenantId: "tenantId" },
+  scheduleExecutions: { table: "scheduleExecutions", tenantId: "tenantId" },
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: (a: unknown, b: unknown) => [a, b] }));
+vi.mock("drizzle-orm", () => ({
+  eq: (a: unknown, b: unknown) => [a, b],
+  and: (...args: unknown[]) => ["and", ...args],
+  isNotNull: (a: unknown) => ["isNotNull", a],
+}));
 
 const mockWriteAuditEntry = vi.fn().mockResolvedValue(undefined);
 vi.mock("@platform/audit", () => ({
@@ -138,6 +171,8 @@ beforeEach(() => {
   slaJobs = [];
   dueDateJobs = [];
   dueDateApproachingJobs = [];
+  purgeDeletes.length = 0;
+  orgEmployeeRows = [{ userId: "u-admin" }, { userId: "u-2" }];
   mockSelectLimit.mockResolvedValue([
     { isSandbox: true, config: { installed_modules: ["helpdesk", "crm"] } },
   ]);
@@ -158,10 +193,15 @@ describe("processSandboxResetJob", () => {
       expect.any(Function),
     );
     expect(mockDelete).toHaveBeenCalled();
-    expect(mockSeedAllModulesData).toHaveBeenCalledWith(TENANT_ID, [
-      "helpdesk",
-      "crm",
-    ]);
+    expect(mockWithEventLogMaintenanceContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(
+      TENANT_ID,
+      ["helpdesk", "crm"],
+      ["u-admin", "u-2"],
+    );
     expect(mockDeleteTenantFiles).toHaveBeenCalledWith(TENANT_ID);
     expect(mockWriteAuditEntry).toHaveBeenCalledWith(
       expect.anything(),
@@ -233,7 +273,44 @@ describe("processSandboxResetJob", () => {
       makeJob(TENANT_ID, { requestedBy: "admin-1" }),
     );
 
-    expect(mockSeedAllModulesData).toHaveBeenCalledWith(TENANT_ID, []);
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(
+      TENANT_ID,
+      [],
+      ["u-admin", "u-2"],
+    );
+  });
+
+  it("deletes schedule_executions and saved_views through the purge role, never plain db", async () => {
+    await processSandboxResetJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockWithTenantPurgeContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
+    expect(purgeDeletes).toEqual([
+      expect.objectContaining({ table: "scheduleExecutions" }),
+      expect.objectContaining({ table: "savedViews" }),
+    ]);
+    // Plain db is only ever read here (the tenant row), never written.
+    expect(mockDelete).not.toHaveBeenCalledWith(
+      expect.objectContaining({ table: "scheduleExecutions" }),
+    );
+  });
+
+  it("reseeds unassigned when the sandbox has no people with a user id", async () => {
+    orgEmployeeRows = [];
+
+    await processSandboxResetJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(
+      TENANT_ID,
+      ["helpdesk", "crm"],
+      [],
+    );
   });
 
   it("throws and writes a failed audit entry when the tenant row is not found", async () => {

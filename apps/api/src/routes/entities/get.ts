@@ -1,6 +1,6 @@
 import { requireAuth } from "@platform/auth";
 import { withTenantContext, workflows, entityRelations } from "@platform/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import {
   getEntity,
   getParentId,
@@ -78,7 +78,15 @@ export const getEntityHandler = factory.createHandlers(
           tx
             .select({ maxChildDepth: workflows.maxChildDepth })
             .from(workflows)
-            .where(eq(workflows.id, instance.workflowId ?? ""))
+            .where(
+              and(
+                eq(workflows.id, instance.workflowId ?? ""),
+                or(
+                  eq(workflows.tenantId, tenantId),
+                  isNull(workflows.tenantId),
+                ),
+              ),
+            )
             .limit(1),
         );
         maxChildDepth = wf?.maxChildDepth ?? 0;
