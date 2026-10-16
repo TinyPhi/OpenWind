@@ -98,6 +98,9 @@ describe("PLATFORM_ADMIN_MFA_DEV_BYPASS", () => {
         PLATFORM_ADMIN_MFA_DEV_BYPASS: "true",
       }),
     ).toThrow(/PLATFORM_ADMIN_MFA_DEV_BYPASS must not be true in production/);
+  });
+});
+
 describe("OPS_ALERT_EMAIL", () => {
   it.each([undefined, "", "ops@example.com", "a@example.com, b@example.com"])(
     "accepts %s",
