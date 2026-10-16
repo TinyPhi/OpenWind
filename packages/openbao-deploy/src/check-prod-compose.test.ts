@@ -258,3 +258,77 @@ describe.skipIf(!hasCompose)("docker-compose.prod.yml", () => {
     ).toMatch(/grafana: environment keys service not reviewed/);
   });
 });
+
+describe("checkComposeConfig — rollback mode (#943)", () => {
+  function rollbackService(overrides: Record<string, unknown> = {}) {
+    return {
+      entrypoint: null,
+      environment: { REDIS_URL: "redis://redis:6379" },
+      env_file: [
+        { path: "/srv/secrets/backend.env" },
+        { path: "/srv/secrets/rollback-backend.env" },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("accepts a service with the loader off that reads its rollback file", () => {
+    const cfg = valid();
+    cfg.services!["ow-backend"] = rollbackService();
+    expect(
+      checkComposeConfig(cfg, [], { ...FILES_OK, mode: "rollback" }),
+    ).toEqual([]);
+  });
+
+  it("fails when the loader is still on or no rollback file is read", () => {
+    const cfg = valid();
+    cfg.services!["ow-backend"] = rollbackService({
+      entrypoint: LOADER,
+      env_file: [{ path: "/srv/secrets/backend.env" }],
+    });
+    const problems = checkComposeConfig(cfg, [], {
+      ...FILES_OK,
+      mode: "rollback",
+    }).join("\n");
+    expect(problems).toMatch(
+      /ow-backend: still starts through the OpenBao loader/,
+    );
+    expect(problems).toMatch(
+      /ow-backend: reads no rollback-<service>\.env file/,
+    );
+  });
+});
+
+describe.skipIf(!hasCompose)("docker-compose.rollback.yml", () => {
+  const files = [
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.rollback.yml",
+  ];
+  const profiles = ["reporting", "bootstrap", "notifications"];
+  const base = () => ({ base: render(["docker-compose.yml"]) });
+
+  it("passes the rollback checks with every profile in use", () => {
+    expect(
+      checkComposeConfig(render(files), profiles, {
+        ...base(),
+        mode: "rollback",
+      }),
+    ).toEqual([]);
+  });
+
+  it("is not a valid production config (the loader is off)", () => {
+    expect(
+      checkComposeConfig(render(files), profiles, base()).join("\n"),
+    ).toMatch(/ow-backend: does not start through the OpenBao loader/);
+  });
+
+  it("keeps the dev OpenBao disabled and every port on loopback", () => {
+    const problems = checkComposeConfig(render(files), profiles, {
+      ...base(),
+      mode: "rollback",
+    }).join("\n");
+    expect(problems).not.toMatch(/dev OpenBao would start/);
+    expect(problems).not.toMatch(/published on every interface/);
+  });
+});

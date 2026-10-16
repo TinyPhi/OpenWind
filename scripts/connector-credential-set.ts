@@ -31,25 +31,17 @@ async function createStore(): Promise<CredentialStore> {
     withTenantContext,
     isTenantActive,
     connectorCredentials,
-    connectorDefinitions,
+    connectorDefinitionExists,
     connectorInstallationFilter,
   } = await import("@platform/db");
 
   return {
     tenantIsActive: (tenantId) => isTenantActive(tenantId),
 
-    // connector_definitions is the platform-wide catalog (no tenant_id/RLS):
-    // one row per connector type the platform ships, not per tenant or
-    // install, so reading every id stays bounded. It is filtered here because
-    // scripts/ can't import drizzle-orm's operators directly (not a root
-    // dependency), and the ones db.query hands back don't typecheck against
-    // @platform/db's built column types.
-    connectorDefinitionExists: async (connectorId) => {
-      const rows = await db
-        .select({ id: connectorDefinitions.id })
-        .from(connectorDefinitions);
-      return rows.some((r) => r.id === connectorId);
-    },
+    // A single indexed lookup in @platform/db (#960): scripts/ can't use
+    // drizzle-orm's operators directly.
+    connectorDefinitionExists: (connectorId) =>
+      connectorDefinitionExists(db, connectorId),
 
     upsertSecrets: (tenantId, connectorId, merge) =>
       withTenantContext(tenantId, async (tx) => {

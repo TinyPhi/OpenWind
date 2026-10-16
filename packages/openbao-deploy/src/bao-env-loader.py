@@ -105,7 +105,12 @@ def call(ctx, addr, method, path, body=None, token=None):
     try:
         with opener.open(req, timeout=REQUEST_TIMEOUT_S) as res:
             raw = res.read()
-            return res.status, (json.loads(raw) if raw else {})
+            try:
+                return res.status, (json.loads(raw) if raw else {})
+            except ValueError:
+                # A malformed body is treated like an empty one, so the normal
+                # exit codes and the fail-sleep apply instead of a traceback.
+                return res.status, {}
     except urllib.error.HTTPError as err:
         try:
             return err.code, json.loads(err.read() or b"{}")

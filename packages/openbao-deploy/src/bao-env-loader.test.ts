@@ -37,6 +37,8 @@ interface FakeBao {
   kvTransient: boolean;
   redirect: "login" | "kv" | null;
   revokeGarbage: boolean;
+  // Answer the KV read with 200 and a body that isn't JSON.
+  kvMalformed: boolean;
   calls: string[];
   callTimes: number[];
 }
@@ -49,6 +51,7 @@ const bao: FakeBao = {
   kvTransient: false,
   redirect: null,
   revokeGarbage: false,
+  kvMalformed: false,
   calls: [],
   callTimes: [],
 };
@@ -121,6 +124,10 @@ beforeAll(async () => {
               errors: ["invalid role or secret ID"],
             });
       }
+      if (bao.kvMalformed && path.includes("/secret/data/")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end("this is not json");
+      }
       if (path.includes("/secret/data/")) {
         return bao.kvStatus === 200
           ? send(res, 200, { data: { data: bao.kvData } })
@@ -158,6 +165,7 @@ beforeEach(() => {
   bao.kvTransient = false;
   bao.redirect = null;
   bao.revokeGarbage = false;
+  bao.kvMalformed = false;
   bao.calls = [];
   bao.callTimes = [];
 });
@@ -420,6 +428,17 @@ describe.each(LOADERS)("$name", (loader) => {
       expect(
         bao.calls.filter((c) => c.endsWith("/auth/approle/login")),
       ).toHaveLength(3);
+    },
+  );
+
+  it.skipIf(!enabled)(
+    "treats a malformed KV reply as a refusal (normal exit code, no crash)",
+    async () => {
+      bao.kvMalformed = true;
+      const r = await run();
+      expect(r.code).toBe(77);
+      expect(r.loaderLog).not.toMatch(/Traceback/);
+      expect(r.childEnv).toEqual({});
     },
   );
 

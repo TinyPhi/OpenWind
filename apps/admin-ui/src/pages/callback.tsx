@@ -75,7 +75,12 @@ export function AuthCallback(): React.ReactElement {
         // Object.keys(rolesMap) check as authProvider.ts's getPermissions() and
         // packages/auth/src/jwks.ts's extractPlatformAdminContext (server-side) --
         // never duplicated as a separate parsing implementation.
+        // user.profile is typed non-optional (IdTokenClaims, oidc-client-ts); widening it to
+        // include undefined keeps the optional chaining below defensive for a stored user
+        // with no profile, which the declared type can't express.
         const profile = user.profile as Record<string, unknown> | undefined;
+        // Every custom claim is typed unknown (IdTokenClaims index signature), and the roles
+        // claim is an object keyed by role name, which the type system can't know.
         const rolesMap = (profile?.["urn:zitadel:iam:org:project:roles"] ??
           {}) as Record<string, unknown>;
         if (Object.keys(rolesMap).includes("platform_admin")) {
