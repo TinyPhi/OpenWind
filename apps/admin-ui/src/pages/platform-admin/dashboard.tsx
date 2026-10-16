@@ -36,6 +36,8 @@ export function PlatformAdminDashboard(): React.ReactElement {
     setRefreshKey((k) => k + 1);
     fetchWithAuth(`${API_URL}/platform-admin/sandboxes`)
       .then((res) => {
+        // fetchWithAuth returns unknown; { data: SandboxView[] } is the
+        // platform-admin/sandboxes list contract.
         setSandboxes((res as { data: SandboxView[] }).data);
         setLoadError(null);
       })
@@ -47,8 +49,14 @@ export function PlatformAdminDashboard(): React.ReactElement {
   }, []);
 
   React.useEffect(() => {
+    // Ignore the answer once this effect is cleaned up, so under StrictMode (or a fast
+    // remount) a slower first fetch can't overwrite the live one.
+    let cancelled = false;
     fetchWithAuth(`${API_URL}/platform-admin/session`)
       .then((res) => {
+        if (cancelled) return;
+        // fetchWithAuth returns unknown; { data: PlatformAdminSession } is the
+        // platform-admin/session contract.
         setSession((res as { data: PlatformAdminSession }).data);
       })
       .catch(() => {
@@ -56,6 +64,9 @@ export function PlatformAdminDashboard(): React.ReactElement {
         // RequirePlatformAdminMfa already confirmed the session is valid to get here.
       });
     refresh();
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   async function handleLogout(): Promise<void> {
