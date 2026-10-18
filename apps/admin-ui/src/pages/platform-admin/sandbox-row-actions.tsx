@@ -176,6 +176,7 @@ export function SandboxRowActions({
       );
       onDone();
     } catch (err) {
+      // fetchWithAuth rejects with an ApiError ({ status?: number; code?: string }) on HTTP errors.
       const { status, code } = err as { status?: number; code?: string };
       if (code === "MFA_REAUTH_REQUIRED" && !afterReauth) {
         setReauthFor(action);

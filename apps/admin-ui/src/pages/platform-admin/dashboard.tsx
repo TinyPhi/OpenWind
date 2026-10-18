@@ -31,17 +31,29 @@ export function PlatformAdminDashboard(): React.ReactElement {
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
+  const isMountedRef = React.useRef(true);
+  const refreshSeq = React.useRef(0);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const refresh = React.useCallback((): void => {
     setRefreshKey((k) => k + 1);
+    const seq = ++refreshSeq.current;
     fetchWithAuth(`${API_URL}/platform-admin/sandboxes`)
       .then((res) => {
+        if (!isMountedRef.current || seq !== refreshSeq.current) return;
         // fetchWithAuth returns unknown; { data: SandboxView[] } is the
         // platform-admin/sandboxes list contract.
         setSandboxes((res as { data: SandboxView[] }).data);
         setLoadError(null);
       })
       .catch((err: unknown) => {
+        if (!isMountedRef.current || seq !== refreshSeq.current) return;
         setLoadError(
           err instanceof Error ? err.message : "Could not load sandboxes",
         );
