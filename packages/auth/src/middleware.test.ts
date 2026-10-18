@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { AuthContext } from "./types.js";
+import type * as JwksModule from "./jwks.js";
 import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -102,19 +103,16 @@ const mockExtractAuthContext = vi.fn();
 const mockExtractPlatformAdminContext = vi.fn();
 const mockIsMfaVerified = vi.fn();
 const mockIsMfaFresh = vi.fn();
-vi.mock("./jwks.js", () => ({
-  verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
-  extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
-  extractPlatformAdminContext: (...args: unknown[]) =>
-    mockExtractPlatformAdminContext(...args),
-  // Real logic, not a stub: these tests should decide from the token's own roles claim.
-  isPlatformAdminToken: (claims: {
-    "urn:zitadel:iam:org:project:roles"?: Record<string, unknown>;
-  }) =>
-    Object.keys(claims["urn:zitadel:iam:org:project:roles"] ?? {}).includes(
-      "platform_admin",
-    ),
-}));
+vi.mock("./jwks.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof JwksModule>();
+  return {
+    ...actual,
+    verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
+    extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
+    extractPlatformAdminContext: (...args: unknown[]) =>
+      mockExtractPlatformAdminContext(...args),
+  };
+});
 
 vi.mock("./platform-admin-mfa.js", () => ({
   isMfaVerified: (...args: unknown[]) => mockIsMfaVerified(...args),

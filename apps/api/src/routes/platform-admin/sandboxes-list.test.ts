@@ -2,15 +2,41 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { PlatformAdminAuthContext } from "@platform/auth";
+import type * as PlatformDb from "@platform/db";
+import type * as DrizzleOrm from "drizzle-orm";
 
-const { mockPlatformAdmin } = vi.hoisted(() => ({
-  mockPlatformAdmin: {
-    userId: "pa-1",
-    roles: ["platform_admin"],
-    email: "ops@openwind.io",
-    displayName: "Ops",
+const { mockPlatformAdmin, mockLimitRows, mockWhere, mockTx } = vi.hoisted(
+  () => {
+    const mockLimitRows = vi.fn();
+    const mockWhere = vi.fn();
+    const mockTx = {
+      select: () => ({
+        from: () => ({
+          where: (cond: unknown) => {
+            mockWhere(cond);
+            return {
+              orderBy: () => ({
+                limit: (n: number) => mockLimitRows(n),
+              }),
+              limit: (n: number) => mockLimitRows(n),
+            };
+          },
+        }),
+      }),
+    };
+    return {
+      mockPlatformAdmin: {
+        userId: "pa-1",
+        roles: ["platform_admin"],
+        email: "ops@openwind.io",
+        displayName: "Ops",
+      },
+      mockLimitRows,
+      mockWhere,
+      mockTx,
+    };
   },
-}));
+);
 
 vi.mock("@platform/auth", () => ({
   requirePlatformAdmin:
@@ -24,66 +50,28 @@ vi.mock("@platform/auth", () => ({
     },
 }));
 
-const mockLimitRows = vi.fn();
-const mockWhere = vi.fn();
-const mockTx = {
-  select: () => ({
-    from: () => ({
-      where: (cond: unknown) => {
-        mockWhere(cond);
-        return {
-          orderBy: () => ({
-            limit: (n: number) => mockLimitRows(n),
-          }),
-          limit: (n: number) => mockLimitRows(n),
-        };
-      },
-    }),
-  }),
-};
+vi.mock("@platform/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof PlatformDb>();
+  return {
+    ...actual,
+    withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
+  };
+});
 
-vi.mock("@platform/db", () => ({
-  tenants: {
-    id: "id",
-    name: "name",
-    isSandbox: "isSandbox",
-    status: "status",
-    trialEndsAt: "trialEndsAt",
-    createdAt: "createdAt",
-  },
-  withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
-  // Real, minimal re-implementation (not mocked away) so these tests exercise the actual
-  // allow-list logic, not a stand-in that could silently diverge from
-  // packages/db/src/platform-admin-view.ts.
-  toPlatformAdminSandboxView: (row: {
-    id: string;
-    name: string;
-    isSandbox: boolean;
-    trialEndsAt: Date | null;
-    createdAt: Date;
-  }) => ({
-    id: row.id,
-    name: row.name,
-    isSandbox: row.isSandbox,
-    createdAt: row.createdAt.toISOString(),
-    trialStatus: !row.trialEndsAt
-      ? "none"
-      : row.trialEndsAt.getTime() > Date.now()
-        ? "active"
-        : "expired",
-    trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
-  }),
-}));
-
-vi.mock("drizzle-orm", () => ({
-  eq: (a: unknown, b: unknown) => ["eq", a, b],
-  and: (...args: unknown[]) => ["and", ...args],
-  inArray: (a: unknown, b: unknown) => ["inArray", a, b],
-  desc: (a: unknown) => ["desc", a],
-}));
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof DrizzleOrm>();
+  return {
+    ...actual,
+    eq: (a: unknown, b: unknown) => ["eq", a, b],
+    and: (...args: unknown[]) => ["and", ...args],
+    inArray: (a: unknown, b: unknown) => ["inArray", a, b],
+    desc: (a: unknown) => ["desc", a],
+  };
+});
 
 const { sandboxListHandler, sandboxDetailHandler } =
   await import("./sandboxes-list.js");
+const { tenants } = await import("@platform/db");
 
 function makeApp() {
   const app = new Hono<{
@@ -108,8 +96,8 @@ describe("GET /sandboxes", () => {
 
     expect(mockWhere).toHaveBeenCalledWith([
       "and",
-      ["eq", "isSandbox", true],
-      ["inArray", "status", ["active", "suspended"]],
+      ["eq", tenants.isSandbox, true],
+      ["inArray", tenants.status, ["active", "suspended"]],
     ]);
   });
 
