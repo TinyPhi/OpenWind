@@ -32,6 +32,20 @@ export function buildHandoverCsv(accounts: HandoverCsvAccount[]): string {
   return "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
 }
 
+/**
+ * Formats the credentials as a tab-separated table with a header row, ready for the clipboard.
+ * Pastes cleanly into spreadsheets (Excel, Google Sheets), Slack or a text document.
+ */
+export function formatHandoverClipboard(
+  accounts: HandoverCsvAccount[],
+): string {
+  const rows = [
+    HEADER,
+    ...accounts.map((a) => [a.username, a.email, a.role, a.password]),
+  ];
+  return rows.map((r) => r.join("\t")).join("\n");
+}
+
 export function handoverCsvFileName(orgName: string): string {
   const slug = orgName
     .toLowerCase()

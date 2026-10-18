@@ -1,7 +1,10 @@
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { downloadHandoverCsv } from "./sandbox-handover-csv.js";
+import {
+  downloadHandoverCsv,
+  formatHandoverClipboard,
+} from "./sandbox-handover-csv.js";
 
 interface ProvisioningProgress {
   status: "pending" | "running" | "completed" | "failed";
@@ -58,6 +61,17 @@ export function CreateSandboxModal({
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [downloadFailed, setDownloadFailed] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [copyFailed, setCopyFailed] = React.useState(false);
+  const copyTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
 
   const trialDaysNumber = Number(trialDays);
   const trialDaysValid =
@@ -75,6 +89,25 @@ export function CreateSandboxModal({
     setSubmitting(false);
     setError(null);
     setDownloadFailed(false);
+    setCopied(false);
+    setCopyFailed(false);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+  }
+
+  async function handleCopyCredentials(): Promise<void> {
+    if (!handover) return;
+    setCopyFailed(false);
+    setDownloadFailed(false);
+    try {
+      const text = formatHandoverClipboard(handover.seededAccounts);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2_000);
+    } catch (err) {
+      console.error("Sandbox handover clipboard copy failed:", err);
+      setCopyFailed(true);
+    }
   }
 
   async function handleCreate(e: React.FormEvent): Promise<void> {
@@ -134,6 +167,7 @@ export function CreateSandboxModal({
         // here, before it can reach the one-time handover fetch below.
         if (isCancelled() || isDone()) return;
         setProgress(res.data);
+        setError(null);
 
         if (res.data.status === "completed") {
           doneRef.current = true;
@@ -172,7 +206,8 @@ export function CreateSandboxModal({
     resetForm();
   }
 
-  const isProvisioning = jobId && !handover && progress?.status !== "failed";
+  const isProvisioning =
+    jobId && !handover && progress?.status !== "failed" && !error;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -230,11 +265,21 @@ export function CreateSandboxModal({
                 Could not create the CSV. Copy the credentials above instead.
               </p>
             )}
+            {copyFailed && (
+              <p
+                role="alert"
+                style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
+              >
+                Could not copy credentials. Use Download CSV or copy from the
+                table.
+              </p>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
               <Button
                 variant="secondary"
                 onClick={() => {
                   setDownloadFailed(false);
+                  setCopyFailed(false);
                   try {
                     downloadHandoverCsv(orgName, handover.seededAccounts);
                   } catch (err) {
@@ -244,6 +289,12 @@ export function CreateSandboxModal({
                 }}
               >
                 Download CSV
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void handleCopyCredentials()}
+              >
+                {copied ? "Copied!" : "Copy credentials"}
               </Button>
               <Button
                 variant="primary"
@@ -274,7 +325,7 @@ export function CreateSandboxModal({
                 {error}
               </p>
             )}
-            {progress?.status === "failed" && (
+            {(progress?.status === "failed" || error) && (
               <Button
                 variant="secondary"
                 style={{ marginTop: 16 }}

@@ -6,6 +6,7 @@ import {
   cleanup,
   fireEvent,
 } from "@testing-library/react";
+import type * as SandboxHandoverCsvModule from "./sandbox-handover-csv.js";
 
 const mockFetchWithAuth = vi.fn(
   (_url: string, _options?: RequestInit): Promise<unknown> =>
@@ -19,10 +20,15 @@ vi.mock("../../lib/api.js", () => ({
 
 // The CSV content itself is covered by sandbox-handover-csv.test.ts; here only the wiring.
 const mockDownloadHandoverCsv = vi.fn();
-vi.mock("./sandbox-handover-csv.js", () => ({
-  downloadHandoverCsv: (...args: unknown[]) =>
-    mockDownloadHandoverCsv(...args) as unknown,
-}));
+const mockWriteText = vi.fn();
+vi.mock("./sandbox-handover-csv.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof SandboxHandoverCsvModule>();
+  return {
+    ...actual,
+    downloadHandoverCsv: (...args: unknown[]) =>
+      mockDownloadHandoverCsv(...args) as unknown,
+  };
+});
 
 const { CreateSandboxModal } = await import("./create-sandbox-modal.js");
 
@@ -76,6 +82,12 @@ function renderModal(
 describe("CreateSandboxModal", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockWriteText.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: mockWriteText },
+      configurable: true,
+      writable: true,
+    });
   });
 
   afterEach(() => {
@@ -366,5 +378,169 @@ describe("CreateSandboxModal", () => {
     await waitFor(() => {
       expect(screen.getByText("quota exceeded")).toBeTruthy();
     });
+  });
+
+  // Issue #891: Show close button when sandbox provisioning poll hits a network error
+  it("shows a close button and dismisses when sandbox provisioning poll hits a network error", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+    mockFetchWithAuth.mockRejectedValueOnce(
+      new Error("Network connection lost"),
+    );
+    const { onClose } = renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Network connection lost")).toBeTruthy();
+      expect(screen.getByText("Close")).toBeTruthy();
+      expect(screen.getByLabelText("Close")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Close"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("clears the network error message when a subsequent poll succeeds", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+    mockFetchWithAuth.mockRejectedValueOnce(
+      new Error("Temporary network glitch"),
+    );
+    mockFetchWithAuth.mockResolvedValue({
+      data: {
+        status: "running",
+        currentStep: "configuring org",
+        completedSteps: 3,
+        totalSteps: 7,
+        error: null,
+      },
+    });
+    renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Temporary network glitch")).toBeTruthy();
+    });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await waitFor(() => {
+      expect(screen.getByText("configuring org")).toBeTruthy();
+      expect(screen.queryByText("Temporary network glitch")).toBeNull();
+    });
+  });
+
+  // Issue #892: Add copy-to-clipboard button for sandbox handover credentials
+  it("copies credentials to clipboard with tab-separated values on copy button click", async () => {
+    await showHandover();
+
+    const copyBtn = screen.getByRole("button", { name: "Copy credentials" });
+    expect(copyBtn).toBeTruthy();
+
+    fireEvent.click(copyBtn);
+
+    await waitFor(() => {
+      expect(mockWriteText).toHaveBeenCalledWith(
+        "Username\tEmail\tRole\tPassword\n" +
+          "admin.user\tadmin@example.com\tadmin\tOw-admin-9!\n" +
+          "olivia.smith\tolivia.smith@example.com\tuser\tOw-olivia-9!",
+      );
+      expect(screen.getByText("Copied!")).toBeTruthy();
+    });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await waitFor(() => {
+      expect(screen.getByText("Copy credentials")).toBeTruthy();
+    });
+  });
+
+  it("dismisses the modal using the top-right close button when provisioning poll hits a network error", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+    mockFetchWithAuth.mockRejectedValueOnce(new Error("Network timeout"));
+    const { onClose } = renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Network timeout")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByLabelText("Close"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("resets copied countdown if copy credentials is clicked again before 2s elapses", async () => {
+    await showHandover();
+
+    const copyBtn = screen.getByRole("button", { name: "Copy credentials" });
+    fireEvent.click(copyBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Copied!")).toBeTruthy();
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.getByText("Copied!")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copied!" }));
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    // 2.5s since first click, but 1.5s since second click, so still copied
+    expect(screen.getByText("Copied!")).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(600);
+    // 2.1s since second click, now reverted
+    expect(screen.getByText("Copy credentials")).toBeTruthy();
+  });
+
+  it("shows an inline alert when copying credentials to clipboard fails", async () => {
+    mockWriteText.mockRejectedValueOnce(new Error("Permission denied"));
+    await showHandover();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy credentials" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toMatch(
+        /Could not copy credentials/,
+      );
+    });
+  });
+
+  it("clears download error when copy credentials is clicked, and clears copy error when download is clicked", async () => {
+    mockDownloadHandoverCsv.mockImplementationOnce(() => {
+      throw new Error("Blob error");
+    });
+    await showHandover();
+
+    // Trigger download error
+    fireEvent.click(screen.getByText("Download CSV"));
+    expect(screen.getByText(/Could not create the CSV/)).toBeTruthy();
+
+    // Clicking copy credentials clears the download error
+    fireEvent.click(screen.getByText("Copy credentials"));
+    await waitFor(() => {
+      expect(screen.queryByText(/Could not create the CSV/)).toBeNull();
+    });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // Make copy fail
+    mockWriteText.mockRejectedValueOnce(new Error("Copy denied"));
+    fireEvent.click(screen.getByText("Copy credentials"));
+    await waitFor(() => {
+      expect(screen.getByText(/Could not copy credentials/)).toBeTruthy();
+    });
+
+    // Clicking download clears the copy error
+    mockDownloadHandoverCsv.mockImplementationOnce(() => undefined);
+    fireEvent.click(screen.getByText("Download CSV"));
+    expect(screen.queryByText(/Could not copy credentials/)).toBeNull();
   });
 });

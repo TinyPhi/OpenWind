@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildHandoverCsv,
+  formatHandoverClipboard,
   handoverCsvFileName,
 } from "./sandbox-handover-csv.js";
 
@@ -57,6 +58,36 @@ describe("buildHandoverCsv", () => {
     ]);
 
     expect(csv.endsWith(",Ow-Zx_9-9!")).toBe(true);
+  });
+});
+
+describe("formatHandoverClipboard", () => {
+  it("formats accounts as tab-separated values with a header row", () => {
+    const text = formatHandoverClipboard([
+      {
+        username: "abigail.smith",
+        email: "abigail.smith@example.com",
+        role: "admin",
+        password: "Ow-abc123-9!",
+      },
+      {
+        username: "olivia.jones",
+        email: "olivia.jones@example.com",
+        role: "user",
+        password: "Ow-def456-9!",
+      },
+    ]);
+
+    expect(text).toBe(
+      "Username\tEmail\tRole\tPassword\n" +
+        "abigail.smith\tabigail.smith@example.com\tadmin\tOw-abc123-9!\n" +
+        "olivia.jones\tolivia.jones@example.com\tuser\tOw-def456-9!",
+    );
+  });
+
+  it("handles empty accounts list by providing only the header row", () => {
+    const text = formatHandoverClipboard([]);
+    expect(text).toBe("Username\tEmail\tRole\tPassword");
   });
 });
 
