@@ -24,7 +24,6 @@ vi.mock("@platform/auth", () => ({
     },
 }));
 
-const mockOrderByRows = vi.fn();
 const mockLimitRows = vi.fn();
 const mockWhere = vi.fn();
 const mockTx = {
@@ -33,8 +32,10 @@ const mockTx = {
       where: (cond: unknown) => {
         mockWhere(cond);
         return {
-          orderBy: () => mockOrderByRows(),
-          limit: () => mockLimitRows(),
+          orderBy: () => ({
+            limit: (n: number) => mockLimitRows(n),
+          }),
+          limit: (n: number) => mockLimitRows(n),
         };
       },
     }),
@@ -101,7 +102,7 @@ beforeEach(() => {
 
 describe("GET /sandboxes", () => {
   it("lists only active or suspended sandboxes, so deleted ones drop out", async () => {
-    mockOrderByRows.mockResolvedValue([]);
+    mockLimitRows.mockResolvedValue([]);
 
     await makeApp().request("/sandboxes");
 
@@ -112,9 +113,9 @@ describe("GET /sandboxes", () => {
     ]);
   });
 
-  it("returns every sandbox as a PlatformAdminSandboxView, newest first", async () => {
+  it("returns every sandbox as a PlatformAdminSandboxView, newest first, with hasMore false by default", async () => {
     const trialEndsAt = new Date(Date.now() + 86_400_000);
-    mockOrderByRows.mockResolvedValue([
+    mockLimitRows.mockResolvedValue([
       {
         id: TENANT_ID,
         name: "Acme Sandbox",
@@ -129,6 +130,7 @@ describe("GET /sandboxes", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.hasMore).toBe(false);
     expect(body.data).toEqual([
       {
         id: TENANT_ID,
@@ -139,10 +141,65 @@ describe("GET /sandboxes", () => {
         trialEndsAt: trialEndsAt.toISOString(),
       },
     ]);
+    // Default limit is 100, so limit + 1 = 101 rows requested
+    expect(mockLimitRows).toHaveBeenCalledWith(101);
+  });
+
+  it("returns hasMore true and slices data when more rows than limit exist (#845)", async () => {
+    mockLimitRows.mockResolvedValue([
+      {
+        id: "tenant-1",
+        name: "Sandbox 1",
+        isSandbox: true,
+        trialEndsAt: null,
+        createdAt: new Date("2026-10-02T00:00:00Z"),
+      },
+      {
+        id: "tenant-2",
+        name: "Sandbox 2",
+        isSandbox: true,
+        trialEndsAt: null,
+        createdAt: new Date("2026-10-01T00:00:00Z"),
+      },
+      {
+        id: "tenant-3",
+        name: "Sandbox 3",
+        isSandbox: true,
+        trialEndsAt: null,
+        createdAt: new Date("2026-09-30T00:00:00Z"),
+      },
+    ]);
+    const app = makeApp();
+
+    const res = await app.request("/sandboxes?limit=2");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(mockLimitRows).toHaveBeenCalledWith(3);
+    expect(body.hasMore).toBe(true);
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0].id).toBe("tenant-1");
+    expect(body.data[1].id).toBe("tenant-2");
+  });
+
+  it("returns 400 when limit is invalid (< 1 or > 500) (#845)", async () => {
+    const app = makeApp();
+
+    const resZero = await app.request("/sandboxes?limit=0");
+    expect(resZero.status).toBe(400);
+
+    const resNegative = await app.request("/sandboxes?limit=-5");
+    expect(resNegative.status).toBe(400);
+
+    const resTooLarge = await app.request("/sandboxes?limit=501");
+    expect(resTooLarge.status).toBe(400);
+
+    const resNaN = await app.request("/sandboxes?limit=invalid");
+    expect(resNaN.status).toBe(400);
   });
 
   it("returns an empty array when there are no sandboxes", async () => {
-    mockOrderByRows.mockResolvedValue([]);
+    mockLimitRows.mockResolvedValue([]);
     const app = makeApp();
 
     const res = await app.request("/sandboxes");
@@ -150,6 +207,7 @@ describe("GET /sandboxes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual([]);
+    expect(body.hasMore).toBe(false);
   });
 });
 

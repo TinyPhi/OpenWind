@@ -38,11 +38,11 @@ does not write this ADR.
 ```
 POST   /platform-admin/sandboxes                 -> starts provisioning job, returns job id
 GET    /platform-admin/sandboxes/:jobId/progress -> polled by wait-screen {step, total, status}
-GET    /platform-admin/sandboxes                 -> list (metadata only: name, created, trial status)
+GET    /platform-admin/sandboxes                 -> list (paginated, ?limit=; returns {data, hasMore})
 GET    /platform-admin/sandboxes/:tenantId        -> read metadata (no business data)
 GET    /platform-admin/sandboxes/:jobId/handover -> per-account username, email, role + password, for handoff
-POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, cancels queued jobs
-DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts
+POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, cancels queued jobs (200 on success, 504 RESET_TIMEOUT, 500 RESET_FAILED)
+DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts (200 on success, 504 DELETE_TIMEOUT, 500 DELETE_FAILED)
 
 POST   /platform-admin/mfa/request               -> sends a one-time verification code (R1)
 POST   /platform-admin/mfa/verify                -> verifies the code, returns this sign-in's MFA session token
@@ -370,6 +370,9 @@ The MFA code goes out by email, so an email outage affects the admin's ability t
 | B5  | Manual testing: `PLATFORM_ADMIN_MFA_DEV_BYPASS=false` left the MFA bypass on                                                                                                            | `z.coerce.boolean()` reads any non-empty string, including `"false"`, as true                                                                                                          | No — fixed: only the literal `true` enables it                                                      |
 | B6  | A wrong MFA code used two of the five attempts                                                                                                                                          | Wrong codes answered `401`; the client refreshes its token and replays every `401`, so the same code was checked twice                                                                 | No — fixed: wrong-code answers are `422`                                                            |
 | B7  | Signing out and back in (or signing in elsewhere) within 12 hours skipped the MFA code                                                                                                  | The verified marker was keyed by user id only, so it belonged to the account rather than the sign-in                                                                                   | Yes — added to §V (verification belongs to one sign-in)                                             |
+| B8  | `POST /platform-admin/sandboxes` returned generic 500 when Redis and DB failed together (#816)                                                                                          | Cleanup `db.delete()` in the enqueue catch block lacked its own try/catch, masking the intended 503 `ENQUEUE_FAILED`                                                                   | No — fixed: cleanup delete is guarded and returns 503                                               |
+| B9  | Keyset pagination on `platform_admin_audit_log` skipped rows on equal timestamps (#894)                                                                                                 | Keyset pagination compared `created_at` only; concurrent or same-microsecond inserts lacked a secondary order key                                                                      | No — fixed: uses `(created_at DESC, id DESC)` composite cursor                                      |
+| B10 | Reset/delete routes returned 500 on BullMQ timeout, prompting 409 conflict on retry (#864)                                                                                              | `job.waitUntilFinished` TTL expiration was caught in the same block as worker failures, returning 500 instead of 504                                                                   | No — fixed: distinguishes 504 `DELETE_TIMEOUT` / `RESET_TIMEOUT` from 500 job failures              |
 
 ---
 
