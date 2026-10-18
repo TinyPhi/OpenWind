@@ -408,6 +408,74 @@ describe("requireAuth", () => {
       expect(res.status).toBe(200);
     });
 
+    it("returns 403 TENANT_TRIAL_EXPIRED for API-key requests when trial_ends_at is in the past (#831)", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() - 60_000),
+      };
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: tenantId,
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("TENANT_TRIAL_EXPIRED");
+    });
+
+    it("allows API-key requests when trial_ends_at is in the future (#831)", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() + 60_000),
+      };
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: tenantId,
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(200);
+    });
+
+    it("allows API-key requests when trial_ends_at is null (#831)", async () => {
+      mockTenantRow = { status: "active", trialEndsAt: null };
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: tenantId,
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(200);
+    });
+
     it("checks expiry fresh on every request rather than caching the expired boolean", async () => {
       // Only Date is faked, and time is advanced by hand: a real 50ms window
       // flaked under parallel load when the first request outlasted it.

@@ -56,7 +56,7 @@ describe("ZitadelOrgSourceImporter", () => {
       },
     ]);
     expect(mockListOrgUsers).toHaveBeenCalledWith("org-1");
-    expect(mockGetOrgMetadataForUser).toHaveBeenCalledWith("u1");
+    expect(mockGetOrgMetadataForUser).toHaveBeenCalledWith("u1", "tenant-1");
   });
 
   it("falls back to an empty title when metadata has none", async () => {
