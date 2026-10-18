@@ -124,6 +124,22 @@ export const sandboxDeleteHandler = platformAdminFactory.createHandlers(
         WAIT_FOR_DELETE_TTL_MS,
       );
     } catch (err) {
+      const isTimeout = err instanceof Error && /timed out/i.test(err.message);
+      if (isTimeout) {
+        logger.warn(
+          { err, tenantId, userId, jobId },
+          "platform-admin sandbox delete: wait timed out — job still running in background",
+        );
+        return c.json(
+          {
+            error: "DELETE_TIMEOUT",
+            message:
+              "Sandbox deletion timed out waiting for worker to finish — operation continues in the background",
+          },
+          504,
+        );
+      }
+
       logger.error(
         { err, tenantId, userId, jobId },
         "platform-admin sandbox delete: delete job failed",

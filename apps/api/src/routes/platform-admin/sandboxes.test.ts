@@ -264,6 +264,24 @@ describe("POST /platform-admin/sandboxes", () => {
     expect(mockDbDelete).toHaveBeenCalledTimes(1);
     expect(mockDbDeleteWhere).toHaveBeenCalledTimes(1);
   });
+
+  it("returns 503 even when db.delete cleanup itself fails (#816)", async () => {
+    mockQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+    mockDbDeleteWhere.mockRejectedValueOnce(new Error("db down"));
+
+    const res = await makeApp().request("/sandboxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgName: "Acme Sandbox", trialDays: 14 }),
+    });
+
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "ENQUEUE_FAILED",
+    });
+    expect(mockDbDelete).toHaveBeenCalledTimes(1);
+    expect(mockDbDeleteWhere).toHaveBeenCalledTimes(1);
+  });
 });
 
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
