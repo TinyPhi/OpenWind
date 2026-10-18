@@ -56,7 +56,7 @@ export class ZitadelOrgSourceImporter implements OrgSourceImporter {
       users,
       METADATA_FETCH_CONCURRENCY,
       async (user): Promise<OrgSourceRecord> => {
-        const metadata = await getOrgMetadataForUser(user.userId);
+        const metadata = await getOrgMetadataForUser(user.userId, tenantId);
         return {
           userId: user.userId,
           managerId: metadata.managerId,

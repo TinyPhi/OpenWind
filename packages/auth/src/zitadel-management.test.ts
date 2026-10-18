@@ -85,9 +85,25 @@ describe("listOrgUsers", () => {
 
 describe("getOrgMetadataForUser", () => {
   it("returns null manager/department/title when no service account token is configured", async () => {
-    const result = await getOrgMetadataForUser("user-1");
+    mockLoggerWarn.mockClear();
+    const result = await getOrgMetadataForUser("user-1", "tenant-test-1");
 
     expect(result).toEqual({ managerId: null, department: null, title: null });
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      { userId: "user-1", tenantId: "tenant-test-1" },
+      "getOrgMetadataForUser: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
+  });
+
+  it("omits tenantId from log context when tenantId is not provided (backwards compatibility) (#724)", async () => {
+    mockLoggerWarn.mockClear();
+    const result = await getOrgMetadataForUser("user-legacy");
+
+    expect(result).toEqual({ managerId: null, department: null, title: null });
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      { userId: "user-legacy" },
+      "getOrgMetadataForUser: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
   });
 
   it("does not permanently cache the no-token result — retries on the next call", async () => {
@@ -106,7 +122,7 @@ describe("getOrgMetadataForUser", () => {
     expect(noTokenWarnings).toHaveLength(2);
   });
 
-  it("returns empty metadata and logs the error when the Zitadel call fails", async () => {
+  it("returns empty metadata and logs the error with tenantId when the Zitadel call fails (#724)", async () => {
     mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
       type: "serviceaccount",
       keyId: "key-1",
@@ -165,11 +181,18 @@ describe("getOrgMetadataForUser", () => {
     });
 
     mockLoggerError.mockClear();
-    const result = await getOrgMetadataForUser("user-network-error");
+    const result = await getOrgMetadataForUser(
+      "user-network-error",
+      "tenant-fail",
+    );
 
     expect(result).toEqual({ managerId: null, department: null, title: null });
     expect(mockLoggerError).toHaveBeenCalledWith(
-      { err: metadataError, userId: "user-network-error" },
+      {
+        err: metadataError,
+        userId: "user-network-error",
+        tenantId: "tenant-fail",
+      },
       "Failed to fetch Zitadel user org metadata",
     );
   });

@@ -1204,8 +1204,18 @@ const _orgMetadataCache = new Map<
   { data: OrgMetadata; expiresAt: number } | Promise<OrgMetadata>
 >();
 
+/**
+ * Fetches manager, department, and title metadata for a Zitadel user.
+ *
+ * @param userId - Zitadel user ID to look up
+ * @param tenantId - Optional tenant ID to enrich structured error and warning logs (#724).
+ *
+ * Cached in-memory per user for CACHE_TTL_MS (5 min). On token or network failure,
+ * the cache entry is immediately evicted and safe empty metadata is returned.
+ */
 export async function getOrgMetadataForUser(
   userId: string,
+  tenantId?: string,
 ): Promise<OrgMetadata> {
   const now = Date.now();
   const cached = _orgMetadataCache.get(userId);
@@ -1213,17 +1223,20 @@ export async function getOrgMetadataForUser(
     return cached.data;
   if (cached instanceof Promise) return cached;
 
-  const pending = _fetchOrgMetadataForUser(userId);
+  const pending = _fetchOrgMetadataForUser(userId, tenantId);
   _orgMetadataCache.set(userId, pending);
   return pending;
 }
 
-async function _fetchOrgMetadataForUser(userId: string): Promise<OrgMetadata> {
+async function _fetchOrgMetadataForUser(
+  userId: string,
+  tenantId?: string,
+): Promise<OrgMetadata> {
   const empty: OrgMetadata = { managerId: null, department: null, title: null };
   const token = await getAccessToken();
   if (!token) {
     logger.warn(
-      { userId },
+      { userId, ...(tenantId ? { tenantId } : {}) },
       "getOrgMetadataForUser: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
     );
     // Evict rather than leaving the resolved (empty) promise cached — otherwise a
@@ -1246,7 +1259,7 @@ async function _fetchOrgMetadataForUser(userId: string): Promise<OrgMetadata> {
     if (result.status < 200 || result.status >= 300) {
       // Never log the raw response body -- see comment in getAccessToken.
       logger.warn(
-        { status: result.status, userId },
+        { status: result.status, userId, ...(tenantId ? { tenantId } : {}) },
         "getOrgMetadataForUser: Zitadel list metadata failed",
       );
       _orgMetadataCache.delete(userId);
@@ -1265,7 +1278,10 @@ async function _fetchOrgMetadataForUser(userId: string): Promise<OrgMetadata> {
     });
     return orgMetadata;
   } catch (err) {
-    logger.error({ err, userId }, "Failed to fetch Zitadel user org metadata");
+    logger.error(
+      { err, userId, ...(tenantId ? { tenantId } : {}) },
+      "Failed to fetch Zitadel user org metadata",
+    );
     _orgMetadataCache.delete(userId);
     return empty;
   }
