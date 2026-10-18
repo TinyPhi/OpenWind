@@ -89,4 +89,12 @@ describe("RejectPlatformAdmin", () => {
     expect(screen.getByText("Platform admin dashboard")).toBeTruthy();
     expect(tenantShellMounted).not.toHaveBeenCalled();
   });
+
+  it("renders the tenant shell when permissions fail to load (fail-open: backend provides the real guard)", () => {
+    mockUsePermissions.mockReturnValue({ data: undefined, isLoading: false });
+    renderGuard();
+
+    expect(screen.getByText("Tenant dashboard")).toBeTruthy();
+    expect(tenantShellMounted).toHaveBeenCalledTimes(1);
+  });
 });

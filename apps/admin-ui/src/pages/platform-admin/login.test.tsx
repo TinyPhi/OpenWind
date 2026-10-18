@@ -83,7 +83,7 @@ describe("PlatformAdminLogin", () => {
 
   it("shows an inline error when the redirect itself fails", async () => {
     mockUsePermissions.mockReturnValue({ data: undefined, isLoading: false });
-    signinRedirect.mockRejectedValue(new Error("IdP unreachable"));
+    signinRedirect.mockRejectedValueOnce(new Error("IdP unreachable"));
     renderPage();
 
     fireEvent.click(screen.getByText("Sign in"));
@@ -114,6 +114,25 @@ describe("PlatformAdminLogin", () => {
     expect(removeUser.mock.invocationCallOrder[0]).toBeLessThan(
       signinRedirect.mock.invocationCallOrder[0] ?? 0,
     );
+  });
+
+  it("shows an inline error and re-enables the button when switch-account redirect fails", async () => {
+    mockUsePermissions.mockReturnValue({ data: ["admin"], isLoading: false });
+    removeUser.mockResolvedValue(undefined);
+    signinRedirect.mockRejectedValueOnce(
+      new Error("IdP unreachable during switch"),
+    );
+    renderPage();
+
+    const button = screen.getByText("Sign in with a different account");
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+    });
+    expect(removeUser).toHaveBeenCalledTimes(1);
+    expect(button.closest("button")?.disabled).toBe(false);
+    expect(screen.getByText("Sign in with a different account")).toBeTruthy();
   });
 
   it("does not clear the session on a plain sign-in", async () => {
