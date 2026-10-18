@@ -1044,6 +1044,13 @@
       "when": 1791967473781,
       "tag": "0148_workflow_events_metadata_guard",
       "breakpoints": false
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1791967474781,
+      "tag": "0149_sandbox_provisioning_jobs_rolled_back",
+      "breakpoints": false
     }
   ]
 }

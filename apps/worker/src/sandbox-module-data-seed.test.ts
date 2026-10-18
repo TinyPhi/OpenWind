@@ -285,8 +285,10 @@ describe("seedAllModulesData", () => {
     });
     await seedAllModulesData("tenant-1", ["projects"], ["u-1"]);
 
-    expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
-    const where = mockUpdateWhere.mock.calls[0]?.[0] as {
+    expect(mockUpdateWhere).toHaveBeenCalled();
+    const lastCall =
+      mockUpdateWhere.mock.calls[mockUpdateWhere.mock.calls.length - 1];
+    const where = lastCall?.[0] as {
       and: [
         { eq: [string, string] },
         { isNull: string },
@@ -301,6 +303,34 @@ describe("seedAllModulesData", () => {
     const cutOff = where.and[2].gte[1].getTime();
     expect(cutOff).toBeGreaterThanOrEqual(before);
     expect(cutOff).toBeLessThanOrEqual(firstRecordAt);
+  });
+
+  it("suppresses outbox events immediately on each entity creation and transition (#830)", async () => {
+    entityTypeRows = [{ id: "type-1" }];
+    workflowRows = [{ id: "wf-1" }];
+    transitionRows = PROJECT_TRANSITIONS;
+    mockCreateEntity.mockResolvedValue({
+      id: "entity-1",
+      currentState: "backlog",
+      fields: {},
+    });
+
+    await seedAllModulesData("tenant-1", ["projects"], ["u-1"]);
+
+    // Expect multiple suppression updates: per-record, per-transition, plus the final safety sweep
+    expect(mockUpdateWhere.mock.calls.length).toBeGreaterThan(1);
+    for (const call of mockUpdateWhere.mock.calls) {
+      const where = call[0] as {
+        and: [
+          { eq: [string, string] },
+          { isNull: string },
+          { gte: [string, Date] },
+        ];
+      };
+      expect(where.and[0]).toEqual({ eq: ["outbox.tenantId", "tenant-1"] });
+      expect(where.and[1]).toEqual({ isNull: "outbox.deliveredAt" });
+      expect(where.and[2].gte[0]).toBe("outbox.createdAt");
+    }
   });
 
   it("propagates a refused suppression instead of failing silently", async () => {

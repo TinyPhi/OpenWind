@@ -511,6 +511,32 @@ describe("processSandboxProvisioningJob", () => {
 
     expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
     expect(mockDelete).toHaveBeenCalled();
+    const rolledBackCall = mockSet.mock.calls.find(
+      ([patch]) => "rolledBack" in (patch as Record<string, unknown>),
+    );
+    expect(rolledBackCall?.[0]).toMatchObject({ rolledBack: true });
+  });
+
+  it("records rolledBack: false in sandbox_provisioning_jobs when org deletion fails (#829)", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockGrantProjectToOrg.mockResolvedValue(false);
+    mockDeleteOrg.mockResolvedValue(false);
+
+    await expect(
+      processSandboxProvisioningJob({
+        id: "job-rollback-fail",
+        data: {
+          orgName: "Acme Sandbox",
+          trialDays: 14,
+          requestedBy: "admin-1",
+        },
+      }),
+    ).rejects.toThrow("SANDBOX_PROJECT_GRANT_FAILED");
+
+    const rolledBackCall = mockSet.mock.calls.find(
+      ([patch]) => "rolledBack" in (patch as Record<string, unknown>),
+    );
+    expect(rolledBackCall?.[0]).toMatchObject({ rolledBack: false });
   });
 
   it("counts a member that can't be authorized as failed and leaves it out of the handover", async () => {

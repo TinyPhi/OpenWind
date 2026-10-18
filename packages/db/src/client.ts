@@ -229,18 +229,25 @@ const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Check if a tenant exists and its status is 'active'.
+ * Check if a tenant exists, its status is 'active', and its trial (if any) has not expired.
  * Runs outside withTenantContext because the tenants table is not tenant-scoped.
  */
 export async function isTenantActive(tenantId: string): Promise<boolean> {
   if (!tenantId || !UUID_REGEX.test(tenantId)) return false;
 
   const [tenant] = await db
-    .select({ id: schema.tenants.id })
+    .select({
+      id: schema.tenants.id,
+      trialEndsAt: schema.tenants.trialEndsAt,
+    })
     .from(schema.tenants)
     .where(
       and(eq(schema.tenants.id, tenantId), eq(schema.tenants.status, "active")),
     )
     .limit(1);
-  return !!tenant;
+  if (!tenant) return false;
+  if (tenant.trialEndsAt && tenant.trialEndsAt.getTime() <= Date.now()) {
+    return false;
+  }
+  return true;
 }
