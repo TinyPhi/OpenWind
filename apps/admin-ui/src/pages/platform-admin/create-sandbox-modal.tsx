@@ -116,6 +116,8 @@ export function CreateSandboxModal({
     setSubmitting(true);
     setError(null);
     try {
+      // fetchWithAuth returns unknown; { data: { jobId: string } } is the
+      // platform-admin/sandboxes creation contract.
       const res = (await fetchWithAuth(`${API_URL}/platform-admin/sandboxes`, {
         method: "POST",
         body: JSON.stringify({
@@ -160,6 +162,8 @@ export function CreateSandboxModal({
     async function poll(): Promise<void> {
       if (isDone()) return;
       try {
+        // fetchWithAuth returns unknown; { data: ProvisioningProgress } is the
+        // platform-admin/sandboxes/:id/progress contract.
         const res = (await fetchWithAuth(
           `${API_URL}/platform-admin/sandboxes/${jobId}/progress`,
         )) as { data: ProvisioningProgress };
@@ -172,6 +176,8 @@ export function CreateSandboxModal({
         if (res.data.status === "completed") {
           doneRef.current = true;
           clearInterval(interval);
+          // fetchWithAuth returns unknown; { data: SandboxHandover } is the
+          // platform-admin/sandboxes/:id/handover contract.
           const handoverRes = (await fetchWithAuth(
             `${API_URL}/platform-admin/sandboxes/${jobId}/handover`,
           )) as { data: SandboxHandover };

@@ -236,6 +236,7 @@ export function OtpVerification({
       setNeedsNewCode(false);
       clearDigits();
     } catch (err) {
+      // fetchWithAuth rejects with an ApiError on HTTP errors.
       const e = err as ApiError;
       if (e.status === 429 && e.code === "TOO_MANY_ATTEMPTS") {
         // Locked out after too many incorrect codes: no code is valid, and the resend waits
@@ -296,6 +297,8 @@ export function OtpVerification({
         method: "POST",
         body: JSON.stringify({ code: submitted }),
       });
+      // fetchWithAuth returns unknown; { data?: { sessionToken?: unknown } } is the
+      // platform-admin/mfa/verify response contract.
       const token = (res as { data?: { sessionToken?: unknown } }).data
         ?.sessionToken;
       if (typeof token !== "string" || !token) {
@@ -304,6 +307,7 @@ export function OtpVerification({
       setPlatformAdminMfaSession(token);
       onVerified();
     } catch (err) {
+      // fetchWithAuth rejects with an ApiError on HTTP errors.
       const e = err as ApiError;
       if (e.code === "INVALID_CODE") {
         const left = positiveSeconds(e.meta?.attemptsRemaining);

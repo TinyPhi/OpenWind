@@ -143,6 +143,127 @@ describe("PlatformAdminDashboard", () => {
     expect(screen.getByText(/Signed in as Current/)).toBeTruthy();
   });
 
+  it("ignores a sandboxes response from a refresh that was superseded by a newer refresh", async () => {
+    const pendingSandboxes: Array<(value: unknown) => void> = [];
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({
+          data: {
+            userId: "pa-1",
+            displayName: "Ops",
+            email: "ops@openwind.io",
+          },
+        });
+      }
+      if (url.endsWith("/sandboxes")) {
+        return new Promise((resolve) => pendingSandboxes.push(resolve));
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(<PlatformAdminDashboard />);
+    // Initial mount triggers first sandboxes fetch
+    await waitFor(() => expect(pendingSandboxes).toHaveLength(1));
+
+    // Click Refresh button to trigger second sandboxes fetch
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    fireEvent.click(refreshButton);
+    await waitFor(() => expect(pendingSandboxes).toHaveLength(2));
+
+    // Answer the second (newer) fetch first with "Newer Sandbox"
+    await act(() => {
+      const resolve2 = pendingSandboxes[1];
+      if (!resolve2) throw new Error("no second sandboxes request");
+      resolve2({
+        data: [{ ...ACTIVE, id: "sb-newer", name: "Newer Sandbox" }],
+      });
+      return Promise.resolve();
+    });
+    await waitFor(() => screen.getByText("Newer Sandbox"));
+
+    // Answer the first (older, superseded) fetch second with "Older Sandbox"
+    await act(() => {
+      const resolve1 = pendingSandboxes[0];
+      if (!resolve1) throw new Error("no first sandboxes request");
+      resolve1({
+        data: [{ ...ACTIVE, id: "sb-older", name: "Older Sandbox" }],
+      });
+      return Promise.resolve();
+    });
+
+    // The newer data remains; older data was discarded
+    expect(screen.queryByText("Older Sandbox")).toBeNull();
+    expect(screen.getByText("Newer Sandbox")).toBeTruthy();
+  });
+
+  it("does not update state when a sandboxes fetch completes after component unmount", async () => {
+    let resolveSandboxes!: (value: unknown) => void;
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({
+          data: {
+            userId: "pa-1",
+            displayName: "Ops",
+            email: "ops@openwind.io",
+          },
+        });
+      }
+      if (url.endsWith("/sandboxes")) {
+        return new Promise((resolve) => {
+          resolveSandboxes = resolve;
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const { unmount } = render(<PlatformAdminDashboard />);
+    await waitFor(() => expect(resolveSandboxes).toBeDefined());
+
+    unmount();
+
+    // Resolving after unmount must not throw or update unmounted state
+    act(() => {
+      resolveSandboxes({
+        data: [{ ...ACTIVE, id: "sb-after-unmount", name: "Unmounted SB" }],
+      });
+    });
+
+    expect(screen.queryByText("Unmounted SB")).toBeNull();
+  });
+
+  it("does not update error state when a sandboxes fetch rejects after component unmount", async () => {
+    let rejectSandboxes!: (reason: unknown) => void;
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({
+          data: {
+            userId: "pa-1",
+            displayName: "Ops",
+            email: "ops@openwind.io",
+          },
+        });
+      }
+      if (url.endsWith("/sandboxes")) {
+        return new Promise((_resolve, reject) => {
+          rejectSandboxes = reject;
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const { unmount } = render(<PlatformAdminDashboard />);
+    await waitFor(() => expect(rejectSandboxes).toBeDefined());
+
+    unmount();
+
+    // Rejecting after unmount must not set loadError or throw
+    act(() => {
+      rejectSandboxes(new Error("Network drop"));
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("fetches the sandbox list, never an all-tenants list", async () => {
     mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);

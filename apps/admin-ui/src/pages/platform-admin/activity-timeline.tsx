@@ -51,6 +51,8 @@ export function ActivityTimeline({
       const res = await fetchWithAuth(
         `${API_URL}/platform-admin/audit-log?${params.toString()}`,
       );
+      // fetchWithAuth returns unknown; { data: AuditEntry[] } is the
+      // platform-admin/audit-log contract.
       return (res as { data: AuditEntry[] }).data;
     },
     [targetTenantId],
