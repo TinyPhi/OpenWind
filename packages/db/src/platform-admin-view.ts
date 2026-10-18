@@ -179,6 +179,7 @@ export interface ProvisioningProgressView {
   completedSteps: number;
   totalSteps: number;
   error: string | null;
+  rolledBack: boolean | null;
 }
 
 export interface ProvisioningProgressRow {
@@ -188,6 +189,7 @@ export interface ProvisioningProgressRow {
   completedSteps: number;
   totalSteps: number;
   error: string | null;
+  rolledBack?: boolean | null;
 }
 
 function asProgressStatus(status: string): ProvisioningProgressView["status"] {
@@ -214,6 +216,7 @@ export function toProvisioningProgressView(
     completedSteps: row.completedSteps,
     totalSteps: row.totalSteps,
     error: row.error,
+    rolledBack: row.rolledBack ?? null,
   };
 }
 

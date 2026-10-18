@@ -284,6 +284,7 @@ async function seedModuleDataInTx(
   plan: ModuleSeedPlan,
   assigneeIds: string[],
 ): Promise<{ seeded: number }> {
+  const moduleStartedAt = new Date();
   const [entityType] = await tx
     .select({ id: entityTypes.id })
     .from(entityTypes)
@@ -379,6 +380,18 @@ async function seedModuleDataInTx(
         : {}),
     });
 
+    // Suppress outbox event immediately so automationQueue cannot race with data seeding (#830)
+    await tx
+      .update(outboxEvents)
+      .set({ deliveredAt: new Date(), notifiedDeliveredAt: new Date() })
+      .where(
+        and(
+          eq(outboxEvents.tenantId, tenantId),
+          isNull(outboxEvents.deliveredAt),
+          gte(outboxEvents.createdAt, moduleStartedAt),
+        ),
+      );
+
     let currentState = instance.currentState;
     for (const toState of plan.recordPaths[i] ?? []) {
       const transition = transitionLookup.get(`${currentState}->${toState}`);
@@ -397,6 +410,19 @@ async function seedModuleDataInTx(
         comment: SEED_COMMENT,
         triggeredBy: "system",
       });
+
+      // Suppress outbox event immediately after transition (#830)
+      await tx
+        .update(outboxEvents)
+        .set({ deliveredAt: new Date(), notifiedDeliveredAt: new Date() })
+        .where(
+          and(
+            eq(outboxEvents.tenantId, tenantId),
+            isNull(outboxEvents.deliveredAt),
+            gte(outboxEvents.createdAt, moduleStartedAt),
+          ),
+        );
+
       currentState = toState;
     }
     seeded++;

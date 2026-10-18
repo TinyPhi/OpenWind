@@ -148,6 +148,7 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
           completedSteps: sandboxProvisioningJobs.completedSteps,
           totalSteps: sandboxProvisioningJobs.totalSteps,
           error: sandboxProvisioningJobs.error,
+          rolledBack: sandboxProvisioningJobs.rolledBack,
         })
         .from(sandboxProvisioningJobs)
         .where(eq(sandboxProvisioningJobs.id, jobId))

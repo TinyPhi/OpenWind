@@ -314,8 +314,16 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
       );
 
       // Best-effort, outside the DB transaction -- same convention as tenant-purge.ts's
-      // deleteTenantFiles call.
-      await deleteTenantFiles(tenantId);
+      // deleteTenantFiles call. Wrapped in try/catch so a transient storage failure doesn't
+      // mark the reset job as failed when DB wipe and reseeding already succeeded (#836).
+      try {
+        await deleteTenantFiles(tenantId);
+      } catch (err) {
+        logger.error(
+          { tenantId, err },
+          "sandbox reset: file deletion failed (best-effort, continuing)",
+        );
+      }
     } finally {
       // Swallow a release failure rather than letting it mask the real result/error above --
       // same reasoning as packages/org-directory/src/sync.ts's identical pattern.

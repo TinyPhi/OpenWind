@@ -423,6 +423,27 @@ describe("processSandboxResetJob", () => {
     );
   });
 
+  it("completes the reset and logs error when deleteTenantFiles fails (T13 gap, #836)", async () => {
+    mockDeleteTenantFiles.mockRejectedValueOnce(new Error("s3 down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).resolves.toBeUndefined();
+
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      "sandbox reset: file deletion failed (best-effort, continuing)",
+    );
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_failed" }),
+    );
+  });
+
   // admin_audit_log is RLS-protected and the worker connects as app_user: an audit write on
   // the plain connection is rejected every time, so it must go through withTenantContext.
   it("writes the completed audit entry inside the tenant context", async () => {
