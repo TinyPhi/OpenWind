@@ -155,7 +155,7 @@ describe("PlatformAdminDashboard", () => {
           },
         });
       }
-      if (url.endsWith("/sandboxes")) {
+      if (url.includes("/sandboxes")) {
         return new Promise((resolve) => pendingSandboxes.push(resolve));
       }
       return Promise.resolve({ data: [] });
@@ -196,73 +196,10 @@ describe("PlatformAdminDashboard", () => {
     expect(screen.getByText("Newer Sandbox")).toBeTruthy();
   });
 
-  it("does not update state when a sandboxes fetch completes after component unmount", async () => {
-    let resolveSandboxes!: (value: unknown) => void;
-    mockFetchWithAuth.mockImplementation((url: string) => {
-      if (url.endsWith("/session")) {
-        return Promise.resolve({
-          data: {
-            userId: "pa-1",
-            displayName: "Ops",
-            email: "ops@openwind.io",
-          },
-        });
-      }
-      if (url.endsWith("/sandboxes")) {
-        return new Promise((resolve) => {
-          resolveSandboxes = resolve;
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-
-    const { unmount } = render(<PlatformAdminDashboard />);
-    await waitFor(() => expect(resolveSandboxes).toBeDefined());
-
-    unmount();
-
-    // Resolving after unmount must not throw or update unmounted state
-    act(() => {
-      resolveSandboxes({
-        data: [{ ...ACTIVE, id: "sb-after-unmount", name: "Unmounted SB" }],
-      });
-    });
-
-    expect(screen.queryByText("Unmounted SB")).toBeNull();
-  });
-
-  it("does not update error state when a sandboxes fetch rejects after component unmount", async () => {
-    let rejectSandboxes!: (reason: unknown) => void;
-    mockFetchWithAuth.mockImplementation((url: string) => {
-      if (url.endsWith("/session")) {
-        return Promise.resolve({
-          data: {
-            userId: "pa-1",
-            displayName: "Ops",
-            email: "ops@openwind.io",
-          },
-        });
-      }
-      if (url.endsWith("/sandboxes")) {
-        return new Promise((_resolve, reject) => {
-          rejectSandboxes = reject;
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-
-    const { unmount } = render(<PlatformAdminDashboard />);
-    await waitFor(() => expect(rejectSandboxes).toBeDefined());
-
-    unmount();
-
-    // Rejecting after unmount must not set loadError or throw
-    act(() => {
-      rejectSandboxes(new Error("Network drop"));
-    });
-
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
+  // Two earlier tests resolved or rejected a sandboxes fetch after unmount and asserted the DOM
+  // was empty. After unmount the DOM is empty whatever the code does (React 18 ignores a state
+  // update on an unmounted component), so they passed with or without the isMountedRef guard and
+  // were removed (#995). The ordering guarantee that matters is the superseded-refresh test above.
 
   it("fetches the sandbox list, never an all-tenants list", async () => {
     mockSessionThenSandboxes([]);
@@ -270,12 +207,40 @@ describe("PlatformAdminDashboard", () => {
 
     await waitFor(() => {
       expect(mockFetchWithAuth).toHaveBeenCalledWith(
-        "/api/platform-admin/sandboxes",
+        "/api/platform-admin/sandboxes?limit=500",
       );
     });
     expect(
       mockFetchWithAuth.mock.calls.some(([url]) => url.includes("/tenants")),
     ).toBe(false);
+  });
+
+  it("says so when the list is truncated, so a sandbox past the page is not silently invisible (#992)", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.resolve({
+            data: {
+              userId: "pa-1",
+              displayName: "Ops",
+              email: "ops@openwind.io",
+            },
+          })
+        : Promise.resolve({ data: [ACTIVE], hasMore: true }),
+    );
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    expect(screen.getByRole("status").textContent).toMatch(
+      /500 most recent sandboxes/i,
+    );
+  });
+
+  it("shows no truncation notice when every sandbox is listed (#992)", async () => {
+    mockSessionThenSandboxes([ACTIVE]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    expect(screen.queryByText(/most recent sandboxes/i)).toBeNull();
   });
 
   it("shows an empty state when there are no sandboxes", async () => {

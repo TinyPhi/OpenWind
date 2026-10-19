@@ -90,6 +90,19 @@ describe("RejectPlatformAdmin", () => {
     expect(tenantShellMounted).not.toHaveBeenCalled();
   });
 
+  it("fails open on a malformed permissions payload: a string is not a role list, even one that contains platform_admin (#995)", () => {
+    mockUsePermissions.mockReturnValue({
+      // Cast: simulates a malformed payload (a string where a list is expected), which the
+      // declared type rules out; a string has .includes, so a bare roles?.includes() would redirect.
+      data: "platform_admin" as unknown as string[],
+      isLoading: false,
+    });
+    renderGuard();
+
+    expect(screen.getByText("Tenant dashboard")).toBeTruthy();
+    expect(screen.queryByText("Platform admin dashboard")).toBeNull();
+  });
+
   it("renders the tenant shell when permissions fail to load (fail-open: backend provides the real guard)", () => {
     mockUsePermissions.mockReturnValue({ data: undefined, isLoading: false });
     renderGuard();

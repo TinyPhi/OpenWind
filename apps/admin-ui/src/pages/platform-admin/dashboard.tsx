@@ -9,6 +9,10 @@ import { ActivityTimeline } from "./activity-timeline.js";
 import { isExpiringSoon, type SandboxView } from "./format.js";
 import "./platform-admin.css";
 
+// The API's maximum page for GET /platform-admin/sandboxes (sandboxes-list.ts). It has no cursor, so
+// when more sandboxes exist the dashboard says the list is cut off (#992).
+const SANDBOX_LIST_LIMIT = 500;
+
 interface PlatformAdminSession {
   userId: string;
   displayName: string;
@@ -27,6 +31,7 @@ export function PlatformAdminDashboard(): React.ReactElement {
   );
   const [sandboxes, setSandboxes] = React.useState<SandboxView[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [truncated, setTruncated] = React.useState(false);
   const [logoutError, setLogoutError] = React.useState<string | null>(null);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -44,12 +49,16 @@ export function PlatformAdminDashboard(): React.ReactElement {
   const refresh = React.useCallback((): void => {
     setRefreshKey((k) => k + 1);
     const seq = ++refreshSeq.current;
-    fetchWithAuth(`${API_URL}/platform-admin/sandboxes`)
+    fetchWithAuth(
+      `${API_URL}/platform-admin/sandboxes?limit=${SANDBOX_LIST_LIMIT}`,
+    )
       .then((res) => {
         if (!isMountedRef.current || seq !== refreshSeq.current) return;
-        // fetchWithAuth returns unknown; { data: SandboxView[] } is the
+        // fetchWithAuth returns unknown; { data: SandboxView[]; hasMore } is the
         // platform-admin/sandboxes list contract.
-        setSandboxes((res as { data: SandboxView[] }).data);
+        const body = res as { data: SandboxView[]; hasMore?: boolean };
+        setSandboxes(body.data);
+        setTruncated(body.hasMore === true);
         setLoadError(null);
       })
       .catch((err: unknown) => {
@@ -186,6 +195,12 @@ export function PlatformAdminDashboard(): React.ReactElement {
               <span className="pa-muted">{sandboxes.length} total</span>
             )}
           </div>
+          {truncated && (
+            <p role="status" className="pa-muted" style={{ margin: "0 0 8px" }}>
+              Showing the {SANDBOX_LIST_LIMIT} most recent sandboxes; older ones
+              are not listed.
+            </p>
+          )}
           {sandboxes ? (
             <SandboxesTable
               sandboxes={sandboxes}
