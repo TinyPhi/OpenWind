@@ -53,7 +53,11 @@ const TENANT_TX = { kind: "tenant-tx" };
 const PURGE_TX = { kind: "purge-tx" };
 
 // Which tables each connection wrote to (update/delete), recorded by table name.
-const writes: Record<"plain" | "purge", string[]> = { plain: [], purge: [] };
+const writes: Record<"plain" | "purge" | "eventLog", string[]> = {
+  plain: [],
+  purge: [],
+  eventLog: [],
+};
 function recordingConn(
   base: { kind: string },
   bucket: "plain" | "purge",
@@ -77,6 +81,11 @@ function recordingConn(
 const mockWithTenantPurgeContext = vi.fn(
   (_tenantId: string, fn: (tx: unknown) => unknown) =>
     fn(recordingConn(PURGE_TX, "purge", () => [])),
+);
+
+const mockWithEventLogMaintenanceContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn(recordingConn({ kind: "event-log-tx" }, "eventLog", () => [])),
 );
 
 const mockWithTenantContext = vi.fn(
@@ -140,6 +149,9 @@ vi.mock("@platform/db", () => {
     withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
       mockWithTenantContext(...args),
     withTenantLifecycleContext: (fn: (tx: unknown) => unknown) => fn(chain([])),
+    withEventLogMaintenanceContext: (
+      ...args: Parameters<typeof mockWithEventLogMaintenanceContext>
+    ) => mockWithEventLogMaintenanceContext(...args),
     withTenantPurgeContext: (
       ...args: Parameters<typeof mockWithTenantPurgeContext>
     ) => mockWithTenantPurgeContext(...args),
@@ -184,6 +196,7 @@ beforeEach(() => {
   mockTenantStatus.mockReturnValue([{ status: "deleted" }]);
   writes.plain.length = 0;
   writes.purge.length = 0;
+  writes.eventLog.length = 0;
 });
 
 describe("tenant-purge audit writes", () => {
@@ -235,6 +248,8 @@ describe("tenant-purge audit writes", () => {
       "delete:scheduleExecutions",
       "delete:savedViews",
     ]);
+    // app_user cannot delete workflow events (migration 0147): only the maintenance context does.
+    expect(writes.eventLog).toEqual(["delete:workflowEvents"]);
     expect(writes.plain).toEqual([]);
   });
 

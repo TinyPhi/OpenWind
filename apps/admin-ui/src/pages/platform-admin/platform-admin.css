@@ -288,3 +288,161 @@
 .pa-tl-dot-trial_ended {
   background-color: var(--danger);
 }
+
+/* ── MFA code entry (sign-in page and the reset/delete step-up dialog) ── */
+
+.pa-auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-primary);
+}
+
+.pa-auth-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 32px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+}
+
+.pa-auth-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+}
+
+.pa-auth-title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  text-align: center;
+}
+
+.pa-auth-subtitle {
+  margin: 0 0 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.pa-auth-footer {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pa-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.pa-link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pa-otp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pa-otp-sent {
+  margin: 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.pa-otp {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.pa-otp-box {
+  width: 48px;
+  height: 56px;
+  min-width: 0;
+  flex: 0 1 48px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  caret-color: var(--accent-primary);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.pa-otp-box:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+}
+
+.pa-otp-box:disabled {
+  opacity: 0.55;
+}
+
+.pa-otp[data-invalid] .pa-otp-box {
+  border-color: var(--danger);
+}
+
+.pa-otp-status {
+  margin: 0;
+  min-height: 1.2em;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pa-otp-error {
+  margin: 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--danger);
+}
+
+.pa-otp-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 380px) {
+  .pa-auth-card {
+    padding: 24px 16px;
+  }
+  .pa-otp {
+    gap: 6px;
+  }
+  .pa-otp-box {
+    height: 48px;
+    font-size: 20px;
+  }
+}

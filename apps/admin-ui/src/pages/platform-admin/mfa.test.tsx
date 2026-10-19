@@ -2,9 +2,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   render,
   screen,
-  waitFor,
   cleanup,
   fireEvent,
+  waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type * as ReactRouterDom from "react-router-dom";
@@ -16,20 +16,24 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => navigateSpy };
 });
 
-const mockFetchWithAuth = vi.fn(
-  (_url: string, _options?: RequestInit): Promise<unknown> =>
-    Promise.resolve({ data: {} }),
-);
-vi.mock("../../lib/api.js", () => ({
-  fetchWithAuth: (url: string, options?: RequestInit) =>
-    mockFetchWithAuth(url, options),
-  API_URL: "/api",
+// The code flow itself is covered by otp-verification.test.tsx; this page only places it.
+let capturedOnVerified: (() => void) | null = null;
+vi.mock("./otp-verification.js", () => ({
+  OtpVerification: ({ onVerified }: { onVerified: () => void }) => {
+    capturedOnVerified = onVerified;
+    return <div data-testid="otp-flow" />;
+  },
+}));
+
+const mockSignOut = vi.fn<() => Promise<string | undefined>>();
+vi.mock("./sign-out.js", () => ({
+  signOutPlatformAdmin: () => mockSignOut(),
 }));
 
 const { PlatformAdminMfa } = await import("./mfa.js");
 
-function renderPage(): ReturnType<typeof render> {
-  return render(
+function renderPage(): void {
+  render(
     <MemoryRouter>
       <PlatformAdminMfa />
     </MemoryRouter>,
@@ -40,82 +44,54 @@ describe("PlatformAdminMfa", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    capturedOnVerified = null;
   });
 
-  it("requests a code on mount", async () => {
-    mockFetchWithAuth.mockResolvedValue({ data: { sent: true } });
+  it("explains that every sign-in needs a code and shows the code flow", () => {
     renderPage();
 
-    await waitFor(() => {
-      expect(mockFetchWithAuth).toHaveBeenCalledWith(
-        "/api/platform-admin/mfa/request",
-        { method: "POST" },
-      );
-    });
+    expect(
+      screen.getByRole("heading", { name: "Verify it's you" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/every time you log in/)).toBeTruthy();
+    expect(screen.getByTestId("otp-flow")).toBeTruthy();
   });
 
-  it("shows an inline error when the code request fails, without blocking the form", async () => {
-    mockFetchWithAuth.mockRejectedValueOnce(new Error("could not send"));
+  it("goes to the dashboard once the code is verified", () => {
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeTruthy();
-    });
-    expect(screen.getByLabelText("Verification code")).toBeTruthy();
-  });
+    capturedOnVerified?.();
 
-  it("verifies the entered code and navigates to the dashboard on success", async () => {
-    mockFetchWithAuth
-      .mockResolvedValueOnce({ data: { sent: true } }) // request
-      .mockResolvedValueOnce({ data: { verified: true } }); // verify
-    renderPage();
-
-    await waitFor(() => expect(mockFetchWithAuth).toHaveBeenCalledTimes(1));
-
-    fireEvent.change(screen.getByLabelText("Verification code"), {
-      target: { value: "123456" },
-    });
-    fireEvent.click(screen.getByText("Verify"));
-
-    await waitFor(() => {
-      expect(mockFetchWithAuth).toHaveBeenCalledWith(
-        "/api/platform-admin/mfa/verify",
-        { method: "POST", body: JSON.stringify({ code: "123456" }) },
-      );
-      expect(navigateSpy).toHaveBeenCalledWith("/platform-admin/dashboard", {
-        replace: true,
-      });
+    expect(navigateSpy).toHaveBeenCalledWith("/platform-admin/dashboard", {
+      replace: true,
     });
   });
 
-  it("shows an inline error on an invalid code without navigating", async () => {
-    mockFetchWithAuth
-      .mockResolvedValueOnce({ data: { sent: true } }) // request
-      .mockRejectedValueOnce(new Error("Invalid or expired code")); // verify
+  it("signs out (ending the MFA session) from the page", async () => {
+    mockSignOut.mockReturnValueOnce(new Promise(() => {})); // still redirecting
     renderPage();
 
-    await waitFor(() => expect(mockFetchWithAuth).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
-    fireEvent.change(screen.getByLabelText("Verification code"), {
-      target: { value: "000000" },
-    });
-    fireEvent.click(screen.getByText("Verify"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Invalid or expired code")).toBeTruthy();
-    });
-    expect(navigateSpy).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalledTimes(1));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Signing out…",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 
-  it("strips non-digit characters from the code input", () => {
-    mockFetchWithAuth.mockResolvedValue({ data: { sent: true } });
+  it("re-enables Sign out if signing out fails", async () => {
+    mockSignOut.mockRejectedValueOnce(new Error("offline"));
     renderPage();
 
-    const input = screen.getByLabelText(
-      "Verification code",
-    ) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "12a3b4c" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
-    expect(input.value).toBe("1234");
+    expect(
+      await screen.findByRole("button", { name: "Sign out" }),
+    ).toBeTruthy();
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 });

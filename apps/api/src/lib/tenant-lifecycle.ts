@@ -30,6 +30,11 @@ const tenantPurgeQueue = new Queue("tenant-purge", { connection });
 const TenantConfigSchema = z
   .object({
     retention_days: z.number().int().min(1).optional(),
+    // Same bounds as the sweep policy (apps/worker/src/retention-policy.ts), so a value the
+    // sweep would reject is refused at provisioning instead of silently falling back.
+    retention_comment_days: z.number().int().min(30).max(3650).optional(),
+    retention_evidence_days: z.number().int().min(365).max(7300).optional(),
+    retention_hold: z.boolean().optional(),
   })
   .catchall(z.unknown());
 

@@ -29,16 +29,11 @@ vi.mock("@platform/logger", () => ({
 }));
 
 const { assertEgressAllowed } = await import("./ssrf-guard.js");
+const { logger } = await import("@platform/logger");
 
 function dnsResult(ips: string[]) {
   return Promise.resolve(
     ips.map((address) => ({ address, family: address.includes(":") ? 6 : 4 })),
-  );
-}
-
-function dnsTimeout() {
-  return new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("ETIMEOUT")), 10_000),
   );
 }
 
@@ -128,12 +123,34 @@ describe("assertEgressAllowed — IPv4-mapped IPv6", () => {
 });
 
 describe("assertEgressAllowed — DNS failures (fail-closed)", () => {
-  it("blocks when DNS times out", async () => {
-    mockLookup.mockReturnValue(dnsTimeout());
-    await expect(
-      assertEgressAllowed("https://slow-dns.example.com/"),
-    ).rejects.toThrow(/DNS resolution failed/);
-  }, 10_000);
+  it("blocks when DNS times out, and only once the 2 s limit is reached", async () => {
+    vi.useFakeTimers();
+    try {
+      // A lookup that never answers: only the guard's own timer can end the wait.
+      mockLookup.mockReturnValue(new Promise<never>(() => {}));
+      const blocked = expect(
+        assertEgressAllowed("https://slow-dns.example.com/"),
+      ).rejects.toThrow(/DNS resolution failed/);
+      let settled = false;
+      void blocked.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      await blocked;
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "dns-timeout" }),
+        expect.any(String),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("blocks when DNS returns an error (NXDOMAIN etc.)", async () => {
     mockLookup.mockRejectedValue(

@@ -116,9 +116,10 @@ async function updateJobProgress(
     currentStep: string | null;
     completedSteps: number;
     totalSteps: number;
-    resultTenantId: string;
+    resultTenantId: string | null;
     zitadelOrgId: string;
     error: string;
+    rolledBack: boolean;
   }>,
 ): Promise<void> {
   await db
@@ -584,6 +585,17 @@ export async function processSandboxProvisioningJob(
           );
         });
     }
+
+    // T11, #829: persist the rollback outcome to sandbox_provisioning_jobs so operators
+    // and progress pollers can see whether automated cleanup succeeded.
+    await updateJobProgress(jobId, { rolledBack }).catch(
+      (progressErr: unknown) => {
+        logger.error(
+          { err: progressErr, tenantId, jobId },
+          "sandbox provisioning rollback: failed to persist rolledBack outcome",
+        );
+      },
+    );
 
     await auditOutcome(job, tenantId, "sandbox.provisioning_failed", {
       zitadelOrgId: zitadelOrgId ?? null,

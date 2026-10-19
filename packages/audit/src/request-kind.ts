@@ -87,6 +87,9 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "access.revoked": true,
   "workflow.admins_updated": true,
   "workflow.transition_roles_updated": true,
+  "workflow.transition_conditions_updated": true,
+  "workflow.state_overridden": true,
+  "workflow.override_policy_updated": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -161,6 +164,9 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "access.revoked",
   "workflow.admins_updated",
   "workflow.transition_roles_updated",
+  "workflow.transition_conditions_updated",
+  "workflow.state_overridden",
+  "workflow.override_policy_updated",
 ]);
 
 /**

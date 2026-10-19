@@ -1,5 +1,7 @@
+import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   waitFor,
@@ -104,6 +106,162 @@ describe("PlatformAdminDashboard", () => {
     await waitFor(() => {
       expect(screen.getByText(/Signed in as Ops/)).toBeTruthy();
     });
+  });
+
+  it("ignores a session response from an effect that was cleaned up (StrictMode)", async () => {
+    const pending: Array<(value: unknown) => void> = [];
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve({ data: [] }),
+    );
+    const answerSession = (
+      index: number,
+      displayName: string,
+    ): Promise<void> => {
+      const resolve = pending[index];
+      if (!resolve) throw new Error(`no session request #${index}`);
+      resolve({
+        data: { userId: "pa-1", displayName, email: "ops@openwind.io" },
+      });
+      return Promise.resolve();
+    };
+
+    render(
+      <StrictMode>
+        <PlatformAdminDashboard />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(pending).toHaveLength(2));
+
+    // The live effect's fetch answers first; the cleaned-up effect's fetch answers last.
+    await act(() => answerSession(1, "Current"));
+    await waitFor(() => screen.getByText(/Signed in as Current/));
+    await act(() => answerSession(0, "Stale"));
+
+    expect(screen.queryByText(/Signed in as Stale/)).toBeNull();
+    expect(screen.getByText(/Signed in as Current/)).toBeTruthy();
+  });
+
+  it("ignores a sandboxes response from a refresh that was superseded by a newer refresh", async () => {
+    const pendingSandboxes: Array<(value: unknown) => void> = [];
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({
+          data: {
+            userId: "pa-1",
+            displayName: "Ops",
+            email: "ops@openwind.io",
+          },
+        });
+      }
+      if (url.endsWith("/sandboxes")) {
+        return new Promise((resolve) => pendingSandboxes.push(resolve));
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(<PlatformAdminDashboard />);
+    // Initial mount triggers first sandboxes fetch
+    await waitFor(() => expect(pendingSandboxes).toHaveLength(1));
+
+    // Click Refresh button to trigger second sandboxes fetch
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    fireEvent.click(refreshButton);
+    await waitFor(() => expect(pendingSandboxes).toHaveLength(2));
+
+    // Answer the second (newer) fetch first with "Newer Sandbox"
+    await act(() => {
+      const resolve2 = pendingSandboxes[1];
+      if (!resolve2) throw new Error("no second sandboxes request");
+      resolve2({
+        data: [{ ...ACTIVE, id: "sb-newer", name: "Newer Sandbox" }],
+      });
+      return Promise.resolve();
+    });
+    await waitFor(() => screen.getByText("Newer Sandbox"));
+
+    // Answer the first (older, superseded) fetch second with "Older Sandbox"
+    await act(() => {
+      const resolve1 = pendingSandboxes[0];
+      if (!resolve1) throw new Error("no first sandboxes request");
+      resolve1({
+        data: [{ ...ACTIVE, id: "sb-older", name: "Older Sandbox" }],
+      });
+      return Promise.resolve();
+    });
+
+    // The newer data remains; older data was discarded
+    expect(screen.queryByText("Older Sandbox")).toBeNull();
+    expect(screen.getByText("Newer Sandbox")).toBeTruthy();
+  });
+
+  it("does not update state when a sandboxes fetch completes after component unmount", async () => {
+    let resolveSandboxes!: (value: unknown) => void;
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({
+          data: {
+            userId: "pa-1",
+            displayName: "Ops",
+            email: "ops@openwind.io",
+          },
+        });
+      }
+      if (url.endsWith("/sandboxes")) {
+        return new Promise((resolve) => {
+          resolveSandboxes = resolve;
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const { unmount } = render(<PlatformAdminDashboard />);
+    await waitFor(() => expect(resolveSandboxes).toBeDefined());
+
+    unmount();
+
+    // Resolving after unmount must not throw or update unmounted state
+    act(() => {
+      resolveSandboxes({
+        data: [{ ...ACTIVE, id: "sb-after-unmount", name: "Unmounted SB" }],
+      });
+    });
+
+    expect(screen.queryByText("Unmounted SB")).toBeNull();
+  });
+
+  it("does not update error state when a sandboxes fetch rejects after component unmount", async () => {
+    let rejectSandboxes!: (reason: unknown) => void;
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({
+          data: {
+            userId: "pa-1",
+            displayName: "Ops",
+            email: "ops@openwind.io",
+          },
+        });
+      }
+      if (url.endsWith("/sandboxes")) {
+        return new Promise((_resolve, reject) => {
+          rejectSandboxes = reject;
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const { unmount } = render(<PlatformAdminDashboard />);
+    await waitFor(() => expect(rejectSandboxes).toBeDefined());
+
+    unmount();
+
+    // Rejecting after unmount must not set loadError or throw
+    act(() => {
+      rejectSandboxes(new Error("Network drop"));
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("fetches the sandbox list, never an all-tenants list", async () => {

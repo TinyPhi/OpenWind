@@ -3,13 +3,13 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-// Membership is decided by ensureTenantMembers (tenant_users, or the tenant's Zitadel org --
+// Membership is decided by resolveTenantMembers (tenant_users, or the tenant's Zitadel org --
 // covered by its own tests). This records what the handler asked it about, so the tests can
 // prove the check targets the grant's target userId, not the actor's, and passes the orgId.
 let tenantUserExists: boolean;
 let expectedTargetUserId: string;
-const mockEnsureTenantMembers = vi.fn(
-  (_tx: unknown, _tenantId: string, userIds: string[], _orgId?: string) =>
+const mockResolveTenantMembers = vi.fn(
+  (_tenantId: string, userIds: string[], _orgId?: string) =>
     Promise.resolve(
       new Set(
         tenantUserExists
@@ -19,12 +19,13 @@ const mockEnsureTenantMembers = vi.fn(
     ),
 );
 vi.mock("../../lib/ensure-user-refs.js", () => ({
-  ensureTenantMembers: (...args: Parameters<typeof mockEnsureTenantMembers>) =>
-    mockEnsureTenantMembers(...args),
+  resolveTenantMembers: (
+    ...args: Parameters<typeof mockResolveTenantMembers>
+  ) => mockResolveTenantMembers(...args),
 }));
 
 function membershipQueriedFor(): string[] | undefined {
-  return mockEnsureTenantMembers.mock.calls.at(-1)?.[2];
+  return mockResolveTenantMembers.mock.calls.at(-1)?.[1];
 }
 
 vi.mock("drizzle-orm", () => {
@@ -164,8 +165,7 @@ describe("POST /entities/:id/access", () => {
     });
 
     expect(res.status).toBe(201);
-    expect(mockEnsureTenantMembers).toHaveBeenCalledWith(
-      expect.anything(),
+    expect(mockResolveTenantMembers).toHaveBeenCalledWith(
       "t-aaa",
       ["target-user"],
       "org-1",

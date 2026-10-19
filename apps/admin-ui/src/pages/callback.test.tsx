@@ -22,7 +22,12 @@ vi.mock("../lib/api.js", () => ({
   API_URL: "/api",
 }));
 
-const { AuthCallback } = await import("./callback.js");
+const { AuthCallback, isHandoffState } = await import("./callback.js");
+const {
+  setPlatformAdminMfaSession,
+  getPlatformAdminMfaSession,
+  clearPlatformAdminMfaSession,
+} = await import("../lib/platform-admin-mfa-session.js");
 
 function renderCallback(): ReturnType<typeof render> {
   return render(
@@ -34,7 +39,8 @@ function renderCallback(): ReturnType<typeof render> {
 
 describe("AuthCallback", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    clearPlatformAdminMfaSession();
   });
 
   afterEach(() => {
@@ -51,6 +57,41 @@ describe("AuthCallback", () => {
       expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
     });
     expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  // docs/specs/multi-org-sandbox.md R1 -- a code on every platform-admin sign-in.
+  it("ends the previous sign-in's platform-admin MFA session on the server, then drops it", async () => {
+    setPlatformAdminMfaSession("old-session");
+    fetchWithAuth.mockReturnValue(new Promise(() => {})); // never answers: sign-in must not wait
+    signinCallback.mockResolvedValue({ state: undefined });
+    renderCallback();
+
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith("/dashboard"));
+    // The token rides in the request itself, since storage is cleared straight after.
+    expect(fetchWithAuth).toHaveBeenCalledWith("/api/platform-admin/mfa/end", {
+      method: "POST",
+      headers: { "X-Platform-Admin-Mfa": "old-session" },
+    });
+    expect(getPlatformAdminMfaSession()).toBeNull();
+  });
+
+  it("still drops the token and continues when ending it on the server fails", async () => {
+    setPlatformAdminMfaSession("old-session");
+    fetchWithAuth.mockRejectedValueOnce(new Error("403"));
+    signinCallback.mockResolvedValue({ state: undefined });
+    renderCallback();
+
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith("/dashboard"));
+    expect(getPlatformAdminMfaSession()).toBeNull();
+  });
+
+  it("keeps the MFA session when the callback completes no sign-in", async () => {
+    setPlatformAdminMfaSession("current-session");
+    signinCallback.mockResolvedValue(undefined);
+    renderCallback();
+
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith("/login"));
+    expect(getPlatformAdminMfaSession()).toBe("current-session");
   });
 
   // T17 (docs/specs/multi-org-sandbox.md) -- a platform_admin token must land on the
@@ -203,5 +244,99 @@ describe("AuthCallback", () => {
       expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
     });
     expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  it("with primitive or null handoff state, falls back to /dashboard without calling fetchWithAuth", async () => {
+    for (const invalid of [null, 12345, "invalid", true]) {
+      navigateSpy.mockClear();
+      fetchWithAuth.mockClear();
+      signinCallback.mockResolvedValue({ state: invalid });
+      renderCallback();
+
+      await waitFor(() => {
+        expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+      });
+      expect(fetchWithAuth).not.toHaveBeenCalled();
+      cleanup();
+    }
+  });
+
+  it("with empty object handoff state, falls back to /dashboard without calling fetchWithAuth", async () => {
+    signinCallback.mockResolvedValue({ state: {} });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+    });
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+});
+
+describe("isHandoffState", () => {
+  const VALID_STATE = {
+    workflowId: "11111111-1111-4111-8111-111111111111",
+    entityTypeId: "22222222-2222-4222-8222-222222222222",
+    appClientId: "app-client-1",
+  };
+
+  it("returns true for a well-formed handoff state object", () => {
+    expect(isHandoffState(VALID_STATE)).toBe(true);
+    expect(
+      isHandoffState({ ...VALID_STATE, prefillFields: { foo: "bar" } }),
+    ).toBe(true);
+  });
+
+  it("returns false for non-object and null values", () => {
+    expect(isHandoffState(null)).toBe(false);
+    expect(isHandoffState(undefined)).toBe(false);
+    expect(isHandoffState(42)).toBe(false);
+    expect(isHandoffState("string")).toBe(false);
+    expect(isHandoffState(true)).toBe(false);
+  });
+
+  it("returns false for an empty object or missing required fields", () => {
+    expect(isHandoffState({})).toBe(false);
+    expect(
+      isHandoffState({
+        workflowId: VALID_STATE.workflowId,
+        entityTypeId: VALID_STATE.entityTypeId,
+      }),
+    ).toBe(false);
+    expect(
+      isHandoffState({
+        workflowId: VALID_STATE.workflowId,
+        appClientId: VALID_STATE.appClientId,
+      }),
+    ).toBe(false);
+    expect(
+      isHandoffState({
+        entityTypeId: VALID_STATE.entityTypeId,
+        appClientId: VALID_STATE.appClientId,
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false when workflowId or entityTypeId fails UUID regex validation", () => {
+    expect(
+      isHandoffState({
+        ...VALID_STATE,
+        entityTypeId: "../../api/entities",
+      }),
+    ).toBe(false);
+    expect(
+      isHandoffState({
+        ...VALID_STATE,
+        workflowId: "not-a-uuid",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false when appClientId is not a string", () => {
+    expect(
+      isHandoffState({
+        ...VALID_STATE,
+        appClientId: 12345,
+      }),
+    ).toBe(false);
   });
 });

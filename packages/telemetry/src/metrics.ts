@@ -257,6 +257,8 @@ interface ZitadelKeyReport {
 async function readZitadelKeyReport(): Promise<ZitadelKeyReport | null> {
   const raw = await getRedis().get(ZITADEL_KEY_EXPIRY_REPORT_KEY);
   if (!raw) return null;
+  // JSON.parse returns any; the shape is untrusted Redis content, so every field is
+  // type-checked below before use.
   const parsed = JSON.parse(raw) as {
     checkedAt?: unknown;
     rows?: { name?: unknown; status?: unknown; expiresAt?: unknown }[];
@@ -409,6 +411,16 @@ export const mentionRecordFailureTotal = meter.createCounter(
   {
     description:
       "Resolved mentions the mention-resolution worker failed to record on a comment",
+  },
+);
+
+// docs/specs/retention-classes.md — rows removed by the retention sweep, so a
+// sweep that deletes nothing (the pre-fix silent no-op) is visible on a dashboard.
+export const retentionDeletedRowsTotal = meter.createCounter(
+  "openwind_retention_deleted_rows_total",
+  {
+    description:
+      "Rows deleted by the retention sweep, by table and retention class",
   },
 );
 

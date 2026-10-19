@@ -10,8 +10,8 @@ interface GuardOptions {
 }
 
 /**
- * Validates that a tenant is active.
- * Warns and returns false if the tenant is inactive or missing.
+ * Validates that a tenant is active and its trial (if any) has not expired.
+ * Warns and returns false if the tenant is inactive, trial-expired, or missing.
  */
 export async function validateActiveTenant(
   tenantId: string,
@@ -22,7 +22,7 @@ export async function validateActiveTenant(
   if (!active) {
     logger.warn(
       { tenantId, workerName, ...options },
-      `${workerName}: aborting execution — tenant is deactivated or missing`,
+      `${workerName}: aborting execution — tenant is deactivated, trial-expired, or missing`,
     );
     return false;
   }

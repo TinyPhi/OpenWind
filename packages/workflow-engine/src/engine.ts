@@ -13,79 +13,105 @@ import {
 import { redactMetadata, buildSensitivityMap } from "./redact.js";
 import { logger } from "@platform/logger";
 import { WorkflowError } from "./errors.js";
-import { evaluateConditionTree } from "./condition-evaluator.js";
+import {
+  evaluateConditionTree,
+  treeNeedsPriorActors,
+} from "./condition-evaluator.js";
 import type {
   WorkflowTransition,
   WorkflowEvent,
   TransitionRequest,
   WorkflowTransitionedEvent,
-  ConditionTree,
+  ActorContext,
+  TransitionConditionTree,
+  StateOverrideRequest,
+} from "./types.js";
+import {
+  OVERRIDE_REASON_MIN_LENGTH,
+  OVERRIDE_REASON_MAX_LENGTH,
 } from "./types.js";
 
-export async function executeTransition(
+/**
+ * Only a real user can satisfy an actor rule. An API key's identity ("apikey:<id>") is minted
+ * per key, so it is never the creator and never appears in earlier history: letting it through
+ * would let a record's creator approve their own work by acting through a key (and rotating
+ * the key would reset "already acted"). Automation and system carry no user either.
+ */
+function userActorId(actorId: string | null | undefined): string | null {
+  if (actorId === null || actorId === undefined || actorId === "") return null;
+  if (actorId === "system" || actorId.startsWith("apikey:")) return null;
+  return actorId;
+}
+
+/**
+ * What the actor rules are evaluated against. The creator comes from the instance row already
+ * in hand; the prior actors are read from the event log only when a tree actually needs them,
+ * so a workflow with no segregation rule pays nothing. In executeTransition this runs inside
+ * the row lock, so the history it reads cannot change under the decision.
+ *
+ * "Acted" means a real state change: from_state differs from to_state. Comments, tags, severity
+ * and attachment events, and access grants all record the current state as both, and that is
+ * set by the server, unlike metadata, which a caller can write (a transition sent with
+ * metadata {"type":"comment"} must still count).
+ */
+async function loadActorContext(
   db: DbOrTx,
   tenantId: string,
-  request: TransitionRequest,
-): Promise<WorkflowEvent> {
-  // Identity of this call, not this row — generated unconditionally so both
-  // the outbox payload (below) and the return value always carry it. See
-  // WorkflowEvent.transitionEventId and issue #143.
-  const transitionEventId = randomUUID();
+  instance: { id: string; createdBy: string | null },
+  actorId: string | null | undefined,
+  trees: ReadonlyArray<TransitionConditionTree | null>,
+): Promise<ActorContext> {
+  const context: ActorContext = {
+    actorId: userActorId(actorId),
+    createdBy: instance.createdBy,
+  };
+  if (!trees.some(treeNeedsPriorActors)) return context;
 
-  // 1a. Idempotency check (read-only) — short-circuit before acquiring the write lock.
-  // Most duplicate submissions hit this path and never contend on the row lock.
-  if (request.idempotencyKey) {
-    const [existing] = await db
-      .select()
-      .from(workflowEvents)
-      .where(
-        and(
-          eq(workflowEvents.instanceId, request.instanceId),
-          eq(workflowEvents.idempotencyKey, request.idempotencyKey),
-          isNotNull(workflowEvents.idempotencyKey),
-        ),
-      )
-      .limit(1);
-
-    if (existing) {
-      return {
-        id: existing.id,
-        instanceId: existing.instanceId,
-        workflowId: existing.workflowId,
-        fromState: existing.fromState ?? null,
-        toState: existing.toState,
-        triggeredBy: existing.triggeredBy as WorkflowEvent["triggeredBy"],
-        actorId: existing.actorId ?? null,
-        comment: existing.comment ?? null,
-        metadata: (existing.metadata ?? {}) as Record<string, unknown>,
-        createdAt: existing.createdAt,
-        // Drizzle infers this text() column as string | null, not the
-        // narrower union — migration 0091's CHECK constraint guarantees only
-        // these two values (or null) are ever stored, so the type system
-        // can't infer it but the DB does enforce it.
-        originMechanism: (existing.originMechanism ?? null) as
-          | "api"
-          | "handoff"
-          | null,
-        originOidcClientId: existing.originOidcClientId ?? null,
-        originPerformerUserId: existing.originPerformerUserId ?? null,
-        // No new outbox row is written on this replay path, so this value
-        // is inert — nothing ever reads it off an outbox event for this call.
-        transitionEventId,
-      };
+  const rows = await db
+    .selectDistinct({
+      actorId: workflowEvents.actorId,
+      fromState: workflowEvents.fromState,
+    })
+    .from(workflowEvents)
+    .where(
+      and(
+        eq(workflowEvents.instanceId, instance.id),
+        eq(workflowEvents.tenantId, tenantId),
+        isNotNull(workflowEvents.actorId),
+        isNotNull(workflowEvents.fromState),
+        sql`${workflowEvents.fromState} <> ${workflowEvents.toState}`,
+      ),
+    );
+  const priorActors: Array<{ actorId: string; fromState: string }> = [];
+  for (const r of rows) {
+    const id = userActorId(r.actorId);
+    if (id !== null && r.fromState !== null) {
+      priorActors.push({ actorId: id, fromState: r.fromState });
     }
   }
+  return { ...context, priorActors };
+}
 
-  // 1b. Load entity instance with a pessimistic write lock.
-  // FOR UPDATE NOWAIT throws Postgres error 55P03 immediately if another transaction
-  // already holds the lock — the caller gets TRANSITION_LOCKED and retries after the
-  // Retry-After header interval.
-  //
-  // Combining the read and the lock into a single query closes the TOCTOU window that
-  // would exist between a plain SELECT (reading current_state) and a separate
-  // FOR UPDATE NOWAIT statement. A concurrent transition committing between those two
-  // statements would cause the guard at step 3 to compare against a stale current_state,
-  // potentially allowing an invalid state-machine transition.
+/** A locked entity instance that is attached to a workflow. */
+type LockedInstance = typeof entityInstances.$inferSelect & {
+  workflowId: string;
+};
+
+/**
+ * Loads an entity instance with a pessimistic write lock, in one statement.
+ * FOR UPDATE NOWAIT throws Postgres error 55P03 immediately if another transaction already
+ * holds the lock: the caller gets TRANSITION_LOCKED and retries after the Retry-After interval.
+ *
+ * Combining the read and the lock into a single query closes the TOCTOU window that would
+ * exist between a plain SELECT (reading current_state) and a separate FOR UPDATE NOWAIT
+ * statement: a concurrent change committing between those two would let a guard compare
+ * against a stale current_state. Shared by executeTransition and overrideWorkflowState.
+ */
+async function lockInstance(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+): Promise<LockedInstance> {
   let instance: typeof entityInstances.$inferSelect | undefined;
   try {
     [instance] = await db
@@ -93,7 +119,7 @@ export async function executeTransition(
       .from(entityInstances)
       .where(
         and(
-          eq(entityInstances.id, request.instanceId),
+          eq(entityInstances.id, instanceId),
           eq(entityInstances.tenantId, tenantId),
         ),
       )
@@ -105,7 +131,7 @@ export async function executeTransition(
       (err as { cause?: { code?: unknown } }).cause?.code;
     if (code === "55P03") {
       throw new WorkflowError("TRANSITION_LOCKED", {
-        instanceId: request.instanceId,
+        instanceId,
       });
     }
     throw err;
@@ -113,93 +139,47 @@ export async function executeTransition(
 
   if (!instance) {
     throw new WorkflowError("INSTANCE_NOT_FOUND", {
-      instanceId: request.instanceId,
+      instanceId,
     });
   }
 
   if (!instance.workflowId) {
     throw new WorkflowError("INSTANCE_NOT_FOUND", {
-      instanceId: request.instanceId,
+      instanceId,
       reason: "no workflow attached",
     });
   }
 
-  // 2. Load workflow definition
-  const [workflow] = await db
-    .select()
-    .from(workflows)
-    .where(eq(workflows.id, instance.workflowId))
-    .limit(1);
+  return { ...instance, workflowId: instance.workflowId };
+}
 
-  if (!workflow) {
-    throw new WorkflowError("INSTANCE_NOT_FOUND", {
-      workflowId: instance.workflowId,
-    });
-  }
+interface StateChange {
+  toState: string;
+  triggeredBy: WorkflowEvent["triggeredBy"];
+  actorId?: string | undefined;
+  comment?: string | undefined;
+  idempotencyKey?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
+  depth?: number | undefined;
+  transitionEventId: string;
+  /** Marks the outbox event as an override rather than a guarded transition. */
+  override?: true | undefined;
+}
 
-  // 3. Find matching transition
-  const [transition] = await db
-    .select()
-    .from(workflowTransitions)
-    .where(
-      and(
-        eq(workflowTransitions.workflowId, instance.workflowId),
-        eq(workflowTransitions.id, request.transitionId),
-        eq(workflowTransitions.tenantId, tenantId),
-      ),
-    )
-    .limit(1);
-
-  if (transition?.fromState !== instance.currentState) {
-    throw new WorkflowError("TRANSITION_NOT_AVAILABLE", {
-      instanceId: request.instanceId,
-      currentState: instance.currentState,
-      transitionId: request.transitionId,
-    });
-  }
-
-  // 4. Guard: allowed roles
-  if (
-    transition.allowedRoles.length > 0 &&
-    !hasRequiredRole(request.actorRoles ?? [], transition.allowedRoles)
-  ) {
-    throw new WorkflowError("TRANSITION_FORBIDDEN", {
-      actorRoles: request.actorRoles,
-      allowedRoles: transition.allowedRoles,
-    });
-  }
-
-  // 5. Guard: conditions
-  const fields = instance.fields as Record<string, unknown>;
-  if (
-    !evaluateConditionTree(
-      transition.conditions as ConditionTree | null,
-      fields,
-    )
-  ) {
-    throw new WorkflowError("CONDITION_NOT_MET", {
-      transitionId: transition.id,
-    });
-  }
-
-  // 6. Guard: requires_fields
-  if (transition.requiresFields.length > 0) {
-    const missing = transition.requiresFields.filter(
-      (f) => fields[f] === null || fields[f] === undefined || fields[f] === "",
-    );
-    if (missing.length > 0) {
-      throw new WorkflowError("REQUIRED_FIELDS_MISSING", { missing });
-    }
-  }
-
-  // 7. Guard: requires_comment
-  if (transition.requiresComment && !request.comment?.trim()) {
-    throw new WorkflowError("REQUIRED_FIELDS_MISSING", {
-      missing: ["comment"],
-    });
-  }
-
-  const triggeredBy = request.triggeredBy ?? "user";
+/**
+ * The write half of a state change, shared by executeTransition and overrideWorkflowState so
+ * the two cannot drift: update the state, append the event (redacting sensitive metadata at
+ * INSERT time), write the outbox event, cancel the SLA timers of the state being left and
+ * schedule the one being entered. Everything runs in the caller's transaction and the caller
+ * must already hold the instance lock.
+ */
+async function commitStateChange(
+  db: DbOrTx,
+  tenantId: string,
+  instance: LockedInstance,
+  change: StateChange,
+): Promise<WorkflowEvent> {
+  const { transitionEventId, triggeredBy } = change;
   const occurredAt = new Date();
 
   // 8–9. Update state + append event + write outbox — all in the caller's transaction
@@ -210,10 +190,10 @@ export async function executeTransition(
   // transition in the workflow definition — do not attempt to mutate past events.
   await db
     .update(entityInstances)
-    .set({ currentState: transition.toState, updatedAt: occurredAt })
+    .set({ currentState: change.toState, updatedAt: occurredAt })
     .where(
       and(
-        eq(entityInstances.id, request.instanceId),
+        eq(entityInstances.id, instance.id),
         eq(entityInstances.tenantId, tenantId),
       ),
     );
@@ -226,7 +206,7 @@ export async function executeTransition(
   // transitions the map will be empty (no pii/financial fields), making the
   // redactMetadata call a cheap no-op.  On sensitive entity types (HRMS,
   // health records) the map will contain a small number of entries.
-  const rawMetadata = request.metadata ?? {};
+  const rawMetadata = change.metadata ?? {};
   let safeMetadata: Record<string, unknown> = rawMetadata;
 
   if (Object.keys(rawMetadata).length > 0) {
@@ -270,14 +250,14 @@ export async function executeTransition(
     .insert(workflowEvents)
     .values({
       tenantId,
-      instanceId: request.instanceId,
+      instanceId: instance.id,
       workflowId: instance.workflowId,
       fromState: instance.currentState,
-      toState: transition.toState,
+      toState: change.toState,
       triggeredBy,
-      actorId: request.actorId ?? null,
-      comment: request.comment ?? null,
-      idempotencyKey: request.idempotencyKey ?? null,
+      actorId: change.actorId ?? null,
+      comment: change.comment ?? null,
+      idempotencyKey: change.idempotencyKey ?? null,
       metadata: safeMetadata,
     })
     .returning();
@@ -302,16 +282,17 @@ export async function executeTransition(
     eventType: "workflow.transitioned",
     version: 1,
     tenantId,
-    instanceId: request.instanceId,
+    instanceId: instance.id,
     entityTypeId: instance.entityTypeId,
     workflowId: instance.workflowId,
     fromState: instance.currentState,
-    toState: transition.toState,
+    toState: change.toState,
     triggeredBy,
-    actorId: request.actorId ?? null,
+    actorId: change.actorId ?? null,
     occurredAt: occurredAt.toISOString(),
     transitionEventId,
-    ...(request.depth !== undefined && { depth: request.depth }),
+    ...(change.depth !== undefined && { depth: change.depth }),
+    ...(change.override === true && { override: true as const }),
   };
 
   await db.insert(outboxEvents).values({
@@ -324,10 +305,10 @@ export async function executeTransition(
   logger.info(
     {
       tenantId,
-      instanceId: request.instanceId,
+      instanceId: instance.id,
       fromState: instance.currentState,
-      toState: transition.toState,
-      actorId: request.actorId,
+      toState: change.toState,
+      actorId: change.actorId,
       triggeredBy,
     },
     "Transition executed",
@@ -345,7 +326,7 @@ export async function executeTransition(
   await cancelPendingSlaTimers(
     db,
     tenantId,
-    request.instanceId,
+    instance.id,
     instance.currentState,
   );
 
@@ -354,8 +335,8 @@ export async function executeTransition(
     db,
     tenantId,
     instance.workflowId,
-    request.instanceId,
-    transition.toState,
+    instance.id,
+    change.toState,
     occurredAt,
   );
 
@@ -384,11 +365,262 @@ export async function executeTransition(
   };
 }
 
+export async function executeTransition(
+  db: DbOrTx,
+  tenantId: string,
+  request: TransitionRequest,
+): Promise<WorkflowEvent> {
+  // Identity of this call, not this row — generated unconditionally so both
+  // the outbox payload (below) and the return value always carry it. See
+  // WorkflowEvent.transitionEventId and issue #143.
+  const transitionEventId = randomUUID();
+
+  // 1a. Idempotency check (read-only) — short-circuit before acquiring the write lock.
+  // Most duplicate submissions hit this path and never contend on the row lock.
+  if (request.idempotencyKey) {
+    const [existing] = await db
+      .select()
+      .from(workflowEvents)
+      .where(
+        and(
+          eq(workflowEvents.tenantId, tenantId),
+          eq(workflowEvents.instanceId, request.instanceId),
+          eq(workflowEvents.idempotencyKey, request.idempotencyKey),
+          isNotNull(workflowEvents.idempotencyKey),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      return {
+        id: existing.id,
+        instanceId: existing.instanceId,
+        workflowId: existing.workflowId,
+        fromState: existing.fromState ?? null,
+        toState: existing.toState,
+        triggeredBy: existing.triggeredBy as WorkflowEvent["triggeredBy"],
+        actorId: existing.actorId ?? null,
+        comment: existing.comment ?? null,
+        metadata: (existing.metadata ?? {}) as Record<string, unknown>,
+        createdAt: existing.createdAt,
+        // Drizzle infers this text() column as string | null, not the
+        // narrower union — migration 0091's CHECK constraint guarantees only
+        // these two values (or null) are ever stored, so the type system
+        // can't infer it but the DB does enforce it.
+        originMechanism: (existing.originMechanism ?? null) as
+          | "api"
+          | "handoff"
+          | null,
+        originOidcClientId: existing.originOidcClientId ?? null,
+        originPerformerUserId: existing.originPerformerUserId ?? null,
+        // No new outbox row is written on this replay path, so this value
+        // is inert — nothing ever reads it off an outbox event for this call.
+        transitionEventId,
+      };
+    }
+  }
+
+  // 1b. Load entity instance with a pessimistic write lock (see lockInstance).
+  const instance = await lockInstance(db, tenantId, request.instanceId);
+
+  // 2. Load workflow definition
+  const [workflow] = await db
+    .select()
+    .from(workflows)
+    .where(
+      and(
+        eq(workflows.id, instance.workflowId),
+        or(isNull(workflows.tenantId), eq(workflows.tenantId, tenantId)),
+      ),
+    )
+    .limit(1);
+
+  if (!workflow) {
+    throw new WorkflowError("INSTANCE_NOT_FOUND", {
+      workflowId: instance.workflowId,
+    });
+  }
+
+  // 3. Find matching transition
+  const [transition] = await db
+    .select()
+    .from(workflowTransitions)
+    .where(
+      and(
+        eq(workflowTransitions.workflowId, instance.workflowId),
+        eq(workflowTransitions.id, request.transitionId),
+        eq(workflowTransitions.tenantId, tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (transition?.fromState !== instance.currentState) {
+    throw new WorkflowError("TRANSITION_NOT_AVAILABLE", {
+      instanceId: request.instanceId,
+      currentState: instance.currentState,
+      transitionId: request.transitionId,
+    });
+  }
+
+  // 4. Guard: allowed roles
+  if (
+    transition.allowedRoles.length > 0 &&
+    !hasRequiredRole(request.actorRoles ?? [], transition.allowedRoles)
+  ) {
+    throw new WorkflowError("TRANSITION_FORBIDDEN", {
+      actorRoles: request.actorRoles,
+      allowedRoles: transition.allowedRoles,
+    });
+  }
+
+  // 5. Guard: conditions (including the segregation-of-duties rules, evaluated against the
+  // actor context loaded under this transaction's row lock)
+  const fields = instance.fields as Record<string, unknown>;
+  const conditions = transition.conditions as TransitionConditionTree | null;
+  const actorContext = await loadActorContext(
+    db,
+    tenantId,
+    instance,
+    request.actorId,
+    [conditions],
+  );
+  if (!evaluateConditionTree(conditions, fields, actorContext)) {
+    throw new WorkflowError("CONDITION_NOT_MET", {
+      transitionId: transition.id,
+    });
+  }
+
+  // 6. Guard: requires_fields
+  if (transition.requiresFields.length > 0) {
+    const missing = transition.requiresFields.filter(
+      (f) => fields[f] === null || fields[f] === undefined || fields[f] === "",
+    );
+    if (missing.length > 0) {
+      throw new WorkflowError("REQUIRED_FIELDS_MISSING", { missing });
+    }
+  }
+
+  // 7. Guard: requires_comment
+  if (transition.requiresComment && !request.comment?.trim()) {
+    throw new WorkflowError("REQUIRED_FIELDS_MISSING", {
+      missing: ["comment"],
+    });
+  }
+
+  return commitStateChange(db, tenantId, instance, {
+    toState: transition.toState,
+    triggeredBy: request.triggeredBy ?? "user",
+    actorId: request.actorId,
+    comment: request.comment,
+    idempotencyKey: request.idempotencyKey,
+    metadata: request.metadata,
+    depth: request.depth,
+    transitionEventId,
+  });
+}
+
+/**
+ * Moves a record to a chosen step outside the transition rules: the recorded, reasoned
+ * override (docs/specs/state-override.md). It is the one sanctioned way to fix a record that
+ * the workflow's own transitions cannot (ADR-002 WE-02 makes transitions irreversible), and it
+ * is deliberately narrow:
+ *   - only an admin user, never an API key, system or automation;
+ *   - only on a workflow that has switched `allow_state_override` on (off by default);
+ *   - never by the person who created the record;
+ *   - a reason of OVERRIDE_REASON_MIN_LENGTH..OVERRIDE_REASON_MAX_LENGTH characters;
+ *   - the target must be a real step, and different from the current one.
+ * It then behaves like a transition in every way that matters: it locks the row, writes the
+ * event (a real state change, so it counts as acting for segregation rules), writes the outbox
+ * event (flagged `override`) and moves the SLA timers. The admin audit entry is written by the
+ * caller in the same transaction, since this package cannot depend on @platform/audit.
+ */
+export async function overrideWorkflowState(
+  db: DbOrTx,
+  tenantId: string,
+  request: StateOverrideRequest,
+): Promise<WorkflowEvent> {
+  const actorId = userActorId(request.actorId);
+  if (actorId === null || !request.actorRoles.includes("admin")) {
+    throw new WorkflowError("OVERRIDE_FORBIDDEN", {
+      reason: "an admin user is required",
+    });
+  }
+
+  const reason = request.reason.trim();
+  if (
+    reason.length < OVERRIDE_REASON_MIN_LENGTH ||
+    reason.length > OVERRIDE_REASON_MAX_LENGTH
+  ) {
+    throw new WorkflowError("OVERRIDE_REASON_REQUIRED", {
+      min: OVERRIDE_REASON_MIN_LENGTH,
+      max: OVERRIDE_REASON_MAX_LENGTH,
+    });
+  }
+
+  const instance = await lockInstance(db, tenantId, request.instanceId);
+
+  const [workflow] = await db
+    .select({ allowStateOverride: workflows.allowStateOverride })
+    .from(workflows)
+    .where(
+      and(
+        eq(workflows.id, instance.workflowId),
+        or(isNull(workflows.tenantId), eq(workflows.tenantId, tenantId)),
+      ),
+    )
+    .limit(1);
+  if (!workflow) {
+    throw new WorkflowError("INSTANCE_NOT_FOUND", {
+      workflowId: instance.workflowId,
+    });
+  }
+  if (!workflow.allowStateOverride) {
+    throw new WorkflowError("OVERRIDE_NOT_ENABLED", {
+      workflowId: instance.workflowId,
+    });
+  }
+
+  if (instance.createdBy !== null && instance.createdBy === actorId) {
+    throw new WorkflowError("OVERRIDE_FORBIDDEN", {
+      reason: "the creator of a record cannot override its state",
+    });
+  }
+
+  const states = await db
+    .select({ name: workflowStates.name })
+    .from(workflowStates)
+    .where(
+      and(
+        eq(workflowStates.workflowId, instance.workflowId),
+        eq(workflowStates.tenantId, tenantId),
+      ),
+    );
+  if (!states.some((st) => st.name === request.state)) {
+    throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", {
+      name: request.state,
+    });
+  }
+  if (request.state === instance.currentState) {
+    throw new WorkflowError("OVERRIDE_NO_CHANGE", { state: request.state });
+  }
+
+  return commitStateChange(db, tenantId, instance, {
+    toState: request.state,
+    triggeredBy: "user",
+    actorId,
+    comment: `Override: ${reason}`,
+    metadata: { kind: "override", reason },
+    transitionEventId: randomUUID(),
+    override: true,
+  });
+}
+
 export async function getAvailableTransitions(
   db: DbOrTx,
   tenantId: string,
   instanceId: string,
   actorRoles: string[] = [],
+  actorId?: string | null,
 ): Promise<WorkflowTransition[]> {
   const [instance] = await db
     .select()
@@ -415,6 +647,17 @@ export async function getAvailableTransitions(
     );
 
   const fields = instance.fields as Record<string, unknown>;
+  // Same context as executeTransition, so this list never offers a transition that the
+  // segregation rules would then refuse. This read takes no row lock, deliberately: the list is
+  // guidance for the UI and executeTransition re-evaluates everything under the lock, so a
+  // briefly stale list can only offer something the engine then refuses. Do not add a lock here.
+  const actorContext = await loadActorContext(
+    db,
+    tenantId,
+    instance,
+    actorId,
+    transitions.map((t) => t.conditions as TransitionConditionTree | null),
+  );
 
   return transitions
     .filter((t) => {
@@ -423,7 +666,13 @@ export async function getAvailableTransitions(
         !hasRequiredRole(actorRoles, t.allowedRoles)
       )
         return false;
-      if (!evaluateConditionTree(t.conditions as ConditionTree | null, fields))
+      if (
+        !evaluateConditionTree(
+          t.conditions as TransitionConditionTree | null,
+          fields,
+          actorContext,
+        )
+      )
         return false;
       return true;
     })
@@ -434,7 +683,7 @@ export async function getAvailableTransitions(
       toState: t.toState,
       label: t.label ?? null,
       allowedRoles: t.allowedRoles,
-      conditions: t.conditions as ConditionTree | null,
+      conditions: t.conditions as TransitionConditionTree | null,
       requiresComment: t.requiresComment,
       requiresFields: t.requiresFields,
       sortOrder: t.sortOrder,
@@ -481,9 +730,11 @@ export async function getWorkflowEventLog(
         ? sql`(${workflowEvents.metadata}->>'type' IS NULL OR ${workflowEvents.metadata}->>'type' != 'comment')`
         : undefined;
 
-  const baseWhere = typeFilter
-    ? and(eq(workflowEvents.instanceId, instanceId), typeFilter)
-    : eq(workflowEvents.instanceId, instanceId);
+  const scope = and(
+    eq(workflowEvents.instanceId, instanceId),
+    eq(workflowEvents.tenantId, tenantId),
+  );
+  const baseWhere = typeFilter ? and(scope, typeFilter) : scope;
 
   const query = db
     .select()

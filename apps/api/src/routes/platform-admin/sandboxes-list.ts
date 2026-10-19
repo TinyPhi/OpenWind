@@ -27,9 +27,16 @@ const SANDBOX_VIEW_COLUMNS = {
   createdAt: tenants.createdAt,
 };
 
+const SandboxListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+
 export const sandboxListHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),
+  zValidator("query", SandboxListQuerySchema),
   async (c) => {
+    const { limit } = c.req.valid("query");
+
     const rows = await withPlatformAdminContext((tx) =>
       tx
         .select(SANDBOX_VIEW_COLUMNS)
@@ -40,10 +47,17 @@ export const sandboxListHandler = platformAdminFactory.createHandlers(
             inArray(tenants.status, ["active", "suspended"]),
           ),
         )
-        .orderBy(desc(tenants.createdAt)),
+        .orderBy(desc(tenants.createdAt))
+        .limit(limit + 1),
     );
 
-    return c.json({ data: rows.map(toPlatformAdminSandboxView) });
+    const hasMore = rows.length > limit;
+    const paged = hasMore ? rows.slice(0, limit) : rows;
+
+    return c.json({
+      data: paged.map(toPlatformAdminSandboxView),
+      hasMore,
+    });
   },
 );
 

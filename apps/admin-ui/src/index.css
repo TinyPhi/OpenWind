@@ -713,23 +713,15 @@ button.menu-item.sidebar-logout {
 
 /* Floating logo + theme toggle used in place of .lp-topbar - no bar
    chrome, just the two controls positioned where the bar used to sit. */
+/* The navbar's own logo (.logo-icon + .logo-text), so the two always match. */
 .lp-float-logo {
   position: absolute;
   top: 24px;
   left: 32px;
   z-index: 2;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--accent-gradient);
-  color: #fff;
-  font-family: var(--font-heading);
-  font-size: 17px;
-  font-weight: 800;
   display: flex;
   align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 35%, transparent);
+  gap: 10px;
 }
 .lp-float-theme-btn {
   position: absolute;
@@ -970,33 +962,6 @@ button.menu-item.sidebar-logout {
   text-decoration: underline;
 }
 
-/* Footer */
-.lp-footer {
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
-  padding: 14px 24px;
-}
-.lp-footer-inner {
-  max-width: 1100px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--text-muted);
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.lp-footer-sep { color: var(--border-color); }
-.lp-footer-link {
-  color: var(--text-secondary);
-  text-decoration: none;
-}
-.lp-footer-link:hover {
-  color: var(--accent-primary);
-  text-decoration: underline;
-}
-
 /* ── Login Page — "Field notebook" card ─────────────────────────────────
    Keeps the existing single-card, centered layout (.lp-page/.lp-main/
    .lp-card/.lp-card-glow above) exactly as-is - including the theme
@@ -1006,11 +971,12 @@ button.menu-item.sidebar-logout {
    --bg-* / --text-* / --accent-primary / --border-color tokens the rest of the
    page already uses, so it follows the light/dark toggle and saved accent
    color with no theme-specific overrides needed. */
+/* Flat on purpose: the border alone frames the card, no drop shadow. */
 .lp-card-notebook {
   border-radius: 18px;
   border-top-width: 1px;
   border-bottom-width: 1px;
-  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.55);
+  box-shadow: none;
 }
 .lp-notebook-head {
   text-align: left;

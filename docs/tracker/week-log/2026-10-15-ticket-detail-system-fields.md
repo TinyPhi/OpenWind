@@ -25,7 +25,7 @@
 - **What changed.**
   - Title is required and protected on every workflow. That covers every module seed (vendor
     gains a title), workflows built in the UI, and existing tenants via migration
-    `0145_title_protected_required` (applied locally: 21 titles). A blank title is rejected.
+    `0150_title_protected_required` (applied locally: 21 titles; first numbered 0145, renumbered after upstream took 0145–0149). A blank title is rejected.
   - System fields show everywhere: ticket view, Edit form, heading, list title search and
     admin create. Hiding is now field `config.readOnly`, set on tender's
     `submitted_at`/`submitted_by`: text in the view, never an input or a create-form field.
@@ -56,6 +56,6 @@
   - Every changed module seed was also executed against a local database for a throwaway
     tenant inside a rolled-back transaction: all ran cleanly with the expected flags.
   - Schedule rules with a real-shaped user id (template, route POST/PATCH, tick worker).
-- **Deploy.** `db:migrate` for 0145, then rebuild backend, worker and frontend.
+- **Deploy.** `db:migrate` for 0150, then rebuild backend, worker and frontend.
 - **Open.** ADR-012 amendment (partner API fallback owner) is a human task in BLOCKERS.md;
   it blocks only spec T11.

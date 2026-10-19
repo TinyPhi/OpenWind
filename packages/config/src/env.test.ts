@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EnvSchema } from "./env.js";
-import { DEV_SUPERSET_DEFAULTS } from "./dev-defaults.js";
+import { DEV_SUPERSET_DEFAULTS, DEV_METRICS_TOKEN } from "./dev-defaults.js";
 
 // Mirrors vitest.config.ts's fixture, minus RATE_LIMIT_TENANT_PER_MIN — the
 // field under test — so each test controls it explicitly or omits it.
@@ -67,6 +67,38 @@ describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
       ).toThrow();
     },
   );
+});
+
+describe("PLATFORM_ADMIN_MFA_DEV_BYPASS", () => {
+  it.each([
+    [undefined, false],
+    ["", false],
+    ["false", false],
+    ["0", false],
+    ["no", false],
+    ["TRUE", false],
+    ["true", true],
+  ])(
+    "%s -> %s (only the literal 'true' turns the bypass on)",
+    (value, expected) => {
+      const parsed = EnvSchema.parse(
+        value === undefined
+          ? MINIMAL_VALID_ENV
+          : { ...MINIMAL_VALID_ENV, PLATFORM_ADMIN_MFA_DEV_BYPASS: value },
+      );
+      expect(parsed.PLATFORM_ADMIN_MFA_DEV_BYPASS).toBe(expected);
+    },
+  );
+
+  it("is still refused in production", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        NODE_ENV: "production",
+        PLATFORM_ADMIN_MFA_DEV_BYPASS: "true",
+      }),
+    ).toThrow(/PLATFORM_ADMIN_MFA_DEV_BYPASS must not be true in production/);
+  });
 });
 
 describe("OPS_ALERT_EMAIL", () => {
@@ -167,9 +199,16 @@ describe("ERROR_TRACKING", () => {
 // Every case below starts from a production env that is otherwise completely
 // valid, and changes one value. Without that, a test could pass because some
 // unrelated production rule threw — proving nothing about the guard under test.
+const { OPENBAO_TOKEN: _devToken, ...MINIMAL_WITHOUT_TOKEN } =
+  MINIMAL_VALID_ENV;
 const PRODUCTION_ENV = {
-  ...MINIMAL_VALID_ENV,
+  ...MINIMAL_WITHOUT_TOKEN,
   NODE_ENV: "production",
+  // Production OpenBao: AppRole over https, never a static token (ADR-023).
+  OPENBAO_ADDR: "https://openbao.example.com:8200",
+  OPENBAO_ROLE_ID: "role-id",
+  OPENBAO_SECRET_ID: "secret-id",
+  METRICS_TOKEN: "a-real-metrics-token",
   // Required in production by an existing refine; unrelated to Superset, but
   // absent it every parse below would throw for the wrong reason.
   CORS_ORIGIN: "https://app.example.com",
@@ -343,6 +382,115 @@ describe("DATABASE_DIRECT_URL / DATABASE_LOCK_POOL_MAX (#752)", () => {
     ).toThrow();
     expect(() =>
       EnvSchema.parse({ ...MINIMAL_VALID_ENV, DATABASE_LOCK_POOL_MAX: "0" }),
+    ).toThrow();
+  });
+});
+
+describe("OpenBao — production guards (ADR-023)", () => {
+  it("accepts AppRole over https in production", () => {
+    expect(EnvSchema.parse(PRODUCTION_ENV).OPENBAO_TOKEN).toBeUndefined();
+  });
+
+  it("rejects the local provider in production", () => {
+    expect(() =>
+      EnvSchema.parse({ ...PRODUCTION_ENV, SECRETS_PROVIDER: "local" }),
+    ).toThrow(/SECRETS_PROVIDER must not be 'local' in production/);
+  });
+
+  it("rejects a static OPENBAO_TOKEN in production", () => {
+    expect(() =>
+      EnvSchema.parse({ ...PRODUCTION_ENV, OPENBAO_TOKEN: "dev-root-token" }),
+    ).toThrow(/OPENBAO_TOKEN must not be set in production/);
+  });
+
+  it("rejects a plain-http OPENBAO_ADDR in production", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...PRODUCTION_ENV,
+        OPENBAO_ADDR: "http://openbao:8200",
+      }),
+    ).toThrow(/OPENBAO_ADDR must use https:\/\/ in production/);
+  });
+
+  it("rejects the development METRICS_TOKEN in production", () => {
+    const { METRICS_TOKEN: _real, ...withoutToken } = PRODUCTION_ENV;
+    expect(() => EnvSchema.parse(withoutToken)).toThrow(
+      /METRICS_TOKEN must not be its development default in production/,
+    );
+    expect(() =>
+      EnvSchema.parse({ ...PRODUCTION_ENV, METRICS_TOKEN: DEV_METRICS_TOKEN }),
+    ).toThrow(/METRICS_TOKEN/);
+  });
+
+  it("keeps the dev token, http and the local provider working outside production", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      OPENBAO_ADDR: "http://openbao:8200",
+    });
+    expect(parsed.OPENBAO_TOKEN).toBe("dev-root-token");
+    expect(parsed.METRICS_TOKEN).toBe(DEV_METRICS_TOKEN);
+  });
+
+  it("treats empty OpenBao credentials as unset, so the missing-auth check fires at start", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_WITHOUT_TOKEN,
+        OPENBAO_TOKEN: "",
+        OPENBAO_ROLE_ID: " ",
+        OPENBAO_SECRET_ID: "",
+      }),
+    ).toThrow(/Either OPENBAO_TOKEN \(dev\) or both OPENBAO_ROLE_ID/);
+  });
+});
+
+describe("Superset secrets — least privilege in production (ADR-023)", () => {
+  const SUPERSET_KEYS = [
+    "SUPERSET_SECRET_KEY",
+    "SUPERSET_GUEST_TOKEN_SECRET",
+    "SUPERSET_SERVICE_ACCOUNT_PASSWORD",
+    "SUPERSET_ADMIN_PASSWORD",
+  ] as const;
+
+  it("starts a production service that holds none of them (the worker)", () => {
+    const withoutSuperset: Record<string, string> = { ...PRODUCTION_ENV };
+    for (const key of SUPERSET_KEYS) delete withoutSuperset[key];
+    const parsed = EnvSchema.parse(withoutSuperset);
+    for (const key of SUPERSET_KEYS) expect(parsed[key]).toBeUndefined();
+  });
+
+  it("never fills in a development default in production", () => {
+    const onlyServiceAccount: Record<string, string> = { ...PRODUCTION_ENV };
+    for (const key of SUPERSET_KEYS) delete onlyServiceAccount[key];
+    onlyServiceAccount["SUPERSET_SERVICE_ACCOUNT_PASSWORD"] = "a-real-password";
+    const parsed = EnvSchema.parse(onlyServiceAccount);
+    expect(parsed.SUPERSET_SERVICE_ACCOUNT_PASSWORD).toBe("a-real-password");
+    expect(parsed.SUPERSET_SECRET_KEY).toBeUndefined();
+  });
+
+  it("still checks a value that is set in production", () => {
+    const { SUPERSET_GUEST_TOKEN_SECRET: _g, ...rest } = PRODUCTION_ENV;
+    expect(() =>
+      EnvSchema.parse({ ...rest, SUPERSET_SECRET_KEY: "too-short" }),
+    ).toThrow(/SUPERSET_SECRET_KEY must be at least 32 characters/);
+  });
+});
+
+describe("retention settings (docs/specs/retention-classes.md)", () => {
+  it("default to 90/365/2555 days, 5000-row batches and a 50 ms pause", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.RETENTION_DEFAULT_DAYS).toBe(90);
+    expect(parsed.RETENTION_COMMENT_DAYS).toBe(365);
+    expect(parsed.RETENTION_EVIDENCE_DAYS).toBe(2555);
+    expect(parsed.RETENTION_BATCH_SIZE).toBe(5000);
+    expect(parsed.RETENTION_BATCH_PAUSE_MS).toBe(50);
+  });
+
+  it("reject an evidence window below one year or a zero batch size", () => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_EVIDENCE_DAYS: "30" }),
+    ).toThrow();
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_BATCH_SIZE: "0" }),
     ).toThrow();
   });
 });

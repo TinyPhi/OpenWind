@@ -1,6 +1,10 @@
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import {
+  downloadHandoverCsv,
+  formatHandoverClipboard,
+} from "./sandbox-handover-csv.js";
 
 interface ProvisioningProgress {
   status: "pending" | "running" | "completed" | "failed";
@@ -56,6 +60,18 @@ export function CreateSandboxModal({
   const [handover, setHandover] = React.useState<SandboxHandover | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [downloadFailed, setDownloadFailed] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [copyFailed, setCopyFailed] = React.useState(false);
+  const copyTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
 
   const trialDaysNumber = Number(trialDays);
   const trialDaysValid =
@@ -72,6 +88,26 @@ export function CreateSandboxModal({
     setHandover(null);
     setSubmitting(false);
     setError(null);
+    setDownloadFailed(false);
+    setCopied(false);
+    setCopyFailed(false);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+  }
+
+  async function handleCopyCredentials(): Promise<void> {
+    if (!handover) return;
+    setCopyFailed(false);
+    setDownloadFailed(false);
+    try {
+      const text = formatHandoverClipboard(handover.seededAccounts);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2_000);
+    } catch (err) {
+      console.error("Sandbox handover clipboard copy failed:", err);
+      setCopyFailed(true);
+    }
   }
 
   async function handleCreate(e: React.FormEvent): Promise<void> {
@@ -80,6 +116,8 @@ export function CreateSandboxModal({
     setSubmitting(true);
     setError(null);
     try {
+      // fetchWithAuth returns unknown; { data: { jobId: string } } is the
+      // platform-admin/sandboxes creation contract.
       const res = (await fetchWithAuth(`${API_URL}/platform-admin/sandboxes`, {
         method: "POST",
         body: JSON.stringify({
@@ -124,6 +162,8 @@ export function CreateSandboxModal({
     async function poll(): Promise<void> {
       if (isDone()) return;
       try {
+        // fetchWithAuth returns unknown; { data: ProvisioningProgress } is the
+        // platform-admin/sandboxes/:id/progress contract.
         const res = (await fetchWithAuth(
           `${API_URL}/platform-admin/sandboxes/${jobId}/progress`,
         )) as { data: ProvisioningProgress };
@@ -131,10 +171,13 @@ export function CreateSandboxModal({
         // here, before it can reach the one-time handover fetch below.
         if (isCancelled() || isDone()) return;
         setProgress(res.data);
+        setError(null);
 
         if (res.data.status === "completed") {
           doneRef.current = true;
           clearInterval(interval);
+          // fetchWithAuth returns unknown; { data: SandboxHandover } is the
+          // platform-admin/sandboxes/:id/handover contract.
           const handoverRes = (await fetchWithAuth(
             `${API_URL}/platform-admin/sandboxes/${jobId}/handover`,
           )) as { data: SandboxHandover };
@@ -169,13 +212,17 @@ export function CreateSandboxModal({
     resetForm();
   }
 
-  const isProvisioning = jobId && !handover && progress?.status !== "failed";
+  const isProvisioning =
+    jobId && !handover && progress?.status !== "failed" && !error;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={!isProvisioning}
-        style={{ maxWidth: 480 }}
+        // The handover lists up to ~21 accounts with email and password side by side, so it
+        // gets a wide dialog; the form and progress steps stay narrow. DialogContent is
+        // width: 100% of its centred overlay, so the wide one still fits a small screen.
+        style={{ maxWidth: handover ? 960 : 480 }}
       >
         {handover ? (
           <>
@@ -190,11 +237,12 @@ export function CreateSandboxModal({
               Each account has its own password. Sign in with either the
               username or the email.
             </p>
-            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            <div style={{ maxHeight: "60vh", overflow: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     <th style={cellStyle}>Username</th>
+                    <th style={cellStyle}>Email</th>
                     <th style={cellStyle}>Role</th>
                     <th style={cellStyle}>Password</th>
                   </tr>
@@ -204,10 +252,8 @@ export function CreateSandboxModal({
                     <tr key={a.email}>
                       <td style={cellStyle}>
                         <strong>{a.username}</strong>
-                        <div style={{ color: "var(--text-muted)" }}>
-                          {a.email}
-                        </div>
                       </td>
+                      <td style={cellStyle}>{a.email}</td>
                       <td style={cellStyle}>{a.role}</td>
                       <td style={cellStyle}>
                         <code style={{ userSelect: "all" }}>{a.password}</code>
@@ -217,16 +263,55 @@ export function CreateSandboxModal({
                 </tbody>
               </table>
             </div>
-            <Button
-              variant="primary"
-              style={{ marginTop: 20 }}
-              onClick={() => {
-                onCreated();
-                resetForm();
-              }}
-            >
-              Done
-            </Button>
+            {downloadFailed && (
+              <p
+                role="alert"
+                style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
+              >
+                Could not create the CSV. Copy the credentials above instead.
+              </p>
+            )}
+            {copyFailed && (
+              <p
+                role="alert"
+                style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
+              >
+                Could not copy credentials. Use Download CSV or copy from the
+                table.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDownloadFailed(false);
+                  setCopyFailed(false);
+                  try {
+                    downloadHandoverCsv(orgName, handover.seededAccounts);
+                  } catch (err) {
+                    console.error("Sandbox handover CSV download failed:", err);
+                    setDownloadFailed(true);
+                  }
+                }}
+              >
+                Download CSV
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void handleCopyCredentials()}
+              >
+                {copied ? "Copied!" : "Copy credentials"}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  onCreated();
+                  resetForm();
+                }}
+              >
+                Done
+              </Button>
+            </div>
           </>
         ) : jobId ? (
           <>
@@ -246,7 +331,7 @@ export function CreateSandboxModal({
                 {error}
               </p>
             )}
-            {progress?.status === "failed" && (
+            {(progress?.status === "failed" || error) && (
               <Button
                 variant="secondary"
                 style={{ marginTop: 16 }}

@@ -113,6 +113,22 @@ export const sandboxResetHandler = platformAdminFactory.createHandlers(
         WAIT_FOR_RESET_TTL_MS,
       );
     } catch (err) {
+      const isTimeout = err instanceof Error && /timed out/i.test(err.message);
+      if (isTimeout) {
+        logger.warn(
+          { err, tenantId, userId, jobId },
+          "platform-admin sandbox reset: wait timed out — job still running in background",
+        );
+        return c.json(
+          {
+            error: "RESET_TIMEOUT",
+            message:
+              "Sandbox reset timed out waiting for worker to finish — operation continues in the background",
+          },
+          504,
+        );
+      }
+
       logger.error(
         { err, tenantId, userId, jobId },
         "platform-admin sandbox reset: reset job failed",

@@ -261,6 +261,21 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(grantedUpdates.length).toBe(0);
   });
 
+  it("rejects a comment that mentions more than 50 people", async () => {
+    const mentions = Array.from({ length: 51 }, (_, i) => ({
+      userId: `u-${i}`,
+      level: "read_comment",
+    }));
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "cc everyone", mentions }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
   it("fires comment.created for a plain comment with no mentions, in addition to whatever else fires", async () => {
     const res = await makeApp().request(`/${INST_ID}/comments`, {
       method: "POST",

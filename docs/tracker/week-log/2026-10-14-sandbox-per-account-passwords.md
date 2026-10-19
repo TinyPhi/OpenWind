@@ -20,3 +20,12 @@
 - Tests: every account (1 admin + 4 members) gets a distinct password, a retry reuses it, the
   handover matches what was sent to Zitadel, no password appears in the job result or progress
   row; the store reads both the new shape and the legacy one; the modal shows each password.
+- **Follow-up (same PR): CSV download and a wide handover dialog.** The "Sandbox ready" screen
+  has a "Download CSV" button: `Username,Email,Role,Password`, one row per account, named after
+  the sandbox (`acme-sandbox-accounts.csv`). It's built in the browser from the handover already
+  on screen (no new route, no new dependency, nothing re-fetched). The file has a UTF-8 BOM and
+  CRLF rows so Excel opens it cleanly, RFC 4180 quoting, and a leading apostrophe on any cell
+  starting with `=`, `+`, `-`, `@`, tab or CR (spreadsheet formula injection). Generated
+  passwords start with `Ow-` and are never altered. The dialog widens to 960px for the handover,
+  with Email in its own column; the form and progress steps stay at 480px. Unlike the 7-day
+  Redis copy, a downloaded file doesn't expire, so it should be deleted once handed over.

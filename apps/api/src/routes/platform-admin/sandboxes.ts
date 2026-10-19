@@ -106,9 +106,21 @@ export const createSandboxHandler = platformAdminFactory.createHandlers(
         { jobId },
       );
     } catch (err) {
-      await db
-        .delete(sandboxProvisioningJobs)
-        .where(eq(sandboxProvisioningJobs.id, jobId));
+      // Review finding (PR #804/#805 / #816): an unhandled queue.add() throw (Redis/BullMQ down)
+      // would otherwise leave the row above stuck at "pending" forever. If the DB is also down,
+      // guard the cleanup delete so it doesn't bubble as a 500 — the caller still gets an actionable
+      // 503 ENQUEUE_FAILED, and the cleanup error is logged for operator attention.
+      try {
+        await db
+          .delete(sandboxProvisioningJobs)
+          .where(eq(sandboxProvisioningJobs.id, jobId));
+      } catch (cleanupErr) {
+        logger.error(
+          { err: cleanupErr, jobId, originalErr: err },
+          "platform-admin sandboxes: failed to delete orphaned pending row — manual cleanup required",
+        );
+      }
+
       logger.error(
         { err, userId, jobId },
         "platform-admin sandboxes: failed to enqueue provisioning job",
@@ -131,6 +143,12 @@ export const createSandboxHandler = platformAdminFactory.createHandlers(
  * full provisioning duration. Returns 404 for an unknown job id (security.md's
  * 404-not-403 rule — a platform_admin has no narrower resource to be denied access to
  * here, there's only "exists" or "doesn't").
+ *
+ * Review finding (PR #805 / #817): NOTE: does NOT filter by `requestedBy` — any platform_admin can
+ * poll any jobId's progress, mirroring sandboxHandoverHandler below. Acceptable under §C's
+ * single-trusted-operator model; the jobId is a UUID (not guessable in practice). Add
+ * `AND eq(sandboxProvisioningJobs.requestedBy, userId)` filter here when multi-admin support lands,
+ * alongside the same fix in sandboxHandoverHandler.
  */
 const JobIdParamSchema = z.object({ jobId: z.string().uuid() });
 
@@ -148,6 +166,7 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
           completedSteps: sandboxProvisioningJobs.completedSteps,
           totalSteps: sandboxProvisioningJobs.totalSteps,
           error: sandboxProvisioningJobs.error,
+          rolledBack: sandboxProvisioningJobs.rolledBack,
         })
         .from(sandboxProvisioningJobs)
         .where(eq(sandboxProvisioningJobs.id, jobId))

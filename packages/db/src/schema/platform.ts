@@ -69,6 +69,7 @@ export const sandboxProvisioningJobs = pgTable("sandbox_provisioning_jobs", {
   totalSteps: integer("total_steps").default(0).notNull(),
   zitadelOrgId: text("zitadel_org_id"),
   error: text("error"),
+  rolledBack: boolean("rolled_back"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

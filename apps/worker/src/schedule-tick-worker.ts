@@ -37,6 +37,7 @@ import {
 import { writeAuditEntry } from "@platform/audit";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
+import { validateActiveTenant } from "./tenant-guard.js";
 import {
   scheduleTickTotal,
   scheduleExecutionTotal,
@@ -544,9 +545,27 @@ export async function schedulerTick(
         );
     });
 
+    const tenantEligibilityCache = new Map<string, boolean>();
     for (const rule of dueRules) {
       const originalScheduledAt = rule.nextFireAt;
       if (!originalScheduledAt) continue; // defensive — nextFireAt is expected non-null for an active due rule
+
+      // T12, #835: skip execution if tenant is deactivated, trial-expired, or missing.
+      let isEligible = tenantEligibilityCache.get(rule.tenantId);
+      if (isEligible === undefined) {
+        isEligible = await validateActiveTenant(
+          rule.tenantId,
+          "schedule-tick",
+          {
+            ruleId: rule.id,
+          },
+        );
+        tenantEligibilityCache.set(rule.tenantId, isEligible);
+      }
+      if (!isEligible) {
+        skipped++;
+        continue;
+      }
 
       const claimed = await claimRule(rule, now);
       if (!claimed) continue; // another worker instance already claimed this rule

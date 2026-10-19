@@ -22,7 +22,11 @@ import {
 } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext, PlatformAdminAuthContext } from "./types.js";
-import { isMfaVerified, isMfaFresh } from "./platform-admin-mfa.js";
+import {
+  isMfaVerified,
+  isMfaFresh,
+  PLATFORM_ADMIN_MFA_SESSION_HEADER,
+} from "./platform-admin-mfa.js";
 import {
   getCachedTenantStatus,
   setCachedTenantStatus,
@@ -526,7 +530,10 @@ export const requirePlatformAdmin = (): MiddlewareHandler =>
       // true outside production (packages/config's Zod refine makes that structurally
       // impossible), so this check is unconditionally enforced wherever it actually matters.
       if (!env.PLATFORM_ADMIN_MFA_DEV_BYPASS) {
-        const verified = await isMfaVerified(platformAdmin.userId);
+        const verified = await isMfaVerified(
+          platformAdmin.userId,
+          c.req.header(PLATFORM_ADMIN_MFA_SESSION_HEADER),
+        );
         if (!verified) {
           logger.warn(
             { userId: platformAdmin.userId },
@@ -549,7 +556,7 @@ export const requirePlatformAdmin = (): MiddlewareHandler =>
 
 /**
  * requireFreshMfa -- step-up on top of requirePlatformAdmin for the irreversible-data
- * platform_admin actions (sandbox reset and delete; ADR-022 Decision 10, #865). The 12-hour
+ * platform_admin actions (sandbox reset and delete; ADR-022 Decision 10, #865). The sign-in's
  * verified flag unlocks read/list/create; these two also need a code verified within
  * PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS. Mount it AFTER requirePlatformAdmin(), which sets
  * the platformAdmin identity this reads. Fails closed: a Redis error is "not fresh".
@@ -564,7 +571,12 @@ export const requireFreshMfa = (): MiddlewareHandler =>
     ): Promise<Response | void> => {
       if (!env.PLATFORM_ADMIN_MFA_DEV_BYPASS) {
         const { userId } = c.get("platformAdmin");
-        if (!(await isMfaFresh(userId))) {
+        if (
+          !(await isMfaFresh(
+            userId,
+            c.req.header(PLATFORM_ADMIN_MFA_SESSION_HEADER),
+          ))
+        ) {
           logger.warn(
             { userId },
             "platform_admin destructive action missing fresh MFA",

@@ -43,6 +43,7 @@ import {
   workflows,
   entityTypes,
   entityFields,
+  withEventLogMaintenanceContext,
 } from "@platform/db";
 import { env } from "@platform/config";
 import { createEntityType, createEntity } from "@platform/entity-engine";
@@ -136,6 +137,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await redis.quit();
+  // app_user cannot DELETE workflow events (migration 0147).
+  await withEventLogMaintenanceContext(TENANT, (tx) =>
+    tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT)),
+  );
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
     await tx
@@ -144,7 +149,6 @@ afterAll(async () => {
     await tx
       .delete(automationRules)
       .where(eq(automationRules.tenantId, TENANT));
-    await tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT));
     await tx
       .delete(entityInstances)
       .where(eq(entityInstances.tenantId, TENANT));
