@@ -160,6 +160,7 @@ vi.mock("@platform/db", () => ({
 }));
 
 const { schedulerTick } = await import("./schedule-tick-worker.js");
+const { logger } = await import("@platform/logger");
 
 function makeRule(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -727,6 +728,30 @@ describe("schedulerTick", () => {
 
       expect(mockCreateEntity).not.toHaveBeenCalled();
       expect(insertedExecutions).toHaveLength(0);
+    });
+
+    it("counts rules of an ineligible tenant apart from missed fires skipped by catch-up (#996)", async () => {
+      dueRules = [
+        makeRule({ id: "rule-a", tenantId: "tenant-expired" }),
+        makeRule({ id: "rule-b", tenantId: "tenant-expired" }),
+      ];
+      mockIsTenantActive.mockResolvedValue(false);
+      vi.mocked(logger.info).mockClear();
+
+      await schedulerTick();
+
+      const summary = vi
+        .mocked(logger.info)
+        .mock.calls.find(
+          ([, message]) => message === "scheduler tick complete",
+        );
+      expect(summary?.[0]).toMatchObject({
+        totalDue: 2,
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        skippedIneligible: 2,
+      });
     });
   });
 });

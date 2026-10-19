@@ -196,6 +196,20 @@ to continue using OpenWind."), rather than showing an app shell whose every requ
 tenant's status and trial date are cached for up to 30 s, so ending a trial takes effect within
 that window.
 ✓ Sandbox data is never auto-deleted on expiry — it persists until an explicit delete action.
+✓ **(2026-10-19, #996)** "No-op" means dropped, not delayed. A background job that finds the trial over logs a
+warning and completes; nothing replays it when the trial is extended. In practice: a file whose antivirus scan was
+still queued when the trial ended stays `pending` until it is uploaded again, and an export or notification that
+was queued stays undone (the admin can request it again). Requests are refused at the API during a lapse, so
+nothing new is queued for the tenant.
+✓ **(2026-10-19, #996)** Schedule rules are the exception to "dropped": the tick leaves a rule of an ended trial
+untouched (its `next_fire_at` does not advance and no execution row is written), so on reactivation it is long
+overdue and goes through its normal catch-up policy (ADR-017). `catch_up: false` writes audited skip rows for the
+most recent missed fires; `catch_up: true` creates tickets for the most recent missed fires, at most
+`SCHEDULE_CATCH_UP_MAX` per rule (default 24, maximum 100). The burst is therefore bounded, but a long-expired
+sandbox extended with `catch_up: true` rules can receive up to that many tickets per rule at once.
+✓ **(2026-10-19, #996)** While the trial is over, each tick (every `SCHEDULE_TICK_INTERVAL_SECONDS`, default 60)
+re-reads the tenant's due rules and logs one warning for the tenant; the tick summary reports them as
+`skippedIneligible`, separate from `skipped` (missed fires dropped by catch-up).
 
 R6a **(added 2026-10-12, extended 2026-10-13; owner decisions)**: The platform admin can extend a
 sandbox's trial (reactivating an expired one) or end it immediately.
