@@ -152,6 +152,10 @@ export const workflowEvents = pgTable(
       t.tenantId,
       t.instanceId,
     ),
+    tenantCreatedAtIdx: index("workflow_events_tenant_created_at_idx").on(
+      t.tenantId,
+      t.createdAt,
+    ),
     instanceIdempotencyIdx: uniqueIndex(
       "workflow_events_instance_idempotency_idx",
     )

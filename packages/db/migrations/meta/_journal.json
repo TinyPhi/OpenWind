@@ -1058,6 +1058,13 @@
       "when": 1791967475781,
       "tag": "0150_title_protected_required",
       "breakpoints": false
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1791967476781,
+      "tag": "0151_workflow_events_tenant_created_at_idx",
+      "breakpoints": false
     }
   ]
 }
