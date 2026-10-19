@@ -4,7 +4,9 @@
  *   of the same tenant is accepted -- on create and on sub-task create;
  * - a record's workflow must run its own entity type;
  * - a workflow record missing a mandatory value is created and logged under "log", and
- *   rejected under "enforce".
+ *   rejected under "enforce"; an unassigned ticket is allowed (owner decision 2026-10-19);
+ * - PR 2.3: an edit can't remove a mandatory value or move the due date into the past, and a
+ *   fields edit keeps the keys the type doesn't define (access grants, a team).
  *
  * Uses its own freshly generated tenants, so leftovers from other suites can't collide.
  */
@@ -18,11 +20,13 @@ import {
   teams,
   workflows,
   entityFields,
+  entityInstances,
 } from "@platform/db";
 import {
   createEntityType,
   createEntity,
   createChildRelation,
+  updateEntity,
   setMandatoryFieldsMode,
   ValidationError,
 } from "@platform/entity-engine";
@@ -279,14 +283,112 @@ describe("mandatory fields — engine create paths (PR 2.1)", () => {
     );
   });
 
-  it("still creates a partner ticket whose assignee couldn't be resolved (ADR-012 exemption)", async () => {
+  it("creates an unassigned ticket under enforce", async () => {
     setMandatoryFieldsMode("enforce");
     const created = await withTenantContext(TENANT_A, (tx) =>
-      createEntity(tx, TENANT_A, {
-        ...complete({ assignedTo: undefined }),
-        mandatoryExemption: "partner_unresolved_assignee",
-      }),
+      createEntity(tx, TENANT_A, complete({ assignedTo: undefined })),
     );
     expect(created.assignedTo).toBeNull();
+  });
+});
+
+describe("mandatory fields — edits (PR 2.3)", () => {
+  async function overdueTicket(): Promise<{ id: string; dueDate: Date }> {
+    const created = await withTenantContext(TENANT_A, (tx) =>
+      createEntity(tx, TENANT_A, complete()),
+    );
+    const dueDate = new Date(Date.now() - 86_400_000);
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(entityInstances)
+        .set({ createdAt: new Date(Date.now() - 10 * 86_400_000), dueDate })
+        .where(eq(entityInstances.id, created.id)),
+    );
+    return { id: created.id, dueDate };
+  }
+
+  it("keeps access grants and a team the type doesn't define on a fields edit", async () => {
+    const created = await withTenantContext(TENANT_A, (tx) =>
+      createEntity(
+        tx,
+        TENANT_A,
+        complete({ assignedTo: undefined, teamId: teamA }),
+      ),
+    );
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(entityInstances)
+        .set({
+          fields: sql`${entityInstances.fields} || '{"__accessUsers": {"395069484982800102": {"level": "read_only", "tag": "manual"}}}'::jsonb`,
+        })
+        .where(eq(entityInstances.id, created.id)),
+    );
+
+    const updated = await withTenantContext(TENANT_A, (tx) =>
+      updateEntity(tx, TENANT_A, created.id, { fields: { title: "Renamed" } }),
+    );
+    expect(updated.fields["title"]).toBe("Renamed");
+    expect(updated.fields["team_id"]).toBe(teamA);
+    expect(updated.fields["__accessUsers"]).toEqual({
+      "395069484982800102": { level: "read_only", tag: "manual" },
+    });
+
+    // Kept, not writable: an edit can't set either key itself.
+    await expectValidationField(
+      withTenantContext(TENANT_A, (tx) =>
+        updateEntity(tx, TENANT_A, created.id, {
+          fields: {
+            __accessUsers: { "395069484982800103": { level: "read_write" } },
+          },
+        }),
+      ),
+      "__accessUsers",
+    );
+    const sneaked = await withTenantContext(TENANT_A, (tx) =>
+      updateEntity(tx, TENANT_A, created.id, {
+        fields: { title: "Renamed again", team_id: teamB },
+      }),
+    );
+    expect(sneaked.fields["team_id"]).toBe(teamA);
+  });
+
+  it("keeps an overdue ticket's untouched due date, and refuses a new one in the past", async () => {
+    const { id, dueDate } = await overdueTicket();
+
+    await withTenantContext(TENANT_A, (tx) =>
+      updateEntity(tx, TENANT_A, id, { fields: { title: "Still overdue" } }),
+    );
+    await withTenantContext(TENANT_A, (tx) =>
+      updateEntity(tx, TENANT_A, id, { dueDate: dueDate.toISOString() }),
+    );
+    await expectValidationField(
+      withTenantContext(TENANT_A, (tx) =>
+        updateEntity(tx, TENANT_A, id, {
+          dueDate: new Date(Date.now() - 3_600_000).toISOString(),
+        }),
+      ),
+      "dueDate",
+    );
+    const moved = await withTenantContext(TENANT_A, (tx) =>
+      updateEntity(tx, TENANT_A, id, { dueDate: FUTURE() }),
+    );
+    expect(moved.dueDate).toBeTruthy();
+  });
+
+  it("refuses an edit that clears the due date under enforce, and allows unassigning", async () => {
+    const created = await withTenantContext(TENANT_A, (tx) =>
+      createEntity(tx, TENANT_A, complete()),
+    );
+    setMandatoryFieldsMode("enforce");
+    await expectValidationField(
+      withTenantContext(TENANT_A, (tx) =>
+        updateEntity(tx, TENANT_A, created.id, { dueDate: null }),
+      ),
+      "dueDate",
+    );
+    const unassigned = await withTenantContext(TENANT_A, (tx) =>
+      updateEntity(tx, TENANT_A, created.id, { assignedTo: null }),
+    );
+    expect(unassigned.assignedTo).toBeNull();
   });
 });

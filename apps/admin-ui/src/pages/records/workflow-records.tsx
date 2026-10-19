@@ -120,6 +120,8 @@ export interface BuildRecordsRequestParams {
   filterSeverities: Set<string> | Set<Severity>;
   filterTag: string;
   filterOrigin: string;
+  /** The assignee filter's "Unassigned" choice, applied server-side. */
+  filterUnassigned?: boolean;
 }
 
 export interface BuildRecordsRequestResult {
@@ -140,6 +142,7 @@ export function buildRecordsRequest(
     filterSeverities,
     filterTag,
     filterOrigin,
+    filterUnassigned,
   } = params;
 
   // A "user"-role caller who is this workflow's creator or in its
@@ -167,6 +170,10 @@ export function buildRecordsRequest(
   }
   if (filterOrigin) {
     filterParams.set("origin", filterOrigin);
+  }
+  // Server-side too, so an unassigned ticket past the first page still shows.
+  if (filterUnassigned) {
+    filterParams.set("unassigned", "true");
   }
   const filterQS = filterParams.toString();
 
@@ -801,6 +808,7 @@ export function WorkflowRecords(): React.ReactElement {
           filterSeverities,
           filterTag,
           filterOrigin,
+          filterUnassigned: filterAssignedTo === "__unassigned__",
         });
 
         // Concurrently fetch fields, deduplicated users, and initial ticket records.
@@ -890,6 +898,7 @@ export function WorkflowRecords(): React.ReactElement {
       filterSeverities,
       filterTag,
       filterOrigin,
+      filterUnassigned: filterAssignedTo === "__unassigned__",
     });
 
     // `records` already holds this URL's data (from the shell or an earlier
@@ -934,6 +943,7 @@ export function WorkflowRecords(): React.ReactElement {
     filterSeverities,
     filterTag,
     filterOrigin,
+    filterAssignedTo,
   ]);
 
   useEffect(() => {

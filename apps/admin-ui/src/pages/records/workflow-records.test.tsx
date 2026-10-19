@@ -672,6 +672,25 @@ describe("WorkflowRecords — records load retries and in-flight races", () => {
 });
 
 describe("buildRecordsRequest", () => {
+  // The "Unassigned" filter runs server-side, so it isn't limited to the first page.
+  it("asks the server for unassigned records when that filter is on", () => {
+    const res = buildRecordsRequest({
+      entityTypeId: "et-1",
+      workflowId: "wf-1",
+      workflowCreatedBy: "creator-id",
+      workflowAssignedTo: [],
+      userSub: "admin-id",
+      isUserRole: false,
+      filterSeverities: new Set(),
+      filterTag: "",
+      filterOrigin: "",
+      filterUnassigned: true,
+    });
+    expect(res.url).toBe(
+      "/api/entities?entityTypeId=et-1&rootOnly=true&unassigned=true",
+    );
+  });
+
   it("routes plain users to /entities/my-tickets", () => {
     const res = buildRecordsRequest({
       entityTypeId: "et-1",

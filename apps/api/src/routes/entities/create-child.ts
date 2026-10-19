@@ -19,8 +19,8 @@ import { postRemarkComment } from "../../lib/post-remark-comment.js";
 const DUE_DATE_GRACE_MS = 15_000;
 
 // docs/specs/mandatory-ticket-fields.md R4 (owner decision 1): a sub-task carries the same
-// five mandatory values as a full ticket -- title, due date, remark, severity, and exactly
-// one of an assignee or a team.
+// four mandatory values as a full ticket -- title, due date, remark and severity -- and at
+// most one of an assignee or a team (unassigned is allowed, 2026-10-19).
 const CreateChildSchema = z
   .object({
     entityTypeId: z.string().uuid(),
@@ -45,11 +45,12 @@ const CreateChildSchema = z
         message: "Title is required",
       });
     }
-    if ((input.assignedTo === undefined) === (input.teamId === undefined)) {
+    // Unassigned is allowed; a person and a team together are not.
+    if (input.assignedTo !== undefined && input.teamId !== undefined) {
       ctx.addIssue({
         code: "custom",
-        path: input.assignedTo === undefined ? ["assignedTo"] : ["teamId"],
-        message: "Exactly one of assignedTo or teamId must be set",
+        path: ["teamId"],
+        message: "Set at most one of assignedTo or teamId",
       });
     }
   });

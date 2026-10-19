@@ -1,15 +1,17 @@
 /**
  * docs/specs/mandatory-ticket-fields.md R7: an automation-created ticket or sub-task always
- * carries all five mandatory values. A rule's template sets them; anything it leaves out
+ * carries the four mandatory values. A rule's template sets them; anything it leaves out
  * gets the owner's defaults (2026-10-16): due in 3 days, medium, the remark
- * "Created by automation: <rule>", a title from the rule's name, and the fallback assignee.
+ * "Created by automation: <rule>" and a title from the rule's name. The assignee is the
+ * template's person or team, else the fallback owner, else nobody (unassigned is allowed,
+ * owner decision 2026-10-19).
  *
  * The fallback assignee needs the tenant's admins, which only Zitadel knows; the worker
  * registers a resolver at startup (the same pattern as entity-engine's audit hook), since
  * this package can't call Zitadel.
  */
 import type { DbOrTx } from "@platform/db";
-import { AutomationError, type TicketTemplate } from "../types.js";
+import type { TicketTemplate } from "../types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_AUTOMATION_DUE_DAYS = 3;
@@ -83,16 +85,7 @@ export async function resolveTicketValues(
     const fallback = fallbackResolver
       ? await fallbackResolver(db, tenantId, input.workflowId)
       : null;
-    if (!fallback) {
-      // The execution is recorded as failed with this message; no ticket is created unassigned.
-      const err = new AutomationError("NO_ASSIGNEE", {
-        workflowId: input.workflowId,
-      });
-      err.message =
-        "NO_ASSIGNEE: set an assignee in the rule's template, or give the workflow an owner";
-      throw err;
-    }
-    values.assignedTo = fallback;
+    if (fallback) values.assignedTo = fallback;
   }
   return values;
 }

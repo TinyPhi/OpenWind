@@ -1507,19 +1507,31 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     expect(patchBodies()).toHaveLength(0);
   });
 
-  it("offers no Unassigned choice, and keeps a team ticket's team", async () => {
+  // Owner decision 2026-10-19: a ticket may be unassigned.
+  it("lets the Edit form unassign a ticket", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await openEdit();
+
+    const select = screen
+      .getByRole("option", { name: "Unassigned" })
+      .closest("select");
+    if (!select) throw new Error("assignee select not found");
+    fireEvent.change(select, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    expect(patchBodies()[0]).toHaveProperty("assignedTo", null);
+  });
+
+  it("labels a team ticket with no person by its team", async () => {
     mockMandatoryTicket({ assignedTo: null, teamName: "Platform" });
     renderRecordDetail();
     await openEdit();
 
-    expect(screen.queryByRole("option", { name: "Unassigned" })).toBeNull();
     expect(
       screen.getByRole("option", { name: "Team: Platform" }),
     ).toBeDefined();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(patchBodies()).toHaveLength(1));
-    expect(patchBodies()[0]).not.toHaveProperty("assignedTo");
   });
 
   it("saves other edits on an overdue ticket without touching its due date", async () => {
@@ -1642,7 +1654,7 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
   });
 
   // docs/specs/mandatory-ticket-fields.md R4 (owner decision 1): a sub-task needs the same
-  // five mandatory values as a full ticket.
+  // four mandatory values as a full ticket; the assignee is optional.
   async function openSubtaskForm(): Promise<void> {
     await screen.findByRole("heading", { name: "Printer offline" });
     fireEvent.click(screen.getByRole("button", { name: /Sub-tasks/ }));
@@ -1671,7 +1683,42 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
       );
   }
 
-  it("sends all five mandatory values when creating a sub-task", async () => {
+  function fillSubtask(): void {
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.change(screen.getByLabelText("Due date *"), {
+      target: { value: "2099-01-01T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Severity *"), {
+      target: { value: "high" },
+    });
+    fireEvent.change(screen.getByLabelText("Remark *"), {
+      target: { value: "Needed before the board meeting" },
+    });
+  }
+
+  it("creates an unassigned sub-task when nobody is picked", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fillSubtask();
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    await waitFor(
+      () =>
+        expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toHaveLength(
+          1,
+        ),
+      { timeout: 3000 },
+    );
+    expect(
+      postBodies(`/api/entities/${RECORD_ID}/children`)[0],
+    ).not.toHaveProperty("assignedTo");
+  });
+
+  it("sends the four mandatory values and the assignee when creating a sub-task", async () => {
     mockMandatoryTicket({ canAddChildren: true });
     renderRecordDetail();
     await openSubtaskForm();
@@ -1679,7 +1726,10 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
       target: { value: "Swap the toner" },
     });
-    fireEvent.click(screen.getByText("Select assignee"));
+    // The sub-task form's picker is the last "Unassigned" on the page.
+    const trigger = screen.getAllByText("Unassigned").at(-1);
+    if (!trigger) throw new Error("sub-task assignee picker not found");
+    fireEvent.click(trigger);
     fireEvent.click(await screen.findByText("Second"));
     fireEvent.change(screen.getByLabelText("Due date *"), {
       target: { value: "2099-01-01T10:00" },
@@ -1720,7 +1770,7 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
 
     expect(
-      await screen.findByText("Assignee, Due date, Remark are required."),
+      await screen.findByText("Due date, Remark are required."),
     ).toBeDefined();
     expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toEqual([]);
   });

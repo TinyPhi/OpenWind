@@ -218,15 +218,10 @@ export function EntityInstanceCreate(): React.ReactElement {
     // depth -- POST /entities rejects a request missing any of these
     // regardless, but blocking here avoids a round-trip and points the
     // agent at the Mandate tab instead of a raw server error.
-    // docs/specs/team-assign-oncall-fallback.md R1 — exactly one of
-    // assignedTo/teamId, driven by assignMode.
-    const assignValue = assignMode === "user" ? assignedTo : teamId;
-    if (!assignValue || !dueDate || !remark.trim()) {
-      setError(
-        assignMode === "user"
-          ? "Assigned To, Due Date, and Remark are required."
-          : "Team, Due Date, and Remark are required.",
-      );
+    // The assignee is optional: an unassigned ticket stays on the records list under the
+    // "Unassigned" filter (docs/specs/mandatory-ticket-fields.md, 2026-10-19).
+    if (!dueDate || !remark.trim()) {
+      setError("Due Date and Remark are required.");
       setActiveTab("mandate");
       return;
     }
@@ -240,9 +235,10 @@ export function EntityInstanceCreate(): React.ReactElement {
         remark: remark.trim(),
         severity,
       };
+      // At most one of assignedTo/teamId, driven by assignMode; neither leaves it unassigned.
       if (assignMode === "user") {
-        payload["assignedTo"] = assignedTo;
-      } else {
+        if (assignedTo) payload["assignedTo"] = assignedTo;
+      } else if (teamId) {
         payload["teamId"] = teamId;
       }
       if (workflowId) payload["workflowId"] = workflowId;
@@ -404,9 +400,7 @@ export function EntityInstanceCreate(): React.ReactElement {
             }}
           >
             <div className="form-group" style={{ gridColumn: "1 / -1" }}>
-              <label className="form-label">
-                Assign To<span style={{ color: "var(--danger)" }}> *</span>
-              </label>
+              <label className="form-label">Assign To</label>
               <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
                 <button
                   type="button"
@@ -454,6 +448,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                   users={users}
                   value={assignedTo}
                   onChange={(val) => updateFormField("assignedTo", val)}
+                  placeholder="Unassigned"
                 />
               ) : (
                 <select
@@ -461,7 +456,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                   value={teamId}
                   onChange={(e) => updateFormField("teamId", e.target.value)}
                 >
-                  <option value="">Select a team…</option>
+                  <option value="">Unassigned</option>
                   {teams.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}

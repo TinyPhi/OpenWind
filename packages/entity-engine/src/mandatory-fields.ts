@@ -1,8 +1,10 @@
 /**
- * The five values every workflow record must carry: title, due date, remark, severity, and
- * an assignee or a team (docs/specs/mandatory-ticket-fields.md R4). One check, run by every
- * engine path that creates a record, so a creator that bypasses the API routes (seeders,
- * automations, the scheduler, bulk create) can no longer skip them.
+ * The four values every workflow record must carry: title, due date, remark and severity
+ * (docs/specs/mandatory-ticket-fields.md R4/R5). The assignee is optional: an unassigned
+ * ticket stays on its workflow's records list, under the "Unassigned" filter (owner decision
+ * 2026-10-19). One check, run by every engine path that creates a record, so a creator that
+ * bypasses the API routes (seeders, automations, the scheduler, bulk create) can't skip
+ * them; and an update check, so no edit removes a value the record had.
  *
  * While every creator is brought in line the check only logs ("log"); the API and worker set
  * "enforce" from MANDATORY_FIELDS_MODE at startup. The engine reads no config itself, like
@@ -29,17 +31,12 @@ export interface MandatoryValues {
   dueDate: string | Date | null | undefined;
   remark: string | null | undefined;
   severity: string | null | undefined;
-  assignedTo: string | null | undefined;
-  teamId: unknown;
 }
 
-export interface MandatoryExemptions {
-  /**
-   * The partner API keeps a ticket whose requested assignee can't be resolved, unassigned,
-   * until the ADR-012 amendment gives it a fallback owner (spec R6/T11). Nothing else may
-   * set this.
-   */
-  assignee?: boolean;
+interface CheckContext {
+  tenantId: string;
+  entityTypeId: string;
+  path: string;
 }
 
 function isBlank(v: unknown): boolean {
@@ -52,10 +49,9 @@ function required(field: string, label: string): FieldError {
   return { field, code: "required", message: `${label} is required` };
 }
 
-/** Pure: which of the five are missing. */
+/** Pure: which of the four are missing. */
 export function findMissingMandatoryFields(
   values: MandatoryValues,
-  exemptions: MandatoryExemptions = {},
 ): FieldError[] {
   const errors: FieldError[] = [];
   if (isBlank(values.title)) errors.push(required("title", "Title"));
@@ -68,37 +64,49 @@ export function findMissingMandatoryFields(
   }
   if (isBlank(values.remark)) errors.push(required("remark", "Remark"));
   if (isBlank(values.severity)) errors.push(required("severity", "Severity"));
-  if (
-    !exemptions.assignee &&
-    isBlank(values.assignedTo) &&
-    isBlank(values.teamId)
-  ) {
-    errors.push({
-      field: "assignedTo",
-      code: "required",
-      message: "An assignee or a team is required",
-    });
-  }
   return errors;
 }
 
-/** Logs or throws (per the mode) when a workflow record is missing any of the five. */
-export function checkMandatoryFields(
-  values: MandatoryValues,
-  context: { tenantId: string; entityTypeId: string; path: string },
-  exemptions: MandatoryExemptions = {},
+function report(
+  missing: FieldError[],
+  context: CheckContext,
+  what: string,
 ): void {
-  if (exemptions.assignee) {
-    logger.info(
-      { ...context },
-      "mandatory-fields: partner ticket kept without a resolvable assignee (ADR-012 exemption)",
-    );
-  }
-  const missing = findMissingMandatoryFields(values, exemptions);
   if (missing.length === 0) return;
   if (mode === "enforce") throw new ValidationError(missing);
   logger.warn(
     { ...context, missing: missing.map((e) => e.field) },
-    "mandatory-fields: workflow record created without mandatory values",
+    `mandatory-fields: workflow record ${what}`,
+  );
+}
+
+/** Logs or throws (per the mode) when a new workflow record is missing any of the four. */
+export function checkMandatoryFields(
+  values: MandatoryValues,
+  context: CheckContext,
+): void {
+  report(
+    findMissingMandatoryFields(values),
+    context,
+    "created without mandatory values",
+  );
+}
+
+/**
+ * Logs or throws (per the mode) when an edit removes a value the record had. A value that
+ * was already missing (a record from before the rule) doesn't block the edit.
+ */
+export function checkMandatoryFieldsOnUpdate(
+  before: MandatoryValues,
+  after: MandatoryValues,
+  context: CheckContext,
+): void {
+  const hadBefore = new Set(
+    findMissingMandatoryFields(before).map((e) => e.field),
+  );
+  report(
+    findMissingMandatoryFields(after).filter((e) => !hadBefore.has(e.field)),
+    context,
+    "edited to remove mandatory values",
   );
 }

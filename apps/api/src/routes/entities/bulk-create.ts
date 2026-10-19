@@ -18,7 +18,7 @@ const BulkCreateSchema = z.object({
         fields: z.record(z.unknown()),
         assignedTo: z.string().optional(),
         workflowId: z.string().uuid().optional(),
-        // docs/specs/mandatory-ticket-fields.md R4: the rest of the five mandatory values.
+        // docs/specs/mandatory-ticket-fields.md R4: the rest of the four mandatory values.
         // Optional here while MANDATORY_FIELDS_MODE is "log"; the engine reports or rejects
         // an item missing them.
         teamId: z.string().uuid().optional(),

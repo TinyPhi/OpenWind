@@ -303,9 +303,9 @@ describe("executeAutomationRules", () => {
     );
   });
 
-  // A rule with nobody to assign to is misconfigured, not a failing service: it fails, with a
-  // readable reason, but never trips the tenant-wide circuit breaker.
-  it("fails a ticket rule with nobody to assign, without counting a circuit-breaker failure", async () => {
+  // Owner decision 2026-10-19: with no template assignee and no fallback owner the ticket is
+  // created unassigned; the rule doesn't fail.
+  it("creates an unassigned ticket when nobody can be found", async () => {
     registerFallbackAssigneeResolver(() => Promise.resolve(null));
     mockDedupSelect.mockResolvedValue([{ id: "wf-1" }]);
     mockSelect.mockResolvedValue([
@@ -330,9 +330,12 @@ describe("executeAutomationRules", () => {
       redis as never,
     );
 
-    expect(mockCreateEntity).not.toHaveBeenCalled();
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      expect.not.objectContaining({ assignedTo: expect.anything() }),
+    );
     expect(incr).not.toHaveBeenCalled();
-    expect(mockUpdate).toHaveBeenCalled();
   });
 
   // docs/specs/mandatory-ticket-fields.md R7 covers tickets only: a type with no workflow is

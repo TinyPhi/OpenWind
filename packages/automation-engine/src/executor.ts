@@ -428,11 +428,7 @@ async function runAction(
     }
     await reset(redis, tenantId, action.type);
   } catch (err) {
-    // A rule with nobody to assign its ticket to is a configuration problem, not a failing
-    // service: it must not trip the tenant-wide breaker and switch off the correct rules.
-    if (!(err instanceof AutomationError && err.code === "NO_ASSIGNEE")) {
-      await recordFailure(redis, tenantId, action.type);
-    }
+    await recordFailure(redis, tenantId, action.type);
     throw err;
   }
 
