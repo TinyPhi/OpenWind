@@ -29,6 +29,10 @@ vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   isNull: (col: unknown) => ({ isNull: col }),
   gte: (col: unknown, val: unknown) => ({ gte: [col, val] }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: strings.join("?"),
+    values,
+  }),
 }));
 
 // Query results by table -- set per test.
@@ -305,7 +309,7 @@ describe("seedAllModulesData", () => {
     expect(cutOff).toBeLessThanOrEqual(firstRecordAt);
   });
 
-  it("suppresses outbox events immediately on each entity creation and transition (#830)", async () => {
+  it("suppresses outbox events immediately on each entity creation and transition, against the database clock (#830)", async () => {
     entityTypeRows = [{ id: "type-1" }];
     workflowRows = [{ id: "wf-1" }];
     transitionRows = PROJECT_TRANSITIONS;
@@ -317,20 +321,28 @@ describe("seedAllModulesData", () => {
 
     await seedAllModulesData("tenant-1", ["projects"], ["u-1"]);
 
-    // Expect multiple suppression updates: per-record, per-transition, plus the final safety sweep
-    expect(mockUpdateWhere.mock.calls.length).toBeGreaterThan(1);
-    for (const call of mockUpdateWhere.mock.calls) {
+    // Per-record and per-transition suppression, plus the final safety sweep (the last call).
+    const calls = mockUpdateWhere.mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+    const inTransaction = calls.slice(0, -1);
+    expect(inTransaction.length).toBeGreaterThan(0);
+    for (const call of inTransaction) {
       const where = call[0] as {
-        and: [
-          { eq: [string, string] },
-          { isNull: string },
-          { gte: [string, Date] },
-        ];
+        and: [{ eq: [string, string] }, { isNull: string }, unknown];
       };
       expect(where.and[0]).toEqual({ eq: ["outbox.tenantId", "tenant-1"] });
       expect(where.and[1]).toEqual({ isNull: "outbox.deliveredAt" });
-      expect(where.and[2].gte[0]).toBe("outbox.createdAt");
+      // Not an app-side timestamp: rows written inside the transaction carry the database's
+      // now(), which predates anything the app clock reads after BEGIN.
+      expect(where.and[2]).toEqual({
+        sql: "? >= transaction_timestamp()",
+        values: ["outbox.createdAt"],
+      });
     }
+    const finalSweep = calls[calls.length - 1]?.[0] as {
+      and: [unknown, unknown, { gte: [string, Date] }];
+    };
+    expect(finalSweep.and[2].gte[0]).toBe("outbox.createdAt");
   });
 
   it("propagates a refused suppression instead of failing silently", async () => {
