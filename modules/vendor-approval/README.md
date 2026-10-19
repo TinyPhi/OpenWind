@@ -51,6 +51,11 @@ happens if that marker is cleared by hand. If it is, any vendor mid-workflow kee
 SLA timers and events that reference the old state ids, and those are not re-resolved.
 Don't force a re-seed on a tenant with active vendors.
 
+The same applies to installs made before the segregation-of-duties transitions landed (#1009): they
+keep their old transitions, where `admin` can still run the review steps, until the workflow is
+changed. A tenant with no live vendors can clear the marker and re-seed. One with live vendors
+should have its review transitions edited on the workflow canvas instead, not re-seeded.
+
 ## Demo data
 
 `apps/api/src/scripts/vendor-approval-demo.ts` installs the module on a tenant (dev tenant by

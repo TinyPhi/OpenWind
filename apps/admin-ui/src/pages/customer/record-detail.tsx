@@ -4959,9 +4959,21 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <div
                     className="portal-alert-error"
                     role="status"
-                    style={{ marginBottom: "12px" }}
+                    style={{
+                      marginBottom: "12px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                    }}
                   >
-                    {childNotice}
+                    <span>{childNotice}</span>
+                    <button
+                      type="button"
+                      aria-label="Dismiss notice"
+                      onClick={() => setChildNotice(null)}
+                    >
+                      ×
+                    </button>
                   </div>
                 )}
                 {canCreateChild && !record.deletedAt && (

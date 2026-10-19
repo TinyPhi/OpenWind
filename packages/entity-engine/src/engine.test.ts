@@ -943,6 +943,8 @@ describe("setEntityState", () => {
       .mockReturnValueOnce(
         makeQueryBuilder(() => [{ toInstanceId: "parent-1" }]),
       )
+      // state-write lock lookup — the workflow is not locked.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
       .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
     mockUpdateReturning.mockResolvedValue([
       { ...fakeInstance, currentState: "in-progress", workflowId: "wf-parent" },

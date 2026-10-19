@@ -267,6 +267,34 @@ const CREATE_DUE_DATE_GRACE_MS = 15_000;
 // Create-path counterpart of validateDueDateAfterCreation: the entity is
 // being created now, so "after creation" means "not in the past", with the
 // grace margin above.
+// Direct step writes on a locked workflow are refused for every record; a child ticket is also
+// refused when its fixed list would land on one of the workflow's own steps.
+async function assertDirectStateWriteAllowed(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+  existing: { workflowId: string | null; currentState: string },
+  to: string,
+  isChildTicket: boolean,
+): Promise<void> {
+  if (!existing.workflowId || to === existing.currentState) return;
+  const refused = isChildTicket
+    ? await childStateWriteReachesLockedStep(
+        db,
+        tenantId,
+        existing.workflowId,
+        to,
+      )
+    : await isStateWriteLocked(db, tenantId, existing.workflowId);
+  if (refused) {
+    throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+      instanceId,
+      from: existing.currentState,
+      to,
+    });
+  }
+}
+
 function validateDueDateOnCreate(dueDate: string): FieldError[] {
   if (new Date(dueDate).getTime() < Date.now() - CREATE_DUE_DATE_GRACE_MS) {
     return [
@@ -801,33 +829,23 @@ export async function updateEntity(
             },
           ]);
         }
-        if (
-          existing.workflowId &&
-          input.currentState !== existing.currentState &&
-          (await childStateWriteReachesLockedStep(
-            db,
-            tenantId,
-            existing.workflowId,
-            input.currentState,
-          ))
-        ) {
-          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
-            instanceId,
-            from: existing.currentState,
-            to: input.currentState,
-          });
-        }
+        await assertDirectStateWriteAllowed(
+          db,
+          tenantId,
+          instanceId,
+          existing,
+          input.currentState,
+          true,
+        );
       } else if (existing.workflowId) {
-        if (
-          input.currentState !== existing.currentState &&
-          (await isStateWriteLocked(db, tenantId, existing.workflowId))
-        ) {
-          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
-            instanceId,
-            from: existing.currentState,
-            to: input.currentState,
-          });
-        }
+        await assertDirectStateWriteAllowed(
+          db,
+          tenantId,
+          instanceId,
+          existing,
+          input.currentState,
+          false,
+        );
         const states = await db
           .select({ name: workflowStates.name })
           .from(workflowStates)
@@ -1088,33 +1106,23 @@ export async function updateEntity(
             },
           ]);
         }
-        if (
-          existing.workflowId &&
-          input.currentState !== existing.currentState &&
-          (await childStateWriteReachesLockedStep(
-            db,
-            tenantId,
-            existing.workflowId,
-            input.currentState,
-          ))
-        ) {
-          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
-            instanceId,
-            from: existing.currentState,
-            to: input.currentState,
-          });
-        }
+        await assertDirectStateWriteAllowed(
+          db,
+          tenantId,
+          instanceId,
+          existing,
+          input.currentState,
+          true,
+        );
       } else if (existing.workflowId) {
-        if (
-          input.currentState !== existing.currentState &&
-          (await isStateWriteLocked(db, tenantId, existing.workflowId))
-        ) {
-          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
-            instanceId,
-            from: existing.currentState,
-            to: input.currentState,
-          });
-        }
+        await assertDirectStateWriteAllowed(
+          db,
+          tenantId,
+          instanceId,
+          existing,
+          input.currentState,
+          false,
+        );
         const states = await db
           .select({ name: workflowStates.name })
           .from(workflowStates)
@@ -2912,33 +2920,23 @@ export async function setEntityState(
         },
       ]);
     }
-    if (
-      existing.workflowId &&
-      state !== existing.currentState &&
-      (await childStateWriteReachesLockedStep(
-        db,
-        tenantId,
-        existing.workflowId,
-        state,
-      ))
-    ) {
-      throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
-        instanceId,
-        from: existing.currentState,
-        to: state,
-      });
-    }
+    await assertDirectStateWriteAllowed(
+      db,
+      tenantId,
+      instanceId,
+      existing,
+      state,
+      true,
+    );
   } else if (existing.workflowId) {
-    if (
-      state !== existing.currentState &&
-      (await isStateWriteLocked(db, tenantId, existing.workflowId))
-    ) {
-      throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
-        instanceId,
-        from: existing.currentState,
-        to: state,
-      });
-    }
+    await assertDirectStateWriteAllowed(
+      db,
+      tenantId,
+      instanceId,
+      existing,
+      state,
+      false,
+    );
     const states = await db
       .select({ name: workflowStates.name })
       .from(workflowStates)

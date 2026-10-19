@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { workflows, workflowStates, workflowTransitions } from "@platform/db";
 
@@ -11,6 +11,15 @@ import { workflows, workflowStates, workflowTransitions } from "@platform/db";
 // The `conditions` jsonb is searched as text for the two operator names. The write-time schema
 // (TransitionConditionsSchema) only admits known operators, so `"actor_` can only be an operator.
 const ACTOR_RULE_PATTERN = '%"actor\\_%';
+
+function isLockedWorkflow(tenantId: string): SQL {
+  return sql`(${workflows.allowStateOverride} = true OR EXISTS (
+    SELECT 1 FROM ${workflowTransitions} t
+    WHERE t.workflow_id = ${workflows.id}
+      AND t.tenant_id = ${tenantId}
+      AND t.conditions::text LIKE ${ACTOR_RULE_PATTERN} ESCAPE '\\'
+  ))`;
+}
 
 export async function lockedWorkflowIds(
   db: DbOrTx,
@@ -25,15 +34,7 @@ export async function lockedWorkflowIds(
       and(
         eq(workflows.tenantId, tenantId),
         inArray(workflows.id, [...workflowIds]),
-        or(
-          eq(workflows.allowStateOverride, true),
-          sql`EXISTS (
-            SELECT 1 FROM ${workflowTransitions} t
-            WHERE t.workflow_id = ${workflows.id}
-              AND t.tenant_id = ${tenantId}
-              AND t.conditions::text LIKE ${ACTOR_RULE_PATTERN}
-          )`,
-        ),
+        isLockedWorkflow(tenantId),
       ),
     );
   return new Set(rows.map((r) => r.id));
@@ -78,6 +79,21 @@ export async function childStateWriteReachesLockedStep(
   workflowId: string,
   name: string,
 ): Promise<boolean> {
-  if (!(await isStateWriteLocked(db, tenantId, workflowId))) return false;
-  return workflowHasStateNamed(db, tenantId, workflowId, name);
+  const rows = await db
+    .select({ id: workflows.id })
+    .from(workflows)
+    .where(
+      and(
+        eq(workflows.tenantId, tenantId),
+        eq(workflows.id, workflowId),
+        isLockedWorkflow(tenantId),
+        sql`EXISTS (
+          SELECT 1 FROM ${workflowStates} s
+          WHERE s.workflow_id = ${workflows.id}
+            AND s.tenant_id = ${tenantId}
+            AND s.name = ${name}
+        )`,
+      ),
+    );
+  return rows.length > 0;
 }

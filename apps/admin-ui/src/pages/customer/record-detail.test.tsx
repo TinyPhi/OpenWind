@@ -1744,6 +1744,9 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     expect(notice.textContent).toContain(
       "could not be added as the first comment",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("names the missing values and sends nothing", async () => {
