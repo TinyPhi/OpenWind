@@ -109,6 +109,12 @@ vi.mock("@platform/logger", () => ({
   logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
+const mockResolveFallbackAssignee = vi.fn();
+vi.mock("./fallback-assignee.js", () => ({
+  resolveFallbackAssignee: (...args: unknown[]) =>
+    mockResolveFallbackAssignee(...args) as unknown,
+}));
+
 const { seedAllModulesData } = await import("./sandbox-module-data-seed.js");
 
 const PROJECT_TRANSITIONS = [
@@ -136,6 +142,7 @@ beforeEach(() => {
   workflowRows = [{ id: "workflow-1" }];
   entityFieldRows = [];
   transitionRows = PROJECT_TRANSITIONS;
+  mockResolveFallbackAssignee.mockResolvedValue("u-fallback");
   mockCreateEntity.mockImplementation(async () => ({
     id: "entity-x",
     currentState: "backlog",
@@ -211,12 +218,31 @@ describe("seedAllModulesData", () => {
     expect(first?.fields).not.toHaveProperty("team_id");
   });
 
-  it("leaves records unassigned when no seeded accounts are given", async () => {
+  // docs/specs/mandatory-ticket-fields.md R4: a seeded record is never unassigned.
+  it("assigns records to the fallback (workflow owner, then admin) when no seeded accounts are given", async () => {
     await seedAllModulesData("tenant-1", ["projects"]);
 
-    for (const input of createInputs()) {
-      expect(input).not.toHaveProperty("assignedTo");
-    }
+    expect(mockResolveFallbackAssignee).toHaveBeenCalledWith(
+      expect.anything(),
+      "tenant-1",
+      "workflow-1",
+    );
+    const inputs = createInputs();
+    expect(inputs.length).toBeGreaterThan(0);
+    for (const input of inputs) expect(input.assignedTo).toBe("u-fallback");
+  });
+
+  it("skips a module rather than seed it unassigned when nobody can be assigned", async () => {
+    mockResolveFallbackAssignee.mockResolvedValue(null);
+    await seedAllModulesData("tenant-1", ["projects"]);
+
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("doesn't look up a fallback when seeded accounts are given", async () => {
+    await seedAllModulesData("tenant-1", ["projects"], ["u-1"]);
+
+    expect(mockResolveFallbackAssignee).not.toHaveBeenCalled();
   });
 
   it("drives each record through the right number of real transitions for its target state", async () => {

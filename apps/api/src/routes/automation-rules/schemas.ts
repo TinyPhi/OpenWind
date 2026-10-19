@@ -107,10 +107,28 @@ const AssignConfigSchema = z.object({
   assigneeId: z.string().min(1),
 });
 
+// docs/specs/mandatory-ticket-fields.md R7: the mandatory values a rule-created ticket
+// carries. Every key optional -- the engine fills the gaps -- but a key that's set must be
+// valid. At most one of assignedTo/teamId.
+const TicketTemplateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500).optional(),
+    due_days: z.number().int().min(0).max(3650).optional(),
+    remark: z.string().trim().min(1).max(4000).optional(),
+    severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+    assignedTo: z.string().trim().min(1).max(255).optional(),
+    teamId: z.string().uuid().optional(),
+  })
+  .refine((t) => !(t.assignedTo && t.teamId), {
+    message: "Set at most one of assignedTo or teamId",
+    path: ["teamId"],
+  });
+
 const CreateEntityConfigSchema = z.object({
   entityTypeId: z.string().min(1),
   fields: z.record(z.unknown()).optional(),
   assignedTo: z.string().optional(),
+  template: TicketTemplateSchema.optional(),
 });
 
 const CreateChildConfigSchema = z.object({
@@ -120,6 +138,7 @@ const CreateChildConfigSchema = z.object({
   descriptionField: z.string().min(1).optional(),
   fields: z.record(z.unknown()).optional(),
   writeBackField: z.string().min(1).optional(),
+  template: TicketTemplateSchema.optional(),
 });
 
 const ResolveOncallConfigSchema = z.object({

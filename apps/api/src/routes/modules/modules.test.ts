@@ -40,9 +40,11 @@ vi.mock("../../services/module-service.js", () => ({
   ModuleService: {
     listModules: (...args: unknown[]) => mockListModules(...args),
     setVisibility: (...args: unknown[]) => mockSetVisibility(...args),
+    installModule: (...args: unknown[]) => mockInstallModule(...args),
   },
 }));
 
+const mockInstallModule = vi.fn();
 const { modulesRouter } = await import("./index.js");
 
 function makeApp() {
@@ -140,5 +142,27 @@ describe("PATCH /modules/:slug/visibility", () => {
 
     expect(res.status).toBe(400);
     expect(mockSetVisibility).not.toHaveBeenCalled();
+  });
+});
+
+// docs/specs/mandatory-ticket-fields.md R7: the installing admin owns the module's workflows.
+describe("POST /modules/:slug/install", () => {
+  it("records the calling admin as the installer", async () => {
+    currentRoles = ["admin"];
+    mockInstallModule.mockResolvedValue(undefined);
+    const res = await makeApp().request("/modules/helpdesk/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflowName: "Support desk" }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockInstallModule).toHaveBeenCalledWith(
+      expect.any(String),
+      "helpdesk",
+      {
+        installedBy: "u-bbb",
+        workflowName: "Support desk",
+      },
+    );
   });
 });

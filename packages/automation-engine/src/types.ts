@@ -79,10 +79,26 @@ export interface AssignConfig {
   assigneeId: string;
 }
 
+/**
+ * docs/specs/mandatory-ticket-fields.md R7: the mandatory values an automation-created ticket
+ * carries. Every key is optional; actions/ticket-template.ts fills the gaps (due in 3 days,
+ * medium, an automation remark, a title from the rule's name, the fallback assignee).
+ */
+export interface TicketTemplate {
+  title?: string;
+  /** Days from creation. */
+  due_days?: number;
+  remark?: string;
+  severity?: "critical" | "high" | "medium" | "low";
+  assignedTo?: string;
+  teamId?: string;
+}
+
 export interface CreateEntityConfig {
   entityTypeId: string;
   fields?: Record<string, unknown>;
   assignedTo?: string;
+  template?: TicketTemplate;
 }
 
 export interface CreateChildConfig {
@@ -97,6 +113,7 @@ export interface CreateChildConfig {
   fields?: Record<string, unknown>;
   /** Field on the PARENT written back with the new child's instance id. Omit to skip. */
   writeBackField?: string;
+  template?: TicketTemplate;
 }
 
 // R8b/T12: the cascade is resolved from the triggering ticket's team_id and
@@ -161,7 +178,9 @@ export class AutomationError extends Error {
       | "DNS_RESOLUTION_TIMEOUT"
       | "UNKNOWN_ACTION_TYPE"
       | "CIRCUIT_BREAKER_UNAVAILABLE"
-      | "NOTIFY_LINK_INVALID",
+      | "NOTIFY_LINK_INVALID"
+      // docs/specs/mandatory-ticket-fields.md R7: no template assignee and no fallback.
+      | "NO_ASSIGNEE",
     public readonly meta?: Record<string, unknown>,
   ) {
     super(code);

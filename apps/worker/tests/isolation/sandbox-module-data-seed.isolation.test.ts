@@ -30,6 +30,7 @@ import { seedAllModulesData } from "../../src/sandbox-module-data-seed.js";
 const SANDBOX_TENANT = "dddddddd-0099-4000-d000-000000000099";
 const OTHER_TENANT = "cccccccc-0099-4000-c000-000000000099";
 
+const SEEDED_ADMIN = "395069484982800201";
 let installedSlugs: string[] = [];
 
 // The `modules` registry is normally seeded by apps/api's ModuleService.seedRegistry()
@@ -76,9 +77,15 @@ beforeAll(async () => {
     },
   ]);
 
-  const result = await installCoreModulesForSandbox(SANDBOX_TENANT);
+  // A sandbox always seeds its admin account (sandbox-provisioning-worker.ts), which owns the
+  // workflows and receives the records; with nobody to assign, a module isn't seeded at all
+  // (docs/specs/mandatory-ticket-fields.md R4).
+  const result = await installCoreModulesForSandbox(
+    SANDBOX_TENANT,
+    SEEDED_ADMIN,
+  );
   installedSlugs = result.succeeded;
-  await seedAllModulesData(SANDBOX_TENANT, installedSlugs);
+  await seedAllModulesData(SANDBOX_TENANT, installedSlugs, [SEEDED_ADMIN]);
 }, 60_000);
 
 afterAll(async () => {
@@ -109,6 +116,40 @@ afterAll(async () => {
 });
 
 describe("sandbox module data seeding", () => {
+  it("gives every seeded record all five mandatory values, and the admin owns the workflows", async () => {
+    const rows = await withTenantContext(SANDBOX_TENANT, (tx) =>
+      tx
+        .select({
+          fields: entityInstances.fields,
+          dueDate: entityInstances.dueDate,
+          remark: entityInstances.remark,
+          severity: entityInstances.severity,
+          assignedTo: entityInstances.assignedTo,
+        })
+        .from(entityInstances)
+        .where(eq(entityInstances.tenantId, SANDBOX_TENANT)),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(String((row.fields as Record<string, unknown>)["title"])).not.toBe(
+        "",
+      );
+      expect(row.dueDate).not.toBeNull();
+      expect(row.remark).toBeTruthy();
+      expect(row.severity).toBeTruthy();
+      expect(row.assignedTo).toBe(SEEDED_ADMIN);
+    }
+
+    const owners = await withTenantContext(SANDBOX_TENANT, (tx) =>
+      tx
+        .select({ createdBy: workflows.createdBy })
+        .from(workflows)
+        .where(eq(workflows.tenantId, SANDBOX_TENANT)),
+    );
+    expect(owners.length).toBeGreaterThan(0);
+    for (const o of owners) expect(o.createdBy).toBe(SEEDED_ADMIN);
+  });
+
   it("installs at least one core module and seeds real entity_instances rows for it", async () => {
     expect(installedSlugs.length).toBeGreaterThan(0);
 

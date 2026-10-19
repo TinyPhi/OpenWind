@@ -6,6 +6,10 @@ import { setMandatoryFieldsMode } from "@platform/entity-engine";
 // docs/specs/mandatory-ticket-fields.md: log or reject workflow records missing a mandatory
 // value. The engine reads no config itself.
 setMandatoryFieldsMode(env.MANDATORY_FIELDS_MODE);
+import { registerFallbackAssigneeResolver } from "@platform/automation-engine";
+import { resolveFallbackAssignee } from "./fallback-assignee.js";
+// Who gets an automation-created ticket when the rule names nobody (spec R7).
+registerFallbackAssigneeResolver(resolveFallbackAssignee);
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";
 import { startOutboxPoller, stopOutboxPoller } from "./outbox-poller.js";

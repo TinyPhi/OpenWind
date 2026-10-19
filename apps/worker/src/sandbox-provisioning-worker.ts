@@ -437,7 +437,11 @@ export async function processSandboxProvisioningJob(
     // function (continues with the rest), not surfaced as a job-level failure -- a
     // sandbox with some modules only partially seeded is still useful; a partially
     // created ORG/tenant/accounts is not, which is what T11's rollback guards against.
-    const coreModuleInstall = await installCoreModulesForSandbox(tenantId);
+    // The sandbox's admin owns the seeded workflows (docs/specs/mandatory-ticket-fields.md R7).
+    const coreModuleInstall = await installCoreModulesForSandbox(
+      tenantId,
+      admin.userId,
+    );
     await seedAllModulesData(
       tenantId,
       coreModuleInstall.succeeded,

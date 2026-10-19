@@ -4,8 +4,11 @@
  * shares the API's DB, Redis and file storage:
  *
  *   docker compose exec ow-backend pnpm exec tsx apps/api/src/scripts/vendor-approval-demo.ts \
- *     [--tenant <uuid>] [--notify it_security=<userId>] [--notify legal=<userId>] \
- *     [--notify finance_approver=<userId>]
+ *     [--tenant <uuid>] [--assignee <userId>] [--notify it_security=<userId>] \
+ *     [--notify legal=<userId>] [--notify finance_approver=<userId>]
+ *
+ * Every vendor record gets the five mandatory ticket values
+ * (docs/specs/mandatory-ticket-fields.md): --assignee, else the first --notify user.
  *
  * Idempotent: the module install is a no-op once installed, and fixtures are
  * keyed on external_ref, so re-running never duplicates vendors.
@@ -43,6 +46,9 @@ import {
 
 const MODULE_SLUG = "vendor-approval";
 const ACTOR_ID = "vendor-approval-demo-script";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEMO_DUE_DAYS = 7;
+const DEMO_REMARK = "Demo vendor created by the vendor-approval demo script.";
 const FALLBACK_DEV_TENANT_ID = "00000000-0000-0000-0000-000000000001";
 
 const STATES = [
@@ -86,6 +92,7 @@ const APPROVAL_PATH: Array<{ from: string; to: string; roles: string[] }> = [
 
 const ArgsSchema = z.object({
   tenant: z.string().uuid(),
+  assignee: z.string().min(1).optional(),
   notify: z.record(
     z.enum(["it_security", "legal", "finance_approver"]),
     z.string().min(1),
@@ -94,12 +101,16 @@ const ArgsSchema = z.object({
 
 function parseArgs(argv: string[]): z.infer<typeof ArgsSchema> {
   let tenant = env.DEV_TENANT_ID ?? FALLBACK_DEV_TENANT_ID;
+  let assignee: string | undefined;
   const notify: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === "--tenant" && value) {
       tenant = value;
+      i++;
+    } else if (flag === "--assignee" && value) {
+      assignee = value;
       i++;
     } else if (flag === "--notify" && value) {
       const [role, userId] = value.split("=", 2);
@@ -109,7 +120,11 @@ function parseArgs(argv: string[]): z.infer<typeof ArgsSchema> {
       throw new Error(`Unrecognised argument: ${String(flag)}`);
     }
   }
-  return ArgsSchema.parse({ tenant, notify });
+  return ArgsSchema.parse({
+    tenant,
+    notify,
+    assignee: assignee ?? Object.values(notify)[0],
+  });
 }
 
 async function loadConfig(tenantId: string): Promise<{
@@ -281,6 +296,7 @@ async function main(): Promise<void> {
       entityTypeId,
       workflowId,
       fields,
+      args.assignee,
     );
     await advanceVendor(
       tenantId,
@@ -307,6 +323,7 @@ async function findOrCreateVendor(
   entityTypeId: string,
   workflowId: string,
   fields: VendorFields,
+  assignee: string | undefined,
 ): Promise<VendorRow> {
   return withTenantContext(tenantId, async (tx) => {
     const [existing] = await tx
@@ -331,6 +348,13 @@ async function findOrCreateVendor(
         fields: existing.fields as Record<string, unknown>,
       };
     }
+    // Only needed when a vendor is actually created: a re-run over existing vendors
+    // works without flags.
+    if (!assignee) {
+      throw new Error(
+        "Pass --assignee <userId> (or a --notify user) to own the new demo vendors",
+      );
+    }
     const created = await createEntity(tx, tenantId, {
       entityTypeId,
       workflowId,
@@ -338,6 +362,10 @@ async function findOrCreateVendor(
       createdBy: ACTOR_ID,
       actorId: ACTOR_ID,
       actorType: "system",
+      assignedTo: assignee,
+      dueDate: new Date(Date.now() + DEMO_DUE_DAYS * DAY_MS).toISOString(),
+      remark: DEMO_REMARK,
+      severity: "medium",
     });
     return {
       id: created.id,
