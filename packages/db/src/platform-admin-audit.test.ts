@@ -141,32 +141,18 @@ describe("platform-admin-audit", () => {
       ]);
     });
 
-    it("queries cursor with id and createdAt, returning empty if cursor not found", async () => {
-      // First select is cursor query, returns empty
-      mockSelectLimit.mockResolvedValueOnce([]);
-
-      const result = await listPlatformAdminAuditLog({
-        limit: 10,
-        before: "non-existent-id",
-      });
-
-      expect(result).toEqual([]);
-    });
-
-    it("queries next page with composite tiebreaker cursor when before cursor exists", async () => {
-      const now = new Date();
-      // Cursor query returns cursor row with id and createdAt
-      mockSelectLimit.mockResolvedValueOnce([
-        { id: "entry-cursor", createdAt: now },
-      ]);
-      // Second query returns page rows
+    // The cursor row is read inside the query, not into a JavaScript Date first, which would
+    // truncate created_at to milliseconds (#993). The behaviour that matters (no skipped rows,
+    // an unknown cursor giving no rows) needs a real database:
+    // apps/api/tests/isolation/platform-admin-audit-cursor.isolation.test.ts.
+    it("pages with a single query when a before cursor is given (#993)", async () => {
       mockSelectLimit.mockResolvedValueOnce([
         {
           id: "entry-2",
           actorSub: "sub-2",
           action: "sandbox.reset",
           targetTenantId: "tenant-2",
-          createdAt: now,
+          createdAt: new Date(),
         },
       ]);
 
@@ -175,6 +161,7 @@ describe("platform-admin-audit", () => {
         before: "entry-cursor",
       });
 
+      expect(mockSelect).toHaveBeenCalledTimes(1);
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe("entry-2");
       expect(result[0].action).toBe("sandbox.reset");

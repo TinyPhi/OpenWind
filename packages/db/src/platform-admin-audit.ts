@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "./client.js";
 import { withPlatformAdminContext } from "./middleware.js";
 import { platformAdminAuditLog } from "./schema/platform.js";
@@ -108,29 +108,17 @@ export async function listPlatformAdminAuditLog(
         )
         .limit(options.limit);
     }
-    const [cursor] = await tx
-      .select({
-        createdAt: platformAdminAuditLog.createdAt,
-        id: platformAdminAuditLog.id,
-      })
-      .from(platformAdminAuditLog)
-      .where(eq(platformAdminAuditLog.id, options.before))
-      .limit(1);
-    if (!cursor) return [];
+    // Keyset pagination on the (created_at DESC, id DESC) total order (#894). The cursor row is
+    // read inside the query, not into JavaScript first: a JS Date holds milliseconds while
+    // created_at holds microseconds, so a cursor read back through one would be truncated and
+    // the rows between the truncated and the real value would match neither side of the
+    // predicate and be skipped (#993). A cursor id that does not exist gives NULL, so no rows.
     return tx
       .select()
       .from(platformAdminAuditLog)
       .where(
-        // Keyset pagination on (createdAt DESC, id DESC) total order (#894).
-        // Uses the id tiebreaker so rows created in the same microsecond are never skipped.
         and(
-          or(
-            lt(platformAdminAuditLog.createdAt, cursor.createdAt),
-            and(
-              eq(platformAdminAuditLog.createdAt, cursor.createdAt),
-              lt(platformAdminAuditLog.id, cursor.id),
-            ),
-          ),
+          sql`(${platformAdminAuditLog.createdAt}, ${platformAdminAuditLog.id}) < (select ${platformAdminAuditLog.createdAt}, ${platformAdminAuditLog.id} from ${platformAdminAuditLog} where ${platformAdminAuditLog.id} = ${options.before})`,
           tenantFilter,
         ),
       )
