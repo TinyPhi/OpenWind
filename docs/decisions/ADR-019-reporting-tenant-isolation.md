@@ -295,7 +295,10 @@ Stage 2 (Superset OAuth SSO, enabled by setting `SUPERSET_OAUTH_CLIENT_ID`) must
 until every item below is met and a human has signed off. This section records the gate; it does
 not enable anything.
 
-- **Security review (OQ-6).** Owner: to be named by the maintainer at sign-off. Criteria: the
+**Gate owner: PrabhuVijit** (named 2026-10-19). The owner tracks the three items below, confirms
+each is met, and decides when Stage 2 is enabled.
+
+- **Security review (OQ-6).** Owner: PrabhuVijit. Criteria: the
   review confirms Decisions 2 and 6 hold against user-written SQL, and its outcome is recorded in
   those decisions. Tracking: the private review, linked from OQ-6.
 - **Erasure (OQ-3).** The Redis result-cache flush and the Superset metadata-database erasure are
