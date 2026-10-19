@@ -4,15 +4,26 @@ import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as Scheduler from "@platform/scheduler";
 
-const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
-  mockAuth: {
-    tenantId: "t-aaa",
-    userId: "u-bbb",
-    roles: ["admin"] as string[],
-    email: "test@example.com",
-  },
-  mockWriteAuditEntry: vi.fn(),
+const { mockAuth, mockWriteAuditEntry, mockEnsureTenantMembers } = vi.hoisted(
+  () => ({
+    mockAuth: {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["admin"] as string[],
+      email: "test@example.com",
+      orgId: "org-1",
+    },
+    mockWriteAuditEntry: vi.fn(),
+    mockEnsureTenantMembers: vi.fn(() => Promise.resolve(new Set<string>())),
+  }),
+);
+
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  ensureTenantMembers: mockEnsureTenantMembers,
 }));
+
+// A real-shaped Zitadel user id (numeric, not a UUID).
+const ZITADEL_USER_ID = "395069484982861826";
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -287,6 +298,38 @@ describe("POST /admin/schedule-rules", () => {
     );
   });
 
+  // docs/specs/mandatory-ticket-fields.md R10/B3: a user-assigned rule was rejected with 400
+  // because the template required a UUID, and a never-signed-in member failed the ref check.
+  it("returns 201 for a rule assigned to a Zitadel user id, registering the member first", async () => {
+    mockEnsureTenantMembers.mockClear();
+    const { teamId: _teamId, ...templateWithoutTeam } = validBody.template;
+    const res = await makeApp().request("/admin/schedule-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...validBody,
+        template: { ...templateWithoutTeam, assignedTo: ZITADEL_USER_ID },
+      }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockEnsureTenantMembers).toHaveBeenCalledWith(
+      expect.anything(),
+      "t-aaa",
+      [ZITADEL_USER_ID],
+      "org-1",
+    );
+  });
+
+  it("does not look up members for a team-assigned rule", async () => {
+    mockEnsureTenantMembers.mockClear();
+    await makeApp().request("/admin/schedule-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validBody),
+    });
+    expect(mockEnsureTenantMembers).not.toHaveBeenCalled();
+  });
+
   it("returns 422 when the timezone is invalid", async () => {
     const { isValidTimezone } = await import("@platform/scheduler");
     vi.mocked(isValidTimezone).mockReturnValueOnce(false);
@@ -468,6 +511,28 @@ describe("PATCH /admin/schedule-rules/:id — status transitions", () => {
       expect(res.status).toBe(400);
     },
   );
+
+  it("accepts a template switched to a Zitadel user id, registering the member first", async () => {
+    mockEnsureTenantMembers.mockClear();
+    const { teamId: _teamId, ...templateWithoutTeam } = validBody.template;
+    const res = await makeApp().request(
+      `/admin/schedule-rules/${mockRuleRow.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template: { ...templateWithoutTeam, assignedTo: ZITADEL_USER_ID },
+        }),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(mockEnsureTenantMembers).toHaveBeenCalledWith(
+      expect.anything(),
+      "t-aaa",
+      [ZITADEL_USER_ID],
+      "org-1",
+    );
+  });
 
   it("pauses an active rule and audits schedule.rule_paused", async () => {
     const res = await makeApp().request(

@@ -23,6 +23,7 @@ import {
   workflows,
   workflowStates,
   workflowEvents,
+  tenantUsers,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext } from "@platform/auth";
@@ -43,6 +44,12 @@ beforeAll(async () => {
     name: "Isolation Child-Ticket Tenant",
     slug: `isolation-child-144-${Date.now()}`,
   });
+  // A sub-task needs an assignee who belongs to the tenant
+  // (docs/specs/mandatory-ticket-fields.md R4).
+  await db
+    .insert(tenantUsers)
+    .values({ tenantId: TENANT, userId: "isolation-agent" })
+    .onConflictDoNothing();
 
   const entityType = await createEntityType(db, null, {
     name: `isolation_child_ticket_${Date.now()}`,
@@ -105,6 +112,7 @@ afterAll(async () => {
   }
   await db.delete(workflows).where(eq(workflows.tenantId, TENANT));
   await db.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
+  await db.delete(tenantUsers).where(eq(tenantUsers.tenantId, TENANT));
   await db.delete(tenants).where(eq(tenants.id, TENANT));
 });
 
@@ -133,7 +141,13 @@ describe("child-ticket routes — real Postgres, RLS enforced", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entityTypeId, fields: { title: "Sub-task" } }),
+        body: JSON.stringify({
+          entityTypeId,
+          fields: { title: "Sub-task" },
+          assignedTo: "isolation-agent",
+          dueDate: new Date(Date.now() + 86_400_000).toISOString(),
+          remark: "Split out of the parent ticket",
+        }),
       },
     );
     expect(res.status).toBe(201);

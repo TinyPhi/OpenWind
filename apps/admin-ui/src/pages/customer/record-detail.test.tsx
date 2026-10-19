@@ -91,6 +91,7 @@ vi.mock("../../lib/api.js", () => ({
 
 const { CustomerRecordDetail } = await import("./record-detail.js");
 const { clearCoverageCache } = await import("../../lib/oncall-coverage.js");
+const { clearUsersCache } = await import("../../lib/use-users.js");
 
 const BASE_RECORD = {
   id: RECORD_ID,
@@ -1338,5 +1339,389 @@ describe("CustomerRecordDetail — notification failure badge (T33)", () => {
     await pageLoaded();
     expect(screen.queryByText(/Notification failed/)).toBeNull();
     expect(failureCalls()).toBe(0);
+  });
+});
+
+// docs/specs/mandatory-ticket-fields.md R2/R3. isSystem means protected, not hidden: the
+// helpdesk seed marks every ticket field system, and the page used to drop them all, so a
+// ticket's title showed nowhere and could not be edited.
+describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
+  const field = (
+    name: string,
+    label: string,
+    fieldType: string,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    id: `f-${name}`,
+    name,
+    label,
+    fieldType,
+    isRequired: false,
+    isSystem: true,
+    config: {},
+    ...extra,
+  });
+
+  const FUTURE_DUE = new Date(Date.now() + 5 * 86_400_000).toISOString();
+  const PAST_DUE = new Date(Date.now() - 86_400_000).toISOString();
+
+  function mockMandatoryTicket(extra: Record<string, unknown> = {}): void {
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      const method = (init as { method?: string } | undefined)?.method;
+      if (method === "PATCH") return Promise.resolve({ data: {} });
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            assignedTo: OTHER_USER,
+            dueDate: FUTURE_DUE,
+            severity: "medium",
+            fields: {
+              title: "Printer offline",
+              description: "Third floor printer",
+              submitted_at: "2026-10-01T10:00:00.000Z",
+            },
+            ...extra,
+          },
+        });
+      }
+      if (url === `/api/entity-types/${ENTITY_TYPE_ID}/fields`) {
+        return Promise.resolve({
+          data: [
+            field("title", "Title", "text", { isRequired: true }),
+            field("description", "Description", "longtext"),
+            field("submitted_at", "Submitted At", "datetime", {
+              config: { readOnly: true },
+            }),
+            // Helpdesk seeds a virtual `severity` field; the column is the real one.
+            field("severity", "Severity Field", "select", {
+              config: { options: ["low", "high"], virtual: true },
+            }),
+            field("team_id", "Team", "text", { isSystem: false }),
+          ],
+        });
+      }
+      if (url === "/api/users") {
+        return Promise.resolve({
+          data: [
+            {
+              userId: OTHER_USER,
+              email: "owner@example.com",
+              displayName: "Owner",
+            },
+            { userId: "u-2", email: "two@example.com", displayName: "Second" },
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+
+  function patchBodies(
+    path = `/api/entities/${RECORD_ID}`,
+  ): Array<Record<string, unknown>> {
+    return mockFetchWithAuth.mock.calls
+      .filter(
+        ([url, init]) =>
+          url === path &&
+          (init as { method?: string } | undefined)?.method === "PATCH",
+      )
+      .map(
+        ([, init]) =>
+          JSON.parse((init as { body: string }).body) as Record<
+            string,
+            unknown
+          >,
+      );
+  }
+
+  function editDueDateInput(): HTMLInputElement {
+    const input = document.querySelector<HTMLInputElement>(
+      ".portal-edit-grid input[type='datetime-local']",
+    );
+    if (!input) throw new Error("edit due date input not found");
+    return input;
+  }
+
+  async function openEdit(): Promise<void> {
+    await screen.findByRole("heading", { name: "Printer offline" });
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  }
+
+  beforeEach(() => {
+    mockUserId = ADMIN_USER;
+    mockProfileRoles = ["admin"];
+    // The shared /users list is cached for a minute; these tests need their own users.
+    clearUsersCache();
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("shows the title in the heading and system fields in the read view", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+
+    expect(
+      await screen.findByRole("heading", { name: "Printer offline" }),
+    ).toBeDefined();
+    expect(screen.getByText("Third floor printer")).toBeDefined();
+    expect(screen.queryByText("No custom fields defined.")).toBeNull();
+  });
+
+  it("edits the title and leaves an untouched due date out of the save", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await openEdit();
+
+    fireEvent.change(screen.getByDisplayValue("Printer offline"), {
+      target: { value: "Printer jammed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    const body = patchBodies()[0] ?? {};
+    expect((body.fields as Record<string, unknown>).title).toBe(
+      "Printer jammed",
+    );
+    expect(body.assignedTo).toBe(OTHER_USER);
+    expect(body).not.toHaveProperty("dueDate");
+  });
+
+  it("refuses to save a blank title", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await openEdit();
+
+    fireEvent.change(screen.getByDisplayValue("Printer offline"), {
+      target: { value: "   " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Title is required.")).toBeDefined();
+    expect(patchBodies()).toHaveLength(0);
+  });
+
+  it("offers no Unassigned choice, and keeps a team ticket's team", async () => {
+    mockMandatoryTicket({ assignedTo: null, teamName: "Platform" });
+    renderRecordDetail();
+    await openEdit();
+
+    expect(screen.queryByRole("option", { name: "Unassigned" })).toBeNull();
+    expect(
+      screen.getByRole("option", { name: "Team: Platform" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    expect(patchBodies()[0]).not.toHaveProperty("assignedTo");
+  });
+
+  it("saves other edits on an overdue ticket without touching its due date", async () => {
+    mockMandatoryTicket({ dueDate: PAST_DUE });
+    renderRecordDetail();
+    await openEdit();
+
+    fireEvent.change(screen.getByDisplayValue("Printer offline"), {
+      target: { value: "Printer jammed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    expect(patchBodies()[0]).not.toHaveProperty("dueDate");
+  });
+
+  it("refuses a due date moved into the past, or cleared", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await openEdit();
+
+    fireEvent.change(editDueDateInput(), {
+      target: { value: "2020-01-01T10:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(
+      await screen.findByText("Due date must be in the future."),
+    ).toBeDefined();
+
+    fireEvent.change(editDueDateInput(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("Due date is required.")).toBeDefined();
+    expect(patchBodies()).toHaveLength(0);
+  });
+
+  it("changes severity from the Edit form", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await openEdit();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Severity" }), {
+      target: { value: "high" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(patchBodies(`/api/entities/${RECORD_ID}/severity`)).toEqual([
+        { severity: "high" },
+      ]),
+    );
+  });
+
+  it("shows a read-only field as text in Edit, never as an input", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await openEdit();
+
+    expect(screen.getAllByText("Submitted At").length).toBeGreaterThan(0);
+    // The only datetime input in the form is the ticket's own due date.
+    expect(
+      document.querySelectorAll(
+        ".portal-edit-grid input[type='datetime-local']",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("hides the seeded severity field, and never offers team_id as a text input", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await screen.findByRole("heading", { name: "Printer offline" });
+    expect(screen.queryByText("Severity Field")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByText("Severity Field")).toBeNull();
+    const labels = [
+      ...document.querySelectorAll(".portal-edit-grid .portal-field-label"),
+    ].map((l) => l.textContent);
+    expect(labels).not.toContain("Team");
+  });
+
+  it("doesn't set a severity on an older ticket that has none", async () => {
+    mockMandatoryTicket({ severity: null });
+    renderRecordDetail();
+    await openEdit();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    expect(patchBodies(`/api/entities/${RECORD_ID}/severity`)).toEqual([]);
+  });
+
+  it("drops a pending sidebar due-date save when the date then moves into the past", async () => {
+    mockMandatoryTicket();
+    renderRecordDetail();
+    await screen.findByRole("heading", { name: "Printer offline" });
+
+    const sidebarDue = screen.getByLabelText("Sidebar due date");
+    const future = new Date(Date.now() + 9 * 86_400_000);
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    fireEvent.change(sidebarDue, {
+      target: {
+        value: `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}T10:00`,
+      },
+    });
+    fireEvent.change(sidebarDue, { target: { value: "2020-01-01T10:00" } });
+
+    expect(
+      await screen.findByText("Due date must be in the future."),
+    ).toBeDefined();
+    await new Promise((r) => setTimeout(r, 600)); // past the 400 ms debounce
+    expect(patchBodies()).toEqual([]);
+  });
+
+  it("still limits a child ticket to due date and description", async () => {
+    mockMandatoryTicket({ parentId: "parent-1" });
+    renderRecordDetail();
+
+    expect(await screen.findByText("Third floor printer")).toBeDefined();
+    expect(screen.queryByText("Submitted At")).toBeNull();
+  });
+
+  // docs/specs/mandatory-ticket-fields.md R4 (owner decision 1): a sub-task needs the same
+  // five mandatory values as a full ticket.
+  async function openSubtaskForm(): Promise<void> {
+    await screen.findByRole("heading", { name: "Printer offline" });
+    fireEvent.click(screen.getByRole("button", { name: /Sub-tasks/ }));
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: "Add sub-task" },
+        { timeout: 3000 },
+      ),
+    );
+  }
+
+  function postBodies(path: string): Array<Record<string, unknown>> {
+    return mockFetchWithAuth.mock.calls
+      .filter(
+        ([url, init]) =>
+          url === path &&
+          (init as { method?: string } | undefined)?.method === "POST",
+      )
+      .map(
+        ([, init]) =>
+          JSON.parse((init as { body: string }).body) as Record<
+            string,
+            unknown
+          >,
+      );
+  }
+
+  it("sends all five mandatory values when creating a sub-task", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.click(screen.getByText("Select assignee"));
+    fireEvent.click(await screen.findByText("Second"));
+    fireEvent.change(screen.getByLabelText("Due date *"), {
+      target: { value: "2099-01-01T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Severity *"), {
+      target: { value: "high" },
+    });
+    fireEvent.change(screen.getByLabelText("Remark *"), {
+      target: { value: "Needed before the board meeting" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    await waitFor(
+      () =>
+        expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toHaveLength(
+          1,
+        ),
+      { timeout: 3000 },
+    );
+    expect(postBodies(`/api/entities/${RECORD_ID}/children`)[0]).toEqual({
+      entityTypeId: ENTITY_TYPE_ID,
+      fields: { title: "Swap the toner" },
+      assignedTo: "u-2",
+      dueDate: new Date("2099-01-01T10:00").toISOString(),
+      remark: "Needed before the board meeting",
+      severity: "high",
+    });
+  });
+
+  it("names the missing values and sends nothing", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    expect(
+      await screen.findByText("Assignee, Due date, Remark are required."),
+    ).toBeDefined();
+    expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toEqual([]);
   });
 });

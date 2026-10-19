@@ -279,6 +279,10 @@ const EnvSchema = z
             "OPS_ALERT_EMAIL must be a comma-separated list of email addresses",
         },
       ),
+    // docs/specs/mandatory-ticket-fields.md: a workflow record missing title, due date,
+    // remark, severity or an assignee/team is only logged under "log" while every creator
+    // is brought in line, and rejected (422) under "enforce".
+    MANDATORY_FIELDS_MODE: z.enum(["log", "enforce"]).default("log"),
     // S2S auth for the outbound handoff (docs/notification-outbound-contract.md's
     // auth section) — a DEDICATED Zitadel machine user/key, deliberately
     // separate from ZITADEL_SERVICE_ACCOUNT_KEY/ZITADEL_KEY_JSON (which

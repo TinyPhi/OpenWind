@@ -17,6 +17,8 @@ import { logger } from "@platform/logger";
 import { EntityError, ValidationError } from "./errors.js";
 import { validateReservedFieldNames } from "./validation/index.js";
 import { DEFAULT_TICKET_SEVERITY } from "./severity-and-tags.js";
+import { checkMandatoryFields } from "./mandatory-fields.js";
+import { assertTeamInTenant } from "./mandatory-refs.js";
 import {
   buildEntityAssignedPayload,
   buildEntityCreatedPayload,
@@ -196,7 +198,27 @@ export async function createChildRelation(
     originMechanism,
     originOidcClientId,
     originPerformerUserId,
+    teamId,
   } = input;
+  const severity = input.severity ?? DEFAULT_TICKET_SEVERITY;
+
+  // A sub-task is a workflow record too: same five mandatory values, same team rule as
+  // createEntity (docs/specs/mandatory-ticket-fields.md R4) -- an explicit teamId is
+  // checked against the tenant; a team_id already in the fields counts as a team as before.
+  // Checked before the parent lock, so a rejected create never holds it.
+  if (teamId) await assertTeamInTenant(db, tenantId, teamId);
+  checkMandatoryFields(
+    {
+      title: childFields["title"],
+      dueDate,
+      remark,
+      severity,
+      assignedTo,
+      teamId: teamId ?? childFields["team_id"],
+    },
+    { tenantId, entityTypeId, path: "createChildRelation" },
+    { assignee: input.mandatoryExemption === "partner_unresolved_assignee" },
+  );
 
   // Load parent — lock row to prevent concurrent race on cap/depth
   const [parent] = await db
@@ -341,6 +363,7 @@ export async function createChildRelation(
       workflowId: parent.workflowId,
       fields: {
         ...childFields,
+        ...(teamId ? { team_id: teamId } : {}),
         child_status: "open",
         __accessUsers: childAccessUsers,
       },
@@ -354,7 +377,7 @@ export async function createChildRelation(
       originPerformerUserId: originPerformerUserId ?? null,
       // docs/specs/ticket-severity-and-tags.md R1/R7 — sub-tickets follow the
       // same "never NULL past creation" rule as top-level tickets.
-      severity: DEFAULT_TICKET_SEVERITY,
+      severity,
     })
     .returning();
 

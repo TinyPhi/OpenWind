@@ -54,6 +54,13 @@ vi.mock("@platform/db", () => ({
   },
   entityRelations: {},
   outboxEvents: {},
+  workflows: {
+    id: "id",
+    tenantId: "tenant_id",
+    entityTypeId: "entity_type_id",
+    isActive: "is_active",
+  },
+  teams: { id: "id", tenantId: "tenant_id", deletedAt: "deleted_at" },
 }));
 
 vi.mock("drizzle-orm", () => ({

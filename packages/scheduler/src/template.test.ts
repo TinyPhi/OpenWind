@@ -40,7 +40,9 @@ describe("buildTemplateVariables", () => {
 });
 
 const TEAM_ID = "11111111-1111-1111-1111-111111111111";
-const USER_ID = "22222222-2222-2222-2222-222222222222";
+// A real-shaped Zitadel user id: numeric, not a UUID (a UUID here hid a 400 for every
+// user-assigned rule; docs/specs/mandatory-ticket-fields.md B3).
+const USER_ID = "395069484982861826";
 
 describe("renderTemplate", () => {
   const baseTemplate = TemplateSchema.parse({
@@ -118,6 +120,12 @@ describe("TemplateSchema", () => {
     expect(() =>
       TemplateSchema.parse({ ...valid, assignedTo: USER_ID }),
     ).not.toThrow();
+  });
+
+  it("rejects a blank assignedTo", () => {
+    expect(() =>
+      TemplateSchema.parse({ ...valid, assignedTo: "  " }),
+    ).toThrow();
   });
 
   it("rejects a template with neither assignedTo nor teamId", () => {

@@ -79,7 +79,8 @@ beforeAll(async () => {
     .insert(tenantUsers)
     .values({
       tenantId: TENANT_A,
-      userId: "aaaaaaaa-0000-4000-a000-0000000000a1",
+      // A real-shaped Zitadel user id (numeric, not a UUID).
+      userId: "395069484982800011",
     })
     .returning({ userId: tenantUsers.userId });
   assigneeUserId = tu!.userId;

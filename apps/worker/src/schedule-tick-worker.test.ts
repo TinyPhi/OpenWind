@@ -61,7 +61,7 @@ const mockTemplateSchema = z.object({
   title: z.string().trim().min(1).max(500),
   description: z.string().trim().max(10000).optional(),
   severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-  assignedTo: z.string().uuid().optional(),
+  assignedTo: z.string().trim().min(1).max(255).optional(),
   teamId: z.string().uuid().optional(),
   service_id: z.string().uuid().optional(),
   due_days: z.number().int().min(0),

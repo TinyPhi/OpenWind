@@ -78,6 +78,14 @@ requirements more likely to surface, not less. Row updated below, not removed.
   tenant change what every tenant's name-scoped rules match. Fix: exclude NULL-tenant rows from
   the tenant update path explicitly.
 
+### Found during #973 review (mandatory ticket fields, 2026-10-16)
+
+- **A sub-task's remark comment can fail without the caller knowing.** `create-child.ts` posts
+  the remark as the first comment after the sub-task commits, best effort: a failure is only
+  logged and the route still returns 201. The remark itself is stored on the record
+  (`entity_instances.remark`), but the comment thread misses it. Fix: report the failure in the
+  response (a non-fatal warning) and show it in the UI, or retry the comment from the outbox.
+
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 
 ADRs are human-authored per `CLAUDE.md` convention — these are intentionally **not**

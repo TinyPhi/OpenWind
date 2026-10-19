@@ -42,8 +42,15 @@ import { platformAdminRouter } from "./routes/platform-admin/index.js";
 import { connectorsRouter } from "./routes/connectors/index.js";
 import { thirdPartyRouter } from "./routes/third-party/index.js";
 import { openApiSpec } from "./openapi.js";
-import { registerEntityAuditHook } from "@platform/entity-engine";
+import {
+  registerEntityAuditHook,
+  setMandatoryFieldsMode,
+} from "@platform/entity-engine";
 import { writeAuditEntry } from "@platform/audit";
+
+// docs/specs/mandatory-ticket-fields.md: log or reject workflow records missing a mandatory
+// value. The engine reads no config itself.
+setMandatoryFieldsMode(env.MANDATORY_FIELDS_MODE);
 
 // ── PII-aware entity audit hook ───────────────────────────────────────────────
 // Registered once at module load so it is active for every entity mutation.
