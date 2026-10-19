@@ -62,6 +62,23 @@ describe("buildZodSchema — title can't be blank", () => {
       buildZodSchema([notes], "create").safeParse({ notes: "" }).success,
     ).toBe(true);
   });
+
+  it("keys on protected + required, not on the field name", () => {
+    const code = makeField({
+      name: "code",
+      fieldType: "text",
+      isRequired: true,
+      isSystem: true,
+    });
+    expect(
+      buildZodSchema([code], "create").safeParse({ code: "  " }).success,
+    ).toBe(false);
+    const optionalTitle = makeField({ name: "title", fieldType: "text" });
+    expect(
+      buildZodSchema([optionalTitle], "create").safeParse({ title: "" })
+        .success,
+    ).toBe(true);
+  });
 });
 
 describe("buildZodSchema", () => {

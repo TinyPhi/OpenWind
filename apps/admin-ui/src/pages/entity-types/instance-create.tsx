@@ -24,6 +24,7 @@ type EntityField = {
     allowedCurrencies?: string[];
     /** Engine-written (e.g. tender submitted_at): never a create-form input. */
     readOnly?: boolean;
+    virtual?: boolean;
   };
 };
 
@@ -177,11 +178,11 @@ export function EntityInstanceCreate(): React.ReactElement {
       .then(([etRes, fieldsRes, wfRes, usersRes, teamsRes]) => {
         setEntityType((etRes as { data: EntityTypeMeta }).data);
         // isSystem means protected, not hidden (docs/specs/mandatory-ticket-fields.md R2);
-        // engine-written fields are never filled in by hand, and a `severity` field some
-        // seeds (helpdesk) still define duplicates the built-in Severity select.
+        // engine-written fields are never filled in by hand, and virtual fields (helpdesk's
+        // severity) have their own built-in control.
         setFields(
           (fieldsRes as { data: EntityField[] }).data.filter(
-            (f) => !f.config.readOnly && f.name !== "severity",
+            (f) => !f.config.readOnly && !f.config.virtual,
           ),
         );
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];

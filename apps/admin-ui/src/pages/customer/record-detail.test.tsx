@@ -1392,9 +1392,9 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
             field("submitted_at", "Submitted At", "datetime", {
               config: { readOnly: true },
             }),
-            // Helpdesk still seeds a `severity` field; the column is the real one.
+            // Helpdesk seeds a virtual `severity` field; the column is the real one.
             field("severity", "Severity Field", "select", {
-              config: { options: ["low", "high"] },
+              config: { options: ["low", "high"], virtual: true },
             }),
             field("team_id", "Team", "text", { isSystem: false }),
           ],

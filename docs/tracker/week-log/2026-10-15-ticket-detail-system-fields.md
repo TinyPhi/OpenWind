@@ -59,3 +59,13 @@
 - **Deploy.** `db:migrate` for 0150, then rebuild backend, worker and frontend.
 - **Open.** ADR-012 amendment (partner API fallback owner) is a human task in BLOCKERS.md;
   it blocks only spec T11.
+- **Review R3 fixes (2026-10-19).**
+  - Helpdesk's ticket `severity` field is now `"virtual": true` (seed, plus migration 0150 for
+    existing tenants). The create, edit and admin create screens skip virtual fields instead of
+    checking the name `severity`; a guard test checks the flag.
+  - Blank-value check keys on protected + required text fields, not the name `title`.
+  - Schedule-rule `assignedTo` rejects blank values without trimming the stored id.
+  - One-line comment on `reorderFields`; seed parser notes it handles single quotes only.
+  - Local `pnpm test`: all green except worker's DB-backed suites, which fail because the local
+    database lacks upstream's newer migrations (`allow_state_override`,
+    `event_log_maintenance_role`), unrelated to this diff. CI is the verdict there.

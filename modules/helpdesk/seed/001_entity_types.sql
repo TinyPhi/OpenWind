@@ -67,7 +67,7 @@ VALUES
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description', 'Description', 'longtext', '{}'::jsonb, false, false, true, 2),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority', 'Priority', 'select', '{"options": ["low", "medium", "high", "urgent"]}'::jsonb, false, true, true, 3),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'select', '{"options": ["technical", "billing", "general"]}'::jsonb, false, true, true, 4),
-  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'severity', 'Severity', 'select', '{"options": ["critical", "high", "medium", "low"]}'::jsonb, false, true, true, 5),
+  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'severity', 'Severity', 'select', '{"options": ["critical", "high", "medium", "low"], "virtual": true}'::jsonb, false, true, true, 5),
   -- Which team/business unit the ticket belongs to. Same shape as
   -- priority/category above -- a plain `select` field, not `entity_ref` --
   -- deliberately: the real HRMS Department entity does not exist yet
