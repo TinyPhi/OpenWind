@@ -126,11 +126,14 @@ type JobLike = { id?: string | undefined; data: ResetJobData };
  * `job.data.tenantId`. Active jobs are left alone (see module doc comment).
  *
  * Deliberately scoped to automation/SLA/due-date queues only (review finding, PR #832) --
- * notification and outbox-delivery queues are NOT scanned here. A queued notification job
- * referencing a row this reset is about to wipe simply fails gracefully (row not found) and
- * logs an error; that's acceptable noise for an infrequent admin action, and R7 only names
- * "scheduled notifications, automation follow-ups" (the delayed/recurring kind these four
- * queues hold), not immediate dispatch jobs.
+ * notification and outbox-delivery queues are NOT scanned here. Jobs in those queues reference
+ * notification_recipients/outbox_events rows, which are wiped in the same reset transaction.
+ * A queued job referencing a row this reset is about to wipe simply fails gracefully (row not
+ * found) and logs an error; that is acceptable noise for an infrequent admin action with no
+ * data-corruption risk, and R7 only names "scheduled notifications, automation follow-ups"
+ * (the delayed/recurring kind these four queues hold), not immediate dispatch jobs. The four
+ * queues scanned below are the ones that reference entity_instances directly and could produce
+ * meaningful side effects (SLA escalations, automation follow-ups) against wiped data.
  */
 async function cancelQueuedJobsForTenant(tenantId: string): Promise<number> {
   const queues = [
