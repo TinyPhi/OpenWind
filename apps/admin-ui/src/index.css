@@ -2977,6 +2977,7 @@ select.form-input {
 .rcd-muted { color: var(--text-muted); }
 .rcd-trans-error { margin: 0 24px 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }
 .rcd-error-close { background: none; border: none; cursor: pointer; font-size: 18px; color: inherit; padding: 0 4px; line-height: 1; }
+.rcd-field-error { display: block; margin-top: 4px; font-size: 12px; color: var(--danger); }
 .rcd-empty-hint { font-size: 13px; color: var(--text-muted); padding: 20px 0; }
 .rcd-empty-hint-feed { text-align: center; padding: 40px 0; }
 .rcd-modal-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.55; }

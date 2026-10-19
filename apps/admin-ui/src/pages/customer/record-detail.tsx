@@ -47,6 +47,9 @@ import { TicketLabelsPanel } from "../../components/ticket-labels-panel.js";
 import {
   SeverityBadge,
   SeverityDropdown,
+  DEFAULT_SEVERITY,
+  SEVERITY_LABEL,
+  SEVERITY_LEVELS,
   type Severity,
 } from "../../components/severity-tag.js";
 import { formatFieldValue, initials } from "../../lib/format.js";
@@ -61,8 +64,19 @@ type EntityField = {
   config: {
     options?: Array<string | { label: string; value: string; color?: string }>;
     allowedCurrencies?: string[];
+    /** Engine-written (e.g. tender submitted_at): shown as text, never an input. */
+    readOnly?: boolean;
+    virtual?: boolean;
   };
 };
+
+/** An ISO instant as a datetime-local value in the browser's own timezone. */
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 type EntityInstance = {
   id: string;
   entityTypeId: string;
@@ -664,12 +678,15 @@ function AssignDropdown({
   disabled,
   onChange,
   className,
+  emptyLabel,
 }: {
   value: string;
   users: OrgUser[];
   disabled?: boolean;
   onChange: (userId: string) => void;
   className?: string;
+  /** What the trigger shows with no user picked, e.g. the ticket's team. */
+  emptyLabel?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -731,7 +748,9 @@ function AssignDropdown({
         ) : (
           <>
             <span className="asgn-avatar asgn-avatar-empty">?</span>
-            <span className="asgn-name asgn-unassigned">Unassigned</span>
+            <span className="asgn-name asgn-unassigned">
+              {emptyLabel ?? "Unassigned"}
+            </span>
           </>
         )}
         <svg
@@ -773,32 +792,9 @@ function AssignDropdown({
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          {/* No "Unassigned" choice: every ticket keeps an assignee or a team
+              (docs/specs/mandatory-ticket-fields.md R3). */}
           <div className="asgn-options">
-            <button
-              type="button"
-              className={`asgn-option ${!value ? "asgn-option-selected" : ""}`}
-              onClick={() => select("")}
-            >
-              <span className="asgn-avatar asgn-avatar-empty">?</span>
-              <span className="asgn-option-info">
-                <span className="asgn-option-name">Unassigned</span>
-              </span>
-              {!value && (
-                <svg
-                  className="asgn-check"
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
             {filtered.length === 0 && (
               <div className="asgn-empty">No results</div>
             )}
@@ -1244,6 +1240,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [editAssignedTo, setEditAssignedTo] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
+  const [editSeverity, setEditSeverity] = useState<Severity>(DEFAULT_SEVERITY);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
@@ -1262,6 +1259,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [quickAssigning, setQuickAssigning] = useState(false);
   const [quickSettingDueDate, setQuickSettingDueDate] = useState(false);
   const [dueDateInput, setDueDateInput] = useState("");
+  const [dueDateInputError, setDueDateInputError] = useState<string | null>(
+    null,
+  );
   const debouncedQuickSetDueDate = useDebouncedCallback(
     (val: string) => void quickSetDueDate(val),
     400,
@@ -1319,6 +1319,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [newChildAssignedTo, setNewChildAssignedTo] = useState("");
   const [newChildDueDate, setNewChildDueDate] = useState("");
   const [newChildDescription, setNewChildDescription] = useState("");
+  const [newChildRemark, setNewChildRemark] = useState("");
+  const [newChildSeverity, setNewChildSeverity] =
+    useState<Severity>(DEFAULT_SEVERITY);
   const [creatingChild, setCreatingChild] = useState(false);
   const [createChildError, setCreateChildError] = useState<string | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState<{
@@ -1562,6 +1565,17 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   // Derived: true when viewing a child ticket (has a parent)
   const isChildTicket = !!record?.parentId;
+  // The fields the details grid shows and edits: a child ticket only its due date and
+  // description, any other record all of them -- except virtual fields, which have their own
+  // built-in control (helpdesk's severity field mirrors the severity column).
+  const editableFields = (
+    isChildTicket
+      ? fields.filter((f) => /^(due_?date|due|description|desc)$/i.test(f.name))
+      : fields
+  ).filter((f) => !f.config.virtual);
+  // team_id shows as the resolved team name; it changes through assignment, never as a
+  // free-text input (blanking it would leave a team ticket with nobody).
+  const editFormFields = editableFields.filter((f) => f.name !== "team_id");
 
   // Child tickets use a fixed 3-state machine regardless of parent workflow
   const CHILD_TICKET_STATES: WorkflowState[] = [
@@ -1804,11 +1818,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       .then((results) => {
         if (!results || activeTicketIdRef.current !== targetId) return false;
         const [fieldsRes, recRes, usersRes, accessRes] = results;
-        setFields(
-          (fieldsRes as { data: EntityField[] }).data.filter(
-            (f) => !f.isSystem,
-          ),
-        );
+        // isSystem means protected, not hidden (docs/specs/mandatory-ticket-fields.md R2):
+        // the helpdesk ticket's title and other fields are system fields.
+        setFields((fieldsRes as { data: EntityField[] }).data);
         setRecord((recRes as { data: EntityInstance }).data);
         const apiUsers =
           (
@@ -1920,7 +1932,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   // skipped while a save is in flight so it doesn't clobber in-progress typing.
   useEffect(() => {
     if (quickSettingDueDate) return;
-    setDueDateInput(record?.dueDate ? record.dueDate.slice(0, 16) : "");
+    setDueDateInput(record?.dueDate ? toLocalInputValue(record.dueDate) : "");
   }, [record?.dueDate, quickSettingDueDate]);
 
   // Collapse all parent threads on first load (and after a full reload)
@@ -2454,7 +2466,25 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   async function createChild(): Promise<void> {
-    if (!id || !effectiveEntityTypeId || !newChildTitle.trim()) return;
+    if (!id || !effectiveEntityTypeId) return;
+    // docs/specs/mandatory-ticket-fields.md R4: a sub-task needs the same five mandatory
+    // values as a full ticket.
+    const missing = [
+      !newChildTitle.trim() && "Title",
+      !newChildAssignedTo && "Assignee",
+      !newChildDueDate && "Due date",
+      !newChildRemark.trim() && "Remark",
+    ].filter((m): m is string => typeof m === "string");
+    if (missing.length > 0) {
+      setCreateChildError(
+        `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required.`,
+      );
+      return;
+    }
+    if (new Date(newChildDueDate).getTime() <= Date.now()) {
+      setCreateChildError("Due date must be in the future.");
+      return;
+    }
     setCreatingChild(true);
     setCreateChildError(null);
     try {
@@ -2468,16 +2498,18 @@ export function CustomerRecordDetail(): React.ReactElement {
         body: JSON.stringify({
           entityTypeId: effectiveEntityTypeId,
           fields: childFields,
-          ...(newChildAssignedTo ? { assignedTo: newChildAssignedTo } : {}),
-          ...(newChildDueDate
-            ? { dueDate: new Date(newChildDueDate).toISOString() }
-            : {}),
+          assignedTo: newChildAssignedTo,
+          dueDate: new Date(newChildDueDate).toISOString(),
+          remark: newChildRemark.trim(),
+          severity: newChildSeverity,
         }),
       });
       setNewChildTitle("");
       setNewChildAssignedTo("");
       setNewChildDueDate("");
       setNewChildDescription("");
+      setNewChildRemark("");
+      setNewChildSeverity(DEFAULT_SEVERITY);
       setShowCreateChild(false);
       void loadChildren();
     } catch (err) {
@@ -2767,17 +2799,57 @@ export function CustomerRecordDetail(): React.ReactElement {
   }, [record?.workflowId, effectiveEntityTypeId]);
 
   async function saveEdit(): Promise<void> {
-    if (!id) return;
+    if (!id || !record) return;
+    // docs/specs/mandatory-ticket-fields.md R1/R3: an edit can't remove a mandatory value.
+    const missing = editableFields
+      .filter((f) => f.isRequired && !f.config.readOnly)
+      .filter((f) => {
+        const v = editValues[f.name];
+        return (
+          v === undefined ||
+          v === null ||
+          (typeof v === "string" && v.trim() === "")
+        );
+      })
+      .map((f) => f.label);
+    if (!editDueDate) missing.push("Due date");
+    if (missing.length > 0) {
+      setSaveError(
+        `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required.`,
+      );
+      return;
+    }
+    // Only a changed due date must be in the future: an overdue ticket still saves other edits.
+    const dueDateChanged =
+      editDueDate !== (record.dueDate ? toLocalInputValue(record.dueDate) : "");
+    if (dueDateChanged && new Date(editDueDate).getTime() <= Date.now()) {
+      setSaveError("Due date must be in the future.");
+      return;
+    }
+    // Only a severity the user actually changed is sent: an older ticket with none shows
+    // Medium here but isn't silently set to it. Sent first, so if it fails nothing is saved.
+    const severityChanged =
+      canChangeSeverity &&
+      editSeverity !== (record.severity ?? DEFAULT_SEVERITY);
     setSaving(true);
     setSaveError(null);
     try {
+      if (severityChanged) {
+        await fetchWithAuth(`${API_URL}/entities/${id}/severity`, {
+          method: "PATCH",
+          body: JSON.stringify({ severity: editSeverity }),
+        });
+      }
       await fetchWithAuth(`${API_URL}/entities/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
           fields: editValues,
           currentState,
-          assignedTo: editAssignedTo || null,
-          dueDate: editDueDate ? new Date(editDueDate).toISOString() : null,
+          // Empty means a team ticket left as is: the assignee is never sent as null.
+          ...(editAssignedTo ? { assignedTo: editAssignedTo } : {}),
+          ...(dueDateChanged
+            ? { dueDate: new Date(editDueDate).toISOString() }
+            : {}),
         }),
       });
       setEditing(false);
@@ -2795,12 +2867,13 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   async function quickAssign(userId: string): Promise<void> {
-    if (!id) return;
+    // Never clears the assignee (docs/specs/mandatory-ticket-fields.md R3).
+    if (!id || !userId) return;
     setQuickAssigning(true);
     try {
       await fetchWithAuth(`${API_URL}/entities/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ assignedTo: userId || null }),
+        body: JSON.stringify({ assignedTo: userId }),
       });
       void loadRecord();
     } finally {
@@ -2893,9 +2966,29 @@ export function CustomerRecordDetail(): React.ReactElement {
   // minute), so saving immediately would send 2-5 PATCH requests per date
   // entered. Debounce the actual save; the input stays locally controlled so
   // typing feels instant.
+  // docs/specs/mandatory-ticket-fields.md R3: a due date is never cleared or moved into the
+  // past. An empty value (also what a half-typed date reads as) is simply not saved, and
+  // either case drops a save still pending from an earlier keystroke.
   function handleDueDateInputChange(value: string): void {
     setDueDateInput(value);
+    if (!value) {
+      debouncedQuickSetDueDate.cancel();
+      setDueDateInputError(null);
+      return;
+    }
+    if (new Date(value).getTime() <= Date.now()) {
+      debouncedQuickSetDueDate.cancel();
+      setDueDateInputError("Due date must be in the future.");
+      return;
+    }
+    setDueDateInputError(null);
     debouncedQuickSetDueDate(value);
+  }
+
+  function restoreDueDateInputIfEmpty(): void {
+    if (dueDateInput) return;
+    setDueDateInput(record?.dueDate ? toLocalInputValue(record.dueDate) : "");
+    setDueDateInputError(null);
   }
 
   async function executeTransition(
@@ -3856,8 +3949,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                               setEditAssignedTo(record.assignedTo ?? "");
                               setEditDueDate(
                                 record.dueDate
-                                  ? record.dueDate.slice(0, 16)
+                                  ? toLocalInputValue(record.dueDate)
                                   : "",
+                              );
+                              setEditSeverity(
+                                record.severity ?? DEFAULT_SEVERITY,
                               );
                               setSaveError(null);
                               setEditing(true);
@@ -3968,6 +4064,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                   users={users}
                   disabled={quickAssigning || !canChangeAssignedTo}
                   onChange={(userId) => void quickAssign(userId)}
+                  {...(record.teamName
+                    ? { emptyLabel: `Team: ${record.teamName}` }
+                    : {})}
                 />
               </div>
             </div>
@@ -3981,10 +4080,17 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <input
                   type="datetime-local"
                   className="portal-input"
+                  aria-label="Sidebar due date"
                   value={dueDateInput}
                   disabled={!canChangeDueDate}
                   onChange={(e) => handleDueDateInputChange(e.target.value)}
+                  onBlur={restoreDueDateInputIfEmpty}
                 />
+                {dueDateInputError && (
+                  <span className="rcd-field-error" role="alert">
+                    {dueDateInputError}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -4158,13 +4264,23 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </div>
                     )}
                     <div className="portal-field-group portal-field-full">
-                      <label className="portal-field-label">Assigned To</label>
+                      <label className="portal-field-label">
+                        Assigned To<span className="portal-required">*</span>
+                      </label>
                       <select
                         className="portal-input"
                         value={editAssignedTo}
                         onChange={(e) => setEditAssignedTo(e.target.value)}
                       >
-                        <option value="">Unassigned</option>
+                        {/* No "Unassigned": the empty value only labels a team ticket
+                            (or a legacy unassigned one) and is never saved. */}
+                        {!editAssignedTo && (
+                          <option value="" disabled>
+                            {record.teamName
+                              ? `Team: ${record.teamName}`
+                              : "Select assignee"}
+                          </option>
+                        )}
                         {users.map((u) => (
                           <option key={u.userId} value={u.userId}>
                             {u.displayName ?? u.email}
@@ -4173,21 +4289,40 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </select>
                     </div>
                     <div className="portal-field-group portal-field-full">
-                      <label className="portal-field-label">Due Date</label>
+                      <label className="portal-field-label">
+                        Due Date<span className="portal-required">*</span>
+                      </label>
                       <input
                         type="datetime-local"
                         className="portal-input"
                         value={editDueDate}
+                        required
                         disabled={!canChangeDueDate}
                         onChange={(e) => setEditDueDate(e.target.value)}
                       />
                     </div>
-                    {(isChildTicket
-                      ? fields.filter((f) =>
-                          /^(due_?date|due|description|desc)$/i.test(f.name),
-                        )
-                      : fields
-                    ).map((f) => (
+                    <div className="portal-field-group portal-field-full">
+                      <label className="portal-field-label">
+                        Severity<span className="portal-required">*</span>
+                      </label>
+                      <select
+                        className="portal-input"
+                        aria-label="Severity"
+                        value={editSeverity}
+                        disabled={!canChangeSeverity}
+                        onChange={(e) =>
+                          // The options are exactly SEVERITY_LEVELS.
+                          setEditSeverity(e.target.value as Severity)
+                        }
+                      >
+                        {SEVERITY_LEVELS.map((s) => (
+                          <option key={s} value={s}>
+                            {SEVERITY_LABEL[s]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {editFormFields.map((f) => (
                       <div
                         key={f.id}
                         className={`portal-field-group ${f.fieldType === "longtext" ? "portal-field-full" : ""}`}
@@ -4198,16 +4333,28 @@ export function CustomerRecordDetail(): React.ReactElement {
                             <span className="portal-required">*</span>
                           )}
                         </label>
-                        <FieldInput
-                          field={f}
-                          value={editValues[f.name]}
-                          classPrefix="portal"
-                          moduleSlug={typeSlug ?? "unknown"}
-                          entityId={id}
-                          onChange={(v) =>
-                            setEditValues((p) => ({ ...p, [f.name]: v }))
-                          }
-                        />
+                        {f.config.readOnly ? (
+                          <div className="rcd-field-val">
+                            <FieldValue
+                              value={record.fields[f.name]}
+                              fieldType={f.fieldType}
+                              field={f}
+                              attachments={attachments}
+                              onPreviewFile={setPreviewFile}
+                            />
+                          </div>
+                        ) : (
+                          <FieldInput
+                            field={f}
+                            value={editValues[f.name]}
+                            classPrefix="portal"
+                            moduleSlug={typeSlug ?? "unknown"}
+                            entityId={id}
+                            onChange={(v) =>
+                              setEditValues((p) => ({ ...p, [f.name]: v }))
+                            }
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -4234,12 +4381,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               ) : (
                 <>
                   <div className="rcd-fields-grid">
-                    {(isChildTicket
-                      ? fields.filter((f) =>
-                          /^(due_?date|due|description|desc)$/i.test(f.name),
-                        )
-                      : fields
-                    ).map((f) => (
+                    {editableFields.map((f) => (
                       <div key={f.id} className="rcd-field-item">
                         <div className="rcd-field-lbl">{f.label}</div>
                         <div className="rcd-field-val">
@@ -4261,12 +4403,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         </div>
                       </div>
                     ))}
-                    {(isChildTicket
-                      ? fields.filter((f) =>
-                          /^(due_?date|due|description|desc)$/i.test(f.name),
-                        )
-                      : fields
-                    ).length === 0 && (
+                    {editableFields.length === 0 && (
                       <p
                         className="rcd-empty-hint"
                         style={{ padding: "0", gridColumn: "1/-1" }}
@@ -5648,21 +5785,59 @@ export function CustomerRecordDetail(): React.ReactElement {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Assign to</label>
+              <label className="form-label">Assign to *</label>
               <AssignDropdown
                 value={newChildAssignedTo}
                 users={users}
                 onChange={setNewChildAssignedTo}
                 className="asgn-drop-full"
+                emptyLabel="Select assignee"
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Due date</label>
+              <label className="form-label" htmlFor="new-child-due">
+                Due date *
+              </label>
               <input
+                id="new-child-due"
                 className="form-input"
                 type="datetime-local"
                 value={newChildDueDate}
                 onChange={(e) => setNewChildDueDate(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="new-child-severity">
+                Severity *
+              </label>
+              <select
+                id="new-child-severity"
+                className="form-input"
+                value={newChildSeverity}
+                onChange={(e) =>
+                  // The options are exactly SEVERITY_LEVELS.
+                  setNewChildSeverity(e.target.value as Severity)
+                }
+              >
+                {SEVERITY_LEVELS.map((s) => (
+                  <option key={s} value={s}>
+                    {SEVERITY_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="new-child-remark">
+                Remark *
+              </label>
+              <textarea
+                id="new-child-remark"
+                className="form-input"
+                rows={2}
+                placeholder="Why this sub-task exists…"
+                value={newChildRemark}
+                onChange={(e) => setNewChildRemark(e.target.value)}
+                style={{ resize: "vertical" }}
               />
             </div>
             <div className="form-group">
@@ -5686,6 +5861,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                 setNewChildAssignedTo("");
                 setNewChildDueDate("");
                 setNewChildDescription("");
+                setNewChildRemark("");
+                setNewChildSeverity(DEFAULT_SEVERITY);
                 setCreateChildError(null);
               }}
             >
@@ -5693,7 +5870,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </Button>
             <Button
               variant="primary"
-              disabled={!newChildTitle.trim() || creatingChild}
+              disabled={creatingChild}
               onClick={() => void createChild()}
             >
               {creatingChild ? "Creating…" : "Create sub-task"}

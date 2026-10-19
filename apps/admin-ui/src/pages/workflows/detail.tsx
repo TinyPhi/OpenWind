@@ -107,6 +107,7 @@ function useHistoryBlocker(when: boolean): {
   };
 }
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { reorderFields } from "../../lib/field-order.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { MultiUserPicker } from "../../components/user-picker.js";
@@ -157,6 +158,8 @@ type EntityField = {
   fieldType: string;
   isRequired: boolean;
   isIndexed: boolean;
+  /** Protected: can't be edited, deleted or moved (the API refuses). */
+  isSystem: boolean;
   sortOrder: number;
 };
 
@@ -1690,17 +1693,12 @@ export function WorkflowDetail(): React.ReactElement {
     const { active, over } = event;
     if (!over || active.id === over.id || !workflow?.entityTypeId) return;
 
-    const sorted = [...fields].sort((a, b) => a.sortOrder - b.sortOrder);
-    const oldIndex = sorted.findIndex((f) => f.id === active.id);
-    const newIndex = sorted.findIndex((f) => f.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const reordered = arrayMove(sorted, oldIndex, newIndex).map((f, i) => ({
-      ...f,
-      sortOrder: i * 10,
-    }));
+    // System fields stay pinned and are never sent (see reorderFields).
+    const reordered = reorderFields(fields, String(active.id), String(over.id));
+    if (!reordered) return;
 
     const snapshot = fields;
-    const oldOrderMap = new Map(sorted.map((f) => [f.id, f.sortOrder]));
+    const oldOrderMap = new Map(fields.map((f) => [f.id, f.sortOrder]));
     setFields(reordered);
     try {
       await Promise.all(
@@ -3026,7 +3024,7 @@ export function WorkflowDetail(): React.ReactElement {
                         <SortableFieldRow
                           key={f.id}
                           field={f}
-                          dragDisabled={!canManageWorkflow}
+                          dragDisabled={f.isSystem || !canManageWorkflow}
                         >
                           <TableCell>
                             <div>
@@ -3068,67 +3066,75 @@ export function WorkflowDetail(): React.ReactElement {
                                 justifyContent: "flex-end",
                               }}
                             >
-                              <IconButton
-                                variant="edit"
-                                onClick={() => {
-                                  setEditingField(f);
-                                  setFieldForm({
-                                    name: f.name,
-                                    label: f.label,
-                                    fieldType: f.fieldType,
-                                    isRequired: f.isRequired,
-                                  });
-                                  setFieldError(null);
-                                }}
-                                title="Edit detail"
-                              >
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                </svg>
-                              </IconButton>
-                              <IconButton
-                                variant="delete"
-                                disabled={deletingFieldId === f.id}
-                                onClick={() =>
-                                  setConfirmDelete({
-                                    message: `Delete detail "${f.label}"?`,
-                                    onConfirm: () => {
-                                      setConfirmDelete(null);
-                                      void handleDeleteField(f.id);
-                                    },
-                                  })
-                                }
-                                title="Delete detail"
-                              >
-                                {deletingFieldId === f.id ? (
-                                  <span style={{ fontSize: "11px" }}>…</span>
-                                ) : (
-                                  <svg
-                                    width="13"
-                                    height="13"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                              {/* A system field (every workflow's title) is protected:
+                                  the API refuses to edit or delete it. */}
+                              {!f.isSystem && (
+                                <>
+                                  <IconButton
+                                    variant="edit"
+                                    onClick={() => {
+                                      setEditingField(f);
+                                      setFieldForm({
+                                        name: f.name,
+                                        label: f.label,
+                                        fieldType: f.fieldType,
+                                        isRequired: f.isRequired,
+                                      });
+                                      setFieldError(null);
+                                    }}
+                                    title="Edit detail"
                                   >
-                                    <polyline points="3 6 5 6 21 6" />
-                                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                    <path d="M10 11v6M14 11v6" />
-                                  </svg>
-                                )}
-                              </IconButton>
+                                    <svg
+                                      width="13"
+                                      height="13"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </svg>
+                                  </IconButton>
+                                  <IconButton
+                                    variant="delete"
+                                    disabled={deletingFieldId === f.id}
+                                    onClick={() =>
+                                      setConfirmDelete({
+                                        message: `Delete detail "${f.label}"?`,
+                                        onConfirm: () => {
+                                          setConfirmDelete(null);
+                                          void handleDeleteField(f.id);
+                                        },
+                                      })
+                                    }
+                                    title="Delete detail"
+                                  >
+                                    {deletingFieldId === f.id ? (
+                                      <span style={{ fontSize: "11px" }}>
+                                        …
+                                      </span>
+                                    ) : (
+                                      <svg
+                                        width="13"
+                                        height="13"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <polyline points="3 6 5 6 21 6" />
+                                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                        <path d="M10 11v6M14 11v6" />
+                                      </svg>
+                                    )}
+                                  </IconButton>
+                                </>
+                              )}
                             </div>
                           </TableCell>
                         </SortableFieldRow>

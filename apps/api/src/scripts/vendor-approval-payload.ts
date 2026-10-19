@@ -20,6 +20,7 @@ export const VendorPayloadSchema = z.object({
 export type VendorPayload = z.infer<typeof VendorPayloadSchema>;
 
 export type VendorFields = {
+  title: string;
   vendor_name: string;
   category: VendorPayload["vendor"]["category"];
   contact_email: string;
@@ -31,6 +32,8 @@ export type VendorFields = {
 
 export function mapVendorPayload(payload: VendorPayload): VendorFields {
   return {
+    // Every workflow record has a title (docs/specs/mandatory-ticket-fields.md R1).
+    title: `Vendor approval: ${payload.vendor.name}`,
     vendor_name: payload.vendor.name,
     category: payload.vendor.category,
     contact_email: payload.vendor.email,

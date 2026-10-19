@@ -460,6 +460,9 @@ type EntityField = {
   config: {
     options?: Array<string | { label: string; value: string; color?: string }>;
     allowedCurrencies?: string[];
+    /** Engine-written (e.g. tender submitted_at): never a create-form input. */
+    readOnly?: boolean;
+    virtual?: boolean;
   };
 };
 type WorkflowDef = {
@@ -620,7 +623,11 @@ export function CustomerRecordCreate(): React.ReactElement {
     ])
       .then(([fieldsRes, wfRes, usersRes, teamsRes]) => {
         if (cancelled) return;
-        const fs = (fieldsRes as { data: EntityField[] }).data;
+        // Engine-written fields are never filled in by hand, and virtual fields (helpdesk's
+        // severity) have their own built-in control.
+        const fs = (fieldsRes as { data: EntityField[] }).data.filter(
+          (f) => !f.config.readOnly && !f.config.virtual,
+        );
         setFields(fs);
         if (routeState.prefillFields) {
           const prefill = routeState.prefillFields;

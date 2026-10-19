@@ -121,7 +121,9 @@ describe("createEntityType", () => {
   // Mandatory-ticket-fields sync, 2026-09-21 -- every new, per-tenant entity
   // type must have at least a required "title" field guaranteed from
   // creation, not left to the admin's separate, optional "add fields" step.
-  it("auto-seeds a required 'title' field for a per-tenant entity type", async () => {
+  // docs/specs/mandatory-ticket-fields.md R1: it is also protected (isSystem), so it can't be
+  // deleted or made optional.
+  it("auto-seeds a required, protected 'title' field for a per-tenant entity type", async () => {
     mockInsertReturning.mockResolvedValue([fakeEntityType]);
     await createEntityType(dbMock as never, TENANT_ID, {
       name: "ticket",
@@ -134,7 +136,7 @@ describe("createEntityType", () => {
       expect.objectContaining({
         name: "title",
         isRequired: true,
-        isSystem: false,
+        isSystem: true,
       }),
     );
   });

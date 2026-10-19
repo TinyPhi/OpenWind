@@ -35,6 +35,7 @@ import {
   workflows,
   workflowStates,
   workflowEvents,
+  tenantUsers,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext } from "@platform/auth";
@@ -80,6 +81,12 @@ beforeAll(async () => {
     name: "Isolation Tenant (ticket-alerts fixes)",
     slug: `isolation-alerts-fixes-${Date.now()}`,
   });
+  // A sub-task needs an assignee who belongs to the tenant
+  // (docs/specs/mandatory-ticket-fields.md R4).
+  await db
+    .insert(tenantUsers)
+    .values({ tenantId: TENANT, userId: OWNER })
+    .onConflictDoNothing();
 
   const entityType = await createEntityType(db, null, {
     name: `isolation_fixes_ticket_${Date.now()}`,
@@ -123,6 +130,7 @@ afterAll(async () => {
     .where(eq(workflowStates.workflowId, workflowId));
   await db.delete(workflows).where(eq(workflows.tenantId, TENANT));
   await db.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
+  await db.delete(tenantUsers).where(eq(tenantUsers.tenantId, TENANT));
   await db.delete(tenants).where(eq(tenants.id, TENANT));
 });
 
@@ -192,7 +200,13 @@ describe("Fix #2/#3: archive cascade-cancel", () => {
     const childRes = await makeApp(OWNER).request(`/${parent.id}/children`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entityTypeId, fields: {} }),
+      body: JSON.stringify({
+        entityTypeId,
+        fields: { title: "Child of the archived parent" },
+        assignedTo: OWNER,
+        dueDate: futureIso(),
+        remark: "Follow-up",
+      }),
     });
     expect(childRes.status).toBe(201);
     const { data: childResult } = (await childRes.json()) as {

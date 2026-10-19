@@ -225,6 +225,7 @@ describe("POST /sandboxes/:tenantId/delete", () => {
       .mockRejectedValue(new Error("job failed"));
     mockQueueAdd.mockResolvedValue({
       waitUntilFinished: mockWaitUntilFinished,
+      getState: () => Promise.resolve("failed"),
     });
     const app = makeApp();
 
@@ -244,9 +245,14 @@ describe("POST /sandboxes/:tenantId/delete", () => {
     });
     const mockWaitUntilFinished = vi
       .fn()
-      .mockRejectedValue(new Error("Job job-1 timed out after 60000ms"));
+      .mockRejectedValue(
+        new Error(
+          "Job wait sandbox-delete timed out before finishing, no finish notification arrived after 60000ms (id=job-1)",
+        ),
+      );
     mockQueueAdd.mockResolvedValue({
       waitUntilFinished: mockWaitUntilFinished,
+      getState: () => Promise.resolve("active"),
     });
     const app = makeApp();
 
@@ -259,6 +265,73 @@ describe("POST /sandboxes/:tenantId/delete", () => {
       error: "DELETE_TIMEOUT",
     });
     expect(mockRelease).toHaveBeenCalled();
+  });
+
+  it("returns 500, not 504, when the job failed with a message that itself says 'timed out' (#994)", async () => {
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: true,
+      release: vi.fn().mockResolvedValue(undefined),
+    });
+    mockQueueAdd.mockResolvedValue({
+      waitUntilFinished: vi
+        .fn()
+        .mockRejectedValue(
+          new Error("Zitadel request timed out after 10000ms"),
+        ),
+      getState: () => Promise.resolve("failed"),
+    });
+    const app = makeApp();
+
+    const res = await app.request(`/sandboxes/${TENANT_ID}/delete`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(500);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "DELETE_FAILED",
+    });
+  });
+
+  it("returns 500 when the wait failed and the job's state cannot be read (#994)", async () => {
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: true,
+      release: vi.fn().mockResolvedValue(undefined),
+    });
+    mockQueueAdd.mockResolvedValue({
+      waitUntilFinished: vi.fn().mockRejectedValue(new Error("redis down")),
+      getState: () => Promise.reject(new Error("redis down")),
+    });
+    const app = makeApp();
+
+    const res = await app.request(`/sandboxes/${TENANT_ID}/delete`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 200 when the job finished just after the wait gave up (#994)", async () => {
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: true,
+      release: vi.fn().mockResolvedValue(undefined),
+    });
+    mockQueueAdd.mockResolvedValue({
+      waitUntilFinished: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "Job wait x timed out before finishing, no finish notification arrived after 60000ms (id=job-1)",
+          ),
+        ),
+      getState: () => Promise.resolve("completed"),
+    });
+    const app = makeApp();
+
+    const res = await app.request(`/sandboxes/${TENANT_ID}/delete`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(200);
   });
 
   it("still returns 200 even when the pre-check lock's release itself fails", async () => {

@@ -381,12 +381,12 @@ describe("CreateSandboxModal", () => {
   });
 
   // Issue #891: Show close button when sandbox provisioning poll hits a network error
-  it("shows a close button and dismisses when sandbox provisioning poll hits a network error", async () => {
+  it("shows a close button when the provisioning poll hits a network error, and closing refreshes the list because the sandbox may exist (#995)", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
     mockFetchWithAuth.mockRejectedValueOnce(
       new Error("Network connection lost"),
     );
-    const { onClose } = renderModal();
+    const { onClose, onCreated } = renderModal();
     fireEvent.change(screen.getByLabelText("Organization name"), {
       target: { value: "Acme" },
     });
@@ -399,7 +399,77 @@ describe("CreateSandboxModal", () => {
     });
 
     fireEvent.click(screen.getByText("Close"));
+    // A job was started, so the sandbox may exist even though polling lost track of it:
+    // refresh the list instead of just closing.
+    expect(onCreated).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("warns that the credentials are shown only once when the poll fails while the job may still be running (#995)", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+    mockFetchWithAuth.mockRejectedValueOnce(new Error("Network timeout"));
+    renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => screen.getByText("Network timeout"));
+
+    expect(screen.getByText(/shown only once/i)).toBeTruthy();
+  });
+
+  it("does not warn about credentials, and just closes, when provisioning itself failed (#995)", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+    mockFetchWithAuth.mockResolvedValue({
+      data: {
+        status: "failed",
+        currentStep: null,
+        completedSteps: 2,
+        totalSteps: 7,
+        error: "SANDBOX_ORG_CREATE_FAILED",
+      },
+    });
+    const { onClose, onCreated } = renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => screen.getByText("SANDBOX_ORG_CREATE_FAILED"));
+    expect(screen.queryByText(/shown only once/i)).toBeNull();
+
+    fireEvent.click(screen.getByText("Close"));
     expect(onClose).toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("says the credentials could not be loaded, and refreshes the list on close, when the handover fetch fails after completion (#995)", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: {
+        status: "completed",
+        currentStep: null,
+        completedSteps: 7,
+        totalSteps: 7,
+        error: null,
+      },
+    });
+    mockFetchWithAuth.mockRejectedValueOnce(new Error("handover 500"));
+    const { onClose, onCreated } = renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/credentials could not be loaded/i)).toBeTruthy();
+    });
+    expect(screen.queryByText("Sandbox ready")).toBeNull();
+
+    fireEvent.click(screen.getByText("Close"));
+    expect(onCreated).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("clears the network error message when a subsequent poll succeeds", async () => {
@@ -462,7 +532,7 @@ describe("CreateSandboxModal", () => {
   it("dismisses the modal using the top-right close button when provisioning poll hits a network error", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
     mockFetchWithAuth.mockRejectedValueOnce(new Error("Network timeout"));
-    const { onClose } = renderModal();
+    const { onCreated } = renderModal();
     fireEvent.change(screen.getByLabelText("Organization name"), {
       target: { value: "Acme" },
     });
@@ -473,7 +543,19 @@ describe("CreateSandboxModal", () => {
     });
 
     fireEvent.click(screen.getByLabelText("Close"));
-    expect(onClose).toHaveBeenCalled();
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("announces a successful copy to assistive technology (#995)", async () => {
+    await showHandover();
+    // The live region exists before anything is announced, empty.
+    expect(screen.getByRole("status").textContent).toBe("");
+
+    fireEvent.click(screen.getByText("Copy credentials"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toMatch(/copied/i);
+    });
   });
 
   it("resets copied countdown if copy credentials is clicked again before 2s elapses", async () => {

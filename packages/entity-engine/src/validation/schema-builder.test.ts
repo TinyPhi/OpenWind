@@ -28,6 +28,59 @@ function makeField(
   };
 }
 
+// docs/specs/mandatory-ticket-fields.md R1: a title of only whitespace is no title.
+describe("buildZodSchema — title can't be blank", () => {
+  const title = makeField({
+    name: "title",
+    fieldType: "text",
+    isRequired: true,
+    isSystem: true,
+  });
+
+  it.each(["", "   "])("rejects %j on create", (value) => {
+    expect(
+      buildZodSchema([title], "create").safeParse({ title: value }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a blank title on update", () => {
+    expect(
+      buildZodSchema([title], "update").safeParse({ title: "  " }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a real title unchanged, and an update that leaves it out", () => {
+    expect(
+      buildZodSchema([title], "create").parse({ title: " Printer offline " }),
+    ).toEqual({ title: " Printer offline " });
+    expect(buildZodSchema([title], "update").safeParse({}).success).toBe(true);
+  });
+
+  it("leaves other text fields alone", () => {
+    const notes = makeField({ name: "notes", fieldType: "text" });
+    expect(
+      buildZodSchema([notes], "create").safeParse({ notes: "" }).success,
+    ).toBe(true);
+  });
+
+  it("keys on protected + required, not on the field name", () => {
+    const code = makeField({
+      name: "code",
+      fieldType: "text",
+      isRequired: true,
+      isSystem: true,
+    });
+    expect(
+      buildZodSchema([code], "create").safeParse({ code: "  " }).success,
+    ).toBe(false);
+    const optionalTitle = makeField({ name: "title", fieldType: "text" });
+    expect(
+      buildZodSchema([optionalTitle], "create").safeParse({ title: "" })
+        .success,
+    ).toBe(true);
+  });
+});
+
 describe("buildZodSchema", () => {
   describe("text field", () => {
     it("accepts a valid string", () => {

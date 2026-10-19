@@ -522,6 +522,10 @@ export async function schedulerTick(
   let success = 0;
   let failed = 0;
   let skipped = 0;
+  // Rules left alone because their tenant is deactivated or its trial has ended (R6 of
+  // docs/specs/multi-org-sandbox.md). Counted apart from `skipped` (missed fires dropped by
+  // catch-up) so a lapsed sandbox is visible without an audit row per tick.
+  let skippedIneligible = 0;
 
   try {
     // System-level cross-tenant poll — intentionally no tenant_id filter;
@@ -563,7 +567,7 @@ export async function schedulerTick(
         tenantEligibilityCache.set(rule.tenantId, isEligible);
       }
       if (!isEligible) {
-        skipped++;
+        skippedIneligible++;
         continue;
       }
 
@@ -599,6 +603,7 @@ export async function schedulerTick(
         success,
         failed,
         skipped,
+        skippedIneligible,
         durationMs: Date.now() - tickStart,
       },
       "scheduler tick complete",

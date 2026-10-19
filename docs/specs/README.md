@@ -13,10 +13,11 @@ Last reconciled: 2026-09-28 (#694).
 
 ## Open
 
-| Spec                                                                | Status | Notes                                                                                                                            |
-| ------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft  | Not started — dashboard has no severity/tags/origin widgets yet                                                                  |
-| [module-upgrade-workflow](module-upgrade-workflow.md)               | draft  | #673 — versioned additive upgrades for installed modules; review round 1 done, ADR-004 CF-03/CF-04 follow-up (T0) is human-owned |
+| Spec                                                                | Status      | Notes                                                                                                                                                                                                      |
+| ------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft       | Not started — dashboard has no severity/tags/origin widgets yet                                                                                                                                            |
+| [module-upgrade-workflow](module-upgrade-workflow.md)               | draft       | #673 — versioned additive upgrades for installed modules; review round 1 done, ADR-004 CF-03/CF-04 follow-up (T0) is human-owned                                                                           |
+| [mandatory-ticket-fields](mandatory-ticket-fields.md)               | in-progress | Five mandatory fields on every ticket. PR 1 (title protected, fields visible, ticket page, schedule-rule user id) open; PR 2 (enforcement everywhere + backfill) next; T11 blocked on an ADR-012 amendment |
 
 ## Implemented
 

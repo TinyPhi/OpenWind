@@ -31,7 +31,8 @@ vi.mock("@platform/auth", () => ({
 }));
 
 const mockBulkCreateEntities = vi.fn();
-vi.mock("@platform/entity-engine", () => ({
+vi.mock("@platform/entity-engine", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   bulkCreateEntities: (...args: unknown[]) => mockBulkCreateEntities(...args),
   BULK_MAX_ITEMS: 100,
 }));
@@ -129,6 +130,38 @@ describe("POST /entities/bulk — createdBy injection (#229)", () => {
       "t-aaa",
       expect.any(Array),
     );
+  });
+
+  // docs/specs/mandatory-ticket-fields.md R4: bulk create carries the mandatory values the
+  // engine checks (and, before this, never wrote the remark at all).
+  it("passes due date, remark, severity and team through to the engine", async () => {
+    const item = {
+      ...VALID_ITEM,
+      teamId: "22222222-2222-4222-8222-222222222222",
+      dueDate: "2030-01-01T10:00:00.000Z",
+      remark: "Imported from the legacy desk",
+      severity: "high",
+    };
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [item] }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockBulkCreateEntities).toHaveBeenCalledWith(
+      expect.anything(),
+      "t-aaa",
+      [expect.objectContaining({ ...item, createdBy: "u-bbb" })],
+    );
+  });
+
+  it("rejects an unknown severity", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [{ ...VALID_ITEM, severity: "urgent" }] }),
+    });
+    expect(res.status).toBe(400);
   });
 
   it("returns 400 for an empty items array", async () => {

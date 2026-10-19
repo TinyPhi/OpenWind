@@ -62,6 +62,12 @@ import {
 import { fireEntityAuditHook } from "./audit-hook.js";
 import type { AuditFieldSensitivity } from "./audit-hook.js";
 import { getParentId } from "./child-relations.js";
+import { checkMandatoryFields } from "./mandatory-fields.js";
+import {
+  assertTeamInTenant,
+  assertWorkflowMatchesType,
+  entityTypeHasWorkflow,
+} from "./mandatory-refs.js";
 import { redactFields, buildSensitivityMap } from "./redact.js";
 
 type EntityValidator = (
@@ -342,6 +348,45 @@ export async function createEntity(
     allFields,
     result.data as Record<string, unknown>,
   );
+
+  // An explicit team assignment survives whether or not the type defines a team_id field
+  // (the type schema strips unknown keys, which silently dropped it on helpdesk tickets),
+  // and must name one of this tenant's teams. A team_id sent inside `fields` is treated as
+  // before -- kept only where the type defines it -- so no caller can route a ticket to a
+  // team through the fields bag.
+  if (input.teamId) {
+    await assertTeamInTenant(db, tenantId, input.teamId);
+    fieldsWithFormulas["team_id"] = input.teamId;
+  }
+  const teamId = fieldsWithFormulas["team_id"];
+
+  if (input.workflowId) {
+    await assertWorkflowMatchesType(
+      db,
+      tenantId,
+      input.workflowId,
+      input.entityTypeId,
+    );
+  }
+  if (
+    input.workflowId ||
+    (await entityTypeHasWorkflow(db, tenantId, input.entityTypeId))
+  ) {
+    checkMandatoryFields(
+      {
+        title: fieldsWithFormulas["title"],
+        dueDate: input.dueDate,
+        remark: input.remark,
+        severity: input.severity,
+        assignedTo: input.assignedTo,
+        teamId,
+      },
+      { tenantId, entityTypeId: input.entityTypeId, path: "createEntity" },
+      {
+        assignee: input.mandatoryExemption === "partner_unresolved_assignee",
+      },
+    );
+  }
 
   let currentState = input.currentState;
   if (input.workflowId) {
@@ -1755,6 +1800,10 @@ export async function bulkCreateEntities(
     allFields: Awaited<ReturnType<typeof loadEntityFields>>;
   };
   const typeMetaCache = new Map<string, TypeMeta>();
+  // Mandatory-fields lookups, once per batch rather than once per item.
+  const checkedTeams = new Set<string>();
+  const checkedWorkflows = new Set<string>();
+  const typeHasWorkflowCache = new Map<string, boolean>();
 
   async function getTypeMeta(entityTypeId: string): Promise<TypeMeta> {
     const cached = typeMetaCache.get(entityTypeId);
@@ -1845,6 +1894,62 @@ export async function bulkCreateEntities(
       }
     }
 
+    // Same team, workflow and mandatory-fields rules as createEntity; a failure rejects
+    // only this item. Lookups are cached for the batch.
+    try {
+      if (input.teamId) {
+        if (!checkedTeams.has(input.teamId)) {
+          await assertTeamInTenant(db, tenantId, input.teamId);
+          checkedTeams.add(input.teamId);
+        }
+        fieldsWithFormulas["team_id"] = input.teamId;
+      }
+      if (input.workflowId) {
+        const key = `${input.workflowId}:${input.entityTypeId}`;
+        if (!checkedWorkflows.has(key)) {
+          await assertWorkflowMatchesType(
+            db,
+            tenantId,
+            input.workflowId,
+            input.entityTypeId,
+          );
+          checkedWorkflows.add(key);
+        }
+      }
+      let typeHasWorkflow = typeHasWorkflowCache.get(input.entityTypeId);
+      if (!input.workflowId && typeHasWorkflow === undefined) {
+        typeHasWorkflow = await entityTypeHasWorkflow(
+          db,
+          tenantId,
+          input.entityTypeId,
+        );
+        typeHasWorkflowCache.set(input.entityTypeId, typeHasWorkflow);
+      }
+      if (input.workflowId || typeHasWorkflow) {
+        checkMandatoryFields(
+          {
+            title: fieldsWithFormulas["title"],
+            dueDate: input.dueDate,
+            remark: input.remark,
+            severity: input.severity ?? DEFAULT_TICKET_SEVERITY,
+            assignedTo: input.assignedTo,
+            teamId: fieldsWithFormulas["team_id"],
+          },
+          {
+            tenantId,
+            entityTypeId: input.entityTypeId,
+            path: "bulkCreateEntities",
+          },
+        );
+      }
+    } catch (err) {
+      if (err instanceof ValidationError) {
+        errors.push({ index: i, fields: err.fields });
+        continue;
+      }
+      throw err;
+    }
+
     const initialState = await resolveInitialState(
       db,
       tenantId,
@@ -1860,6 +1965,7 @@ export async function bulkCreateEntities(
       createdBy: input.createdBy ?? null,
       assignedTo: input.assignedTo ?? null,
       dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      remark: input.remark ?? null,
       // docs/specs/ticket-severity-and-tags.md R1 — a creation path, same
       // rule as createEntity: never NULL past this point. bulkCreateEntities
       // has no route-level "handoff vs API" distinction createEntity does,

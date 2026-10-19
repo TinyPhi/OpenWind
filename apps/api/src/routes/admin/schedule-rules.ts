@@ -48,6 +48,7 @@ import {
   InvalidCronExpressionError,
 } from "@platform/scheduler";
 import { logger } from "@platform/logger";
+import { ensureTenantMembers } from "../../lib/ensure-user-refs.js";
 
 type Vars = { Variables: { auth: AuthContext } };
 
@@ -362,6 +363,16 @@ router.post(
           return { status: "no_ticket_type" as const };
         }
 
+        // The user picker lists every org member; one who has never signed in has no
+        // tenant_users row yet, which validateScheduleRuleRefs checks against.
+        if (input.template.assignedTo) {
+          await ensureTenantMembers(
+            tx,
+            auth.tenantId,
+            [input.template.assignedTo],
+            auth.orgId,
+          );
+        }
         const refErrors = await validateScheduleRuleRefs(tx, auth.tenantId, {
           entityTypeId,
           workflowId: input.workflowId,
@@ -540,6 +551,14 @@ router.patch(
         if (input.template || input.workflowId) {
           const effectiveWorkflowId =
             input.workflowId ?? nullToUndefined(existing.workflowId);
+          if (input.template?.assignedTo) {
+            await ensureTenantMembers(
+              tx,
+              auth.tenantId,
+              [input.template.assignedTo],
+              auth.orgId,
+            );
+          }
           const refErrors = await validateScheduleRuleRefs(tx, auth.tenantId, {
             entityTypeId: effectiveEntityTypeId,
             workflowId: effectiveWorkflowId,
