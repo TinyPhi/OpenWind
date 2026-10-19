@@ -5,19 +5,21 @@ import type { PlatformAdminAuthContext } from "@platform/auth";
 import type * as PlatformDb from "@platform/db";
 import type * as DrizzleOrm from "drizzle-orm";
 
-const { mockPlatformAdmin, mockLimitRows, mockWhere, mockTx } = vi.hoisted(
-  () => {
+const { mockPlatformAdmin, mockLimitRows, mockWhere, mockOrderBy, mockTx } =
+  vi.hoisted(() => {
     const mockLimitRows = vi.fn();
     const mockWhere = vi.fn();
+    const mockOrderBy = vi.fn();
     const mockTx = {
       select: () => ({
         from: () => ({
           where: (cond: unknown) => {
             mockWhere(cond);
             return {
-              orderBy: () => ({
-                limit: (n: number) => mockLimitRows(n),
-              }),
+              orderBy: (...columns: unknown[]) => {
+                mockOrderBy(...columns);
+                return { limit: (n: number) => mockLimitRows(n) };
+              },
               limit: (n: number) => mockLimitRows(n),
             };
           },
@@ -33,10 +35,10 @@ const { mockPlatformAdmin, mockLimitRows, mockWhere, mockTx } = vi.hoisted(
       },
       mockLimitRows,
       mockWhere,
+      mockOrderBy,
       mockTx,
     };
-  },
-);
+  });
 
 vi.mock("@platform/auth", () => ({
   requirePlatformAdmin:
@@ -131,6 +133,17 @@ describe("GET /sandboxes", () => {
     ]);
     // Default limit is 100, so limit + 1 = 101 rows requested
     expect(mockLimitRows).toHaveBeenCalledWith(101);
+  });
+
+  it("orders newest first, with the id as a tiebreaker so the order is stable (#992)", async () => {
+    mockLimitRows.mockResolvedValue([]);
+
+    await makeApp().request("/sandboxes");
+
+    expect(mockOrderBy).toHaveBeenCalledWith(
+      ["desc", tenants.createdAt],
+      ["desc", tenants.id],
+    );
   });
 
   it("returns hasMore true and slices data when more rows than limit exist (#845)", async () => {
