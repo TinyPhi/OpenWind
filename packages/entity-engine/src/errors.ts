@@ -21,7 +21,8 @@ export type EntityErrorCode =
   | "SEVERITY_REQUIRED"
   | "TAG_NOT_FOUND"
   | "TAG_FORBIDDEN"
-  | "TAG_ALREADY_EXISTS";
+  | "TAG_ALREADY_EXISTS"
+  | "STATE_CHANGE_NOT_ALLOWED";
 
 export class EntityError extends Error {
   constructor(

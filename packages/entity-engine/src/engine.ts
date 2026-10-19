@@ -13,6 +13,12 @@ import {
   isUniqueViolation,
 } from "@platform/db";
 import { logger } from "@platform/logger";
+import {
+  lockedWorkflowIds,
+  isStateWriteLocked,
+  childStateWriteReachesLockedStep,
+  workflowHasStateNamed,
+} from "./state-write-lock.js";
 import type {
   EntityInstance,
   EntityType,
@@ -410,6 +416,26 @@ export async function createEntity(
           },
         ]);
       }
+      if (input.enforceInitialState) {
+        const initial = await resolveInitialState(
+          db,
+          tenantId,
+          input.workflowId,
+        );
+        const expected = validStates.includes(initial)
+          ? initial
+          : (validStates[0] ?? "initial");
+        if (
+          currentState !== expected &&
+          (await isStateWriteLocked(db, tenantId, input.workflowId))
+        ) {
+          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+            workflowId: input.workflowId,
+            requested: currentState,
+            initial: expected,
+          });
+        }
+      }
     } else {
       const resolved = await resolveInitialState(
         db,
@@ -775,7 +801,33 @@ export async function updateEntity(
             },
           ]);
         }
+        if (
+          existing.workflowId &&
+          input.currentState !== existing.currentState &&
+          (await childStateWriteReachesLockedStep(
+            db,
+            tenantId,
+            existing.workflowId,
+            input.currentState,
+          ))
+        ) {
+          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+            instanceId,
+            from: existing.currentState,
+            to: input.currentState,
+          });
+        }
       } else if (existing.workflowId) {
+        if (
+          input.currentState !== existing.currentState &&
+          (await isStateWriteLocked(db, tenantId, existing.workflowId))
+        ) {
+          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+            instanceId,
+            from: existing.currentState,
+            to: input.currentState,
+          });
+        }
         const states = await db
           .select({ name: workflowStates.name })
           .from(workflowStates)
@@ -1036,7 +1088,33 @@ export async function updateEntity(
             },
           ]);
         }
+        if (
+          existing.workflowId &&
+          input.currentState !== existing.currentState &&
+          (await childStateWriteReachesLockedStep(
+            db,
+            tenantId,
+            existing.workflowId,
+            input.currentState,
+          ))
+        ) {
+          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+            instanceId,
+            from: existing.currentState,
+            to: input.currentState,
+          });
+        }
       } else if (existing.workflowId) {
+        if (
+          input.currentState !== existing.currentState &&
+          (await isStateWriteLocked(db, tenantId, existing.workflowId))
+        ) {
+          throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+            instanceId,
+            from: existing.currentState,
+            to: input.currentState,
+          });
+        }
         const states = await db
           .select({ name: workflowStates.name })
           .from(workflowStates)
@@ -2603,6 +2681,13 @@ export async function bulkSetState(
     }
   }
 
+  const lockedIds = await lockedWorkflowIds(db, tenantId, [
+    ...new Set(
+      validItems
+        .map((item) => foundMap.get(item.id)?.workflowId)
+        .filter((w): w is string => !!w),
+    ),
+  ]);
   const stateValidatedItems: Array<{ id: string; state: string }> = [];
   for (const item of validItems) {
     if (childIds.has(item.id)) {
@@ -2614,10 +2699,36 @@ export async function bulkSetState(
         });
         continue;
       }
+      const childWorkflowId = foundMap.get(item.id)?.workflowId;
+      if (
+        childWorkflowId &&
+        lockedIds.has(childWorkflowId) &&
+        item.state !== foundMap.get(item.id)?.currentState &&
+        (await workflowHasStateNamed(db, tenantId, childWorkflowId, item.state))
+      ) {
+        errors.push({
+          index: item.originalIndex,
+          id: item.id,
+          code: "STATE_CHANGE_NOT_ALLOWED",
+        });
+        continue;
+      }
       stateValidatedItems.push(item);
       continue;
     }
     const workflowId = foundMap.get(item.id)?.workflowId;
+    if (
+      workflowId &&
+      lockedIds.has(workflowId) &&
+      item.state !== foundMap.get(item.id)?.currentState
+    ) {
+      errors.push({
+        index: item.originalIndex,
+        id: item.id,
+        code: "STATE_CHANGE_NOT_ALLOWED",
+      });
+      continue;
+    }
     if (workflowId && !statesByWorkflow.get(workflowId)?.has(item.state)) {
       errors.push({
         index: item.originalIndex,
@@ -2801,7 +2912,33 @@ export async function setEntityState(
         },
       ]);
     }
+    if (
+      existing.workflowId &&
+      state !== existing.currentState &&
+      (await childStateWriteReachesLockedStep(
+        db,
+        tenantId,
+        existing.workflowId,
+        state,
+      ))
+    ) {
+      throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+        instanceId,
+        from: existing.currentState,
+        to: state,
+      });
+    }
   } else if (existing.workflowId) {
+    if (
+      state !== existing.currentState &&
+      (await isStateWriteLocked(db, tenantId, existing.workflowId))
+    ) {
+      throw new EntityError("STATE_CHANGE_NOT_ALLOWED", {
+        instanceId,
+        from: existing.currentState,
+        to: state,
+      });
+    }
     const states = await db
       .select({ name: workflowStates.name })
       .from(workflowStates)

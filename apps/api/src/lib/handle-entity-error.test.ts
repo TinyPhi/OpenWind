@@ -21,6 +21,17 @@ function makeApp(thrownError: unknown) {
 }
 
 describe("handleEntityError", () => {
+  it("returns 409 STATE_CHANGE_NOT_ALLOWED when a record's step is written directly", async () => {
+    const res = await makeApp(
+      new EntityError("STATE_CHANGE_NOT_ALLOWED", { instanceId: "i-1" }),
+    ).request("/test");
+
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { error: string; message: string };
+    expect(json.error).toBe("STATE_CHANGE_NOT_ALLOWED");
+    expect(json.message).not.toContain("i-1");
+  });
+
   it("returns 422 for a ValidationError", async () => {
     const res = await makeApp(
       new ValidationError([{ field: "x", code: "invalid", message: "bad" }]),

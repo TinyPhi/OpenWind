@@ -1244,6 +1244,13 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
+  // docs/specs/state-override.md: the workflow's switch, and the admin-only dialog it enables.
+  const [allowStateOverride, setAllowStateOverride] = useState(false);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideTarget, setOverrideTarget] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overriding, setOverriding] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [_maxChildDepth, setMaxChildDepth] = useState<number>(1);
   const [workflowCreatedBy, setWorkflowCreatedBy] = useState<string | null>(
@@ -1602,6 +1609,14 @@ export function CustomerRecordDetail(): React.ReactElement {
     },
   ];
   const effectiveStates = isChildTicket ? CHILD_TICKET_STATES : allStates;
+  // Mirrors POST /entities/:id/override-state: a real admin, the workflow's switch on, a record
+  // on a workflow, and not the record's own creator. The API enforces all of it.
+  const canOverrideState =
+    currentUserRoles.includes("admin") &&
+    allowStateOverride &&
+    !isChildTicket &&
+    !record?.deletedAt &&
+    !isRecordCreator;
 
   // The coverage-gap badge is for a ticket that still needs routing, so it is off
   // for a deleted ticket and for one in a terminal state. A ticket with a state
@@ -2764,6 +2779,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   maxChildDepth?: number;
                   createdBy?: string | null;
                   assignedTo?: string[] | null;
+                  allowStateOverride?: boolean;
                 };
               }
             ).data
@@ -2786,7 +2802,12 @@ export function CustomerRecordDetail(): React.ReactElement {
           );
           setWorkflowCreatedBy(wf.createdBy ?? null);
           setWorkflowAssignedTo(wf.assignedTo ?? []);
+          setAllowStateOverride(
+            (wf as { allowStateOverride?: boolean }).allowStateOverride ===
+              true,
+          );
         } else {
+          setAllowStateOverride(false);
           setAllStates([]);
           setTransitions([]);
           setWorkflowCreatedBy(null);
@@ -2989,6 +3010,48 @@ export function CustomerRecordDetail(): React.ReactElement {
     if (dueDateInput) return;
     setDueDateInput(record?.dueDate ? toLocalInputValue(record.dueDate) : "");
     setDueDateInputError(null);
+  }
+
+  const OVERRIDE_REASON_MIN = 10;
+  const OVERRIDE_REASON_MAX = 1000;
+
+  async function submitOverride(): Promise<void> {
+    if (!id) return;
+    const reason = overrideReason.trim();
+    if (!overrideTarget) {
+      setOverrideError("Choose the step to move this record to.");
+      return;
+    }
+    if (reason.length < OVERRIDE_REASON_MIN) {
+      setOverrideError(
+        `Give a reason of at least ${OVERRIDE_REASON_MIN} characters. It is recorded with the change.`,
+      );
+      return;
+    }
+    if (reason.length > OVERRIDE_REASON_MAX) {
+      setOverrideError(
+        `The reason can be at most ${OVERRIDE_REASON_MAX} characters.`,
+      );
+      return;
+    }
+    setOverriding(true);
+    setOverrideError(null);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/override-state`, {
+        method: "POST",
+        body: JSON.stringify({ state: overrideTarget, reason }),
+      });
+      setOverrideOpen(false);
+      setOverrideTarget("");
+      setOverrideReason("");
+      void loadRecord();
+    } catch (err) {
+      setOverrideError(
+        err instanceof Error ? err.message : "Failed to override the state",
+      );
+    } finally {
+      setOverriding(false);
+    }
   }
 
   async function executeTransition(
@@ -3883,6 +3946,18 @@ export function CustomerRecordDetail(): React.ReactElement {
               {record.origin && <OriginDetailLine origin={record.origin} />}
             </div>
             <div className="rcd-card-header-right">
+              {canOverrideState && (
+                <button
+                  type="button"
+                  className="rcd-btn-secondary"
+                  onClick={() => {
+                    setOverrideError(null);
+                    setOverrideOpen(true);
+                  }}
+                >
+                  Override state…
+                </button>
+              )}
               {!editing && isAdminOrAgent && record.deletedAt && (
                 <button
                   type="button"
@@ -5874,6 +5949,105 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => void createChild()}
             >
               {creatingChild ? "Creating…" : "Create sub-task"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Admin state override (docs/specs/state-override.md) ──── */}
+      <Dialog
+        open={overrideOpen}
+        onOpenChange={(next) => {
+          if (!next) {
+            setOverrideOpen(false);
+            setOverrideTarget("");
+            setOverrideReason("");
+            setOverrideError(null);
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Override state</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            <p className="rd-muted" style={{ marginBottom: "12px" }}>
+              Moves this record outside its workflow's transitions. It skips the
+              transition rules, runs automations bound to the new step, and is
+              recorded with your name and the reason below.
+            </p>
+            {overrideError && (
+              <div
+                className="portal-alert-error"
+                style={{ marginBottom: "12px" }}
+              >
+                {overrideError}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label" htmlFor="override-target">
+                Move to *
+              </label>
+              <select
+                id="override-target"
+                className="form-input"
+                value={overrideTarget}
+                disabled={overriding}
+                onChange={(e) => setOverrideTarget(e.target.value)}
+              >
+                <option value="">Select a step</option>
+                {allStates
+                  .filter((st) => st.name !== record.currentState)
+                  .map((st) => (
+                    <option key={st.name} value={st.name}>
+                      {st.label || st.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="override-reason">
+                Reason *
+              </label>
+              <textarea
+                id="override-reason"
+                className="form-input"
+                rows={3}
+                value={overrideReason}
+                disabled={overriding}
+                onChange={(e) => setOverrideReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setOverrideOpen(false);
+                setOverrideTarget("");
+                setOverrideReason("");
+                setOverrideError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={overriding}
+              onClick={() => void submitOverride()}
+            >
+              {overriding ? "Overriding…" : "Override state"}
             </Button>
           </div>
         </DialogContent>

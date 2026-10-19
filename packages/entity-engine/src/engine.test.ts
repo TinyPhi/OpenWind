@@ -68,6 +68,11 @@ vi.mock("@platform/db", () => ({
   outboxEvents: {},
   workflowEvents: {},
   workflowStates: { workflowId: "workflow_id", name: "name" },
+  workflowTransitions: {
+    workflowId: "workflow_id",
+    tenantId: "tenant_id",
+    conditions: "conditions",
+  },
   workflows: {
     id: "id",
     tenantId: "tenant_id",
@@ -755,6 +760,8 @@ describe("setEntityState", () => {
       )
       // #160 — getParentId (not a child ticket: empty result).
       .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // state-write lock: the workflow is not locked.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
       // #160 — the new workflow_states validation query.
       .mockReturnValueOnce(makeQueryBuilder(() => [{ name: "closed" }]))
       // Remaining calls are loadEntityType/loadEntityFields (audit hook,
@@ -841,6 +848,8 @@ describe("setEntityState", () => {
       )
       // getParentId (not a child ticket).
       .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // state-write lock: the workflow is not locked.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
       .mockReturnValueOnce(
         makeQueryBuilder(() => [{ name: "open" }, { name: "closed" }]),
       );
@@ -864,6 +873,8 @@ describe("setEntityState", () => {
         ]),
       )
       // getParentId (not a child ticket).
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // state-write lock: the workflow is not locked.
       .mockReturnValueOnce(makeQueryBuilder(() => []))
       .mockReturnValueOnce(
         makeQueryBuilder(() => [{ name: "open" }, { name: "closed" }]),
@@ -972,6 +983,8 @@ describe("bulkSetState", () => {
       .mockReturnValueOnce(
         makeQueryBuilder(() => [{ workflowId: "wf-1", name: "closed" }]),
       )
+      // state-write lock: no workflow is locked.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
       // loadEntityType/loadEntityFields (audit hook loop) — any truthy row.
       .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
     mockUpdateReturning.mockResolvedValue([{ id: INSTANCE_ID }]);
@@ -1041,6 +1054,8 @@ describe("bulkSetState", () => {
           { workflowId: "wf-b", name: "in-review" },
         ]),
       )
+      // state-write lock: no workflow is locked.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
       // loadEntityType/loadEntityFields (audit hook loop, for ID_A only —
       // ID_B is rejected before reaching the update/audit path) — any
       // truthy row works.
@@ -1129,7 +1144,9 @@ describe("bulkSetState", () => {
       // is invalid, isolating the index-tracking behavior from state validity.
       .mockReturnValueOnce(
         makeQueryBuilder(() => [{ workflowId: "wf-1", name: "open" }]),
-      );
+      )
+      // state-write lock: no workflow is locked.
+      .mockReturnValueOnce(makeQueryBuilder(() => []));
 
     const result = await bulkSetState(
       dbMock as never,

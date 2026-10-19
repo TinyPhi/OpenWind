@@ -14,7 +14,7 @@ page or with `ModuleService.installModule(tenantId, "vendor-approval")`.
 
 ### 1. Department roles (once per Zitadel project)
 
-Each review stage is gated by a Zitadel **project** role, with `admin` as the override:
+Each review stage is gated by a Zitadel **project** role. The requester cannot decide their own vendor and nobody decides two stages of the same vendor; an `admin` unsticks a vendor with the recorded state override (the seeded workflow has it switched on), not with a blanket role on the transitions:
 
 | Stage                    | Role               |
 | ------------------------ | ------------------ |

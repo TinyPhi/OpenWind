@@ -280,6 +280,7 @@ export const createEntityHandler = factory.createHandlers(
         const { appClientId, ...createInput } = input;
         return createEntity(tx, tenantId, {
           ...createInput,
+          enforceInitialState: true,
           severity: createInput.severity ?? DEFAULT_TICKET_SEVERITY,
           actorId: userId,
           actorName: actorName ?? undefined,
