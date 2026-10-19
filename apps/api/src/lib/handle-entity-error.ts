@@ -55,6 +55,15 @@ export function handleEntityError(c: Context, err: unknown): Response {
           },
           409,
         ) as Response;
+      case "STATE_CHANGE_NOT_ALLOWED":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "This workflow's records change step through a transition or the admin state override, not by editing the record",
+          },
+          409,
+        ) as Response;
       case "CHILD_ALREADY_HAS_PARENT":
         return c.json(
           { error: err.code, message: "Ticket already has a parent" },

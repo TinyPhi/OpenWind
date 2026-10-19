@@ -262,7 +262,10 @@ async function step(
     executeTransition(tx, tenantId, {
       instanceId,
       transitionId,
-      actorId: ACTOR_ID,
+      // One identity per role: the review transitions refuse the requester and anyone who
+      // already acted on the vendor (segregation of duties), so a single script id cannot
+      // walk a vendor through its stages.
+      actorId: `${ACTOR_ID}:${roles[0]}`,
       actorRoles: roles,
       triggeredBy: "system",
       ...(comment ? { comment } : {}),
