@@ -185,7 +185,8 @@ Per `docs/specs/multi-org-sandbox.md` R7: reset wipes and re-seeds only module/b
 (tickets, workflow instances, automation-execution history) — org chart, accounts, and
 credentials are untouched. It is not a `DROP CASCADE` or a full re-provision. Concurrent
 reset/delete on the same sandbox is rejected (409), not interleaved, enforced by a per-sandbox
-lock (§V, Decision 4's enumerated invariants) — tracked as T22 in the spec, not yet implemented.
+lock (§V, Decision 4's enumerated invariants) — T22 in the spec, implemented with
+`acquireTenantAdvisoryLock(tenantId, "sandbox-lifecycle")` rather than a status column.
 
 ### Decision 10 — MFA mechanism change (Zitadel TOTP → OpenWind email OTP) and verification-window justification
 
@@ -198,7 +199,7 @@ by direct testing against the live instance before committing to the alternative
 **Decision.** MFA for `/platform-admin` is implemented as an OpenWind-owned, application-layer
 one-time-code step, independent of Zitadel's own second-factor support: `POST
 /platform-admin/mfa/request` emails a 6-digit code; `POST /platform-admin/mfa/verify` checks it
-and marks the admin verified for a bounded window (see below). Built:
+and marks the admin verified for one sign-in (see below). Built:
 `packages/auth/src/platform-admin-mfa.ts`.
 
 **Security trade-off, stated explicitly (review finding A).** This is a materially weaker
@@ -209,7 +210,10 @@ on the current hosted Zitadel plan, with the following mitigations as the compen
 
 - The code is hashed at rest (SHA-256) — never stored or logged in plaintext.
 - 10-minute TTL on the code itself.
-- 5-attempt lockout per code (`MAX_VERIFY_ATTEMPTS`), closing the brute-force window.
+- 5-attempt lockout per code (`MAX_VERIFY_ATTEMPTS`), closing the brute-force window, plus a
+  per-admin count of wrong codes across codes (`MAX_FAILED_VERIFIES`, 5 within 30 minutes) so
+  requesting a new code cannot reset the guess budget (#947).
+- A per-admin resend cooldown (`PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS`, default 30).
 - A Redis outage or error while checking verification state always fails closed (denies access),
   never fails open (§V) — an availability problem on our side can never become an auth bypass.
 - The outbound email path is OpenWind's own existing notification infrastructure, not a new
@@ -219,6 +223,15 @@ on the current hosted Zitadel plan, with the following mitigations as the compen
 second factor, migrating `/platform-admin` to it is the expected follow-up — this decision is not
 a permanent rejection of IdP-enforced MFA, it is an accepted interim position forced by the
 current hosted instance's capabilities.
+
+**Amended 2026-10-19 (#984, #947): verification belongs to one sign-in.** A correct code returns
+a random MFA session token, and the verified and fresh markers are keyed by
+`userId + sha256(sessionToken)`, so a second browser or device holding only the admin's password or
+access token never inherits another session's verification. A completed sign-in ends the previous
+sign-in's token, sign-out ends it at once (`POST /platform-admin/mfa/end`), and a session that
+expires lapses on its own. There is no cross-session window: every sign-in needs its own code. The
+12-hour figure below is now only the upper bound on a single sign-in's verification
+(`VERIFIED_TTL_SECONDS`), and the justification that follows is kept as written for that bound.
 
 **Verification-window justification (review finding B).** The 12-hour verification window is
 unusually long for the single highest-privilege role in the system (the one role that can delete
@@ -235,8 +248,15 @@ specifically to the most destructive actions:
 - **Reset and delete require re-verification regardless of the 12-hour window.** A fresh,
   successful `POST /platform-admin/mfa/verify` call is required immediately before a reset or
   delete is accepted — the 12-hour verified flag unlocks read/list/create, not the two
-  irreversible-data operations. This is tracked as part of T22 (per-sandbox lifecycle-action
-  lock) in the spec, alongside the concurrency guard it already covers.
+  irreversible-data operations. Implemented (spec T23, #865, #925): `requireFreshMfa()` follows
+  `requirePlatformAdmin()` on both routes and answers `403 MFA_REAUTH_REQUIRED` unless a verify
+  succeeded within `PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS` (default 300, bounded 60-900),
+  failing closed on a Redis error. It is separate from the per-sandbox lifecycle lock (T22).
+- **Code not delivered (#801).** If the email does not arrive, the admin requests another code. A
+  new code replaces the old one, with a fresh 10 minutes and 5 attempts, limited to one request per
+  resend cooldown. Repeated delivery failures point at the outbound notification path, not at the
+  platform-admin flow. Spec §O has the full procedure, including what keeps working during an email
+  outage and the operator break-glass step.
 - **No standing invalidation mechanism for a suspected-compromised session exists yet** — if a
   platform_admin believes their session is compromised, the operational mitigation today is
   revoking the Zitadel session/token directly (existing IdP-level capability), not a
@@ -244,7 +264,8 @@ specifically to the most destructive actions:
   addition but is not required to accept this ADR.
 
 **Storage backend (review finding F).** Both the hashed OTP (10-minute TTL) and the
-verified-session flag (12-hour TTL) are stored in Redis, keyed per platform-admin user id — not
+verified-session flag (12-hour TTL at most) are stored in Redis, the OTP keyed per platform-admin
+user id and the verified flag per user id and MFA session token (see the amendment above) — not
 Postgres. This is why §V's "Redis outage fails closed" invariant covers both the request and
 verify paths: a Redis outage after a successful `/mfa/verify` call but before the 12-hour flag
 would be durably set manifests as "admin must re-authenticate," never as "admin is treated as
