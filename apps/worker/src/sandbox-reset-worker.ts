@@ -133,6 +133,13 @@ type JobLike = { id?: string | undefined; data: ResetJobData };
  * queues hold), not immediate dispatch jobs.
  */
 async function cancelQueuedJobsForTenant(tenantId: string): Promise<number> {
+  // Notification and outbox queues are intentionally omitted: jobs in those
+  // queues reference notification_recipients/outbox_events rows, which are wiped
+  // in the same reset transaction -- a queued job that fires after reset will
+  // find no rows and exit cleanly (no data corruption risk). The queues above
+  // are the ones that reference entity_instances directly and could produce
+  // meaningful side effects (SLA escalations, automation follow-ups) against
+  // wiped data.
   const queues = [
     automationQueue,
     slaQueue,
