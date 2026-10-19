@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { logger } from "@platform/logger";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
-import { isPlatformOperatorTenant } from "../../lib/platform-operator.js";
+import { denyUnlessPlatformOperator } from "../../lib/platform-operator.js";
 
 const PlatformSettingsPatchSchema = z.object({
   outboundNotificationsEnabled: z.boolean(),
@@ -22,7 +22,7 @@ export const getPlatformSettingsHandler = factory.createHandlers(
   requireAuth(),
   requireRole("superadmin"),
   async (c) => {
-    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
+    if (denyUnlessPlatformOperator(c.get("auth").tenantId, c.req.path)) {
       return c.json({ error: "NOT_FOUND", message: "Not found" }, 404);
     }
     const [row] = await db
@@ -48,7 +48,7 @@ export const updatePlatformSettingsHandler = factory.createHandlers(
   async (c) => {
     const { outboundNotificationsEnabled } = c.req.valid("json");
     const { userId, tenantId } = c.get("auth");
-    if (!isPlatformOperatorTenant(tenantId)) {
+    if (denyUnlessPlatformOperator(tenantId, c.req.path)) {
       return c.json({ error: "NOT_FOUND", message: "Not found" }, 404);
     }
 

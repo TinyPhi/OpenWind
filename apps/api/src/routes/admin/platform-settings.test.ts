@@ -37,6 +37,7 @@ vi.mock("@platform/auth", () => ({
 let mockIsOperator = true;
 vi.mock("../../lib/platform-operator.js", () => ({
   isPlatformOperatorTenant: () => mockIsOperator,
+  denyUnlessPlatformOperator: () => !mockIsOperator,
 }));
 
 const mockRow = { id: 1, outboundNotificationsEnabled: true };

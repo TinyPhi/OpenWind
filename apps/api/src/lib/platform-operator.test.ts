@@ -12,7 +12,11 @@ vi.mock("@platform/config", () => ({
   },
 }));
 
-const { isPlatformOperatorTenant } = await import("./platform-operator.js");
+const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
+vi.mock("@platform/logger", () => ({ logger: { warn: mockWarn } }));
+
+const { isPlatformOperatorTenant, denyUnlessPlatformOperator } =
+  await import("./platform-operator.js");
 
 describe("isPlatformOperatorTenant", () => {
   beforeEach(() => {
@@ -35,5 +39,30 @@ describe("isPlatformOperatorTenant", () => {
   it("refuses everyone in production when none is configured", () => {
     mockEnv.NODE_ENV = "production";
     expect(isPlatformOperatorTenant("anyone")).toBe(false);
+  });
+});
+
+describe("denyUnlessPlatformOperator", () => {
+  beforeEach(() => {
+    mockEnv.PLATFORM_ORG_ID = "org-platform";
+    mockEnv.NODE_ENV = "production";
+    mockWarn.mockClear();
+  });
+
+  it("lets the platform org through without logging", () => {
+    expect(denyUnlessPlatformOperator("org-platform", "/admin/tenants")).toBe(
+      false,
+    );
+    expect(mockWarn).not.toHaveBeenCalled();
+  });
+
+  it("denies a customer tenant and logs who and where", () => {
+    expect(denyUnlessPlatformOperator("org-customer", "/admin/tenants")).toBe(
+      true,
+    );
+    expect(mockWarn).toHaveBeenCalledWith(
+      { tenantId: "org-customer", path: "/admin/tenants" },
+      "platform operator fence: access denied",
+    );
   });
 });

@@ -19,3 +19,14 @@ PAYLOAD_TOO_LARGE`, checked against Content-Length and the received bytes. It si
   environments. The 2 MiB default is a judgement: raise `API_BODY_LIMIT_BYTES` if a legitimate JSON
   payload (large bulk create, entity-type import) is refused. Existing production deploys that never
   set `PLATFORM_ORG_ID` lose access to `/admin/tenants` until they do, by design.
+
+## Review round 1 (#1020)
+
+- The reviewer's blocker (platform org refused the rate-limit PATCH in production) does not
+  reproduce: the `else if` belonged to the outer `if (env.PLATFORM_ORG_ID)`, so a platform-org
+  caller never reached it. The handler is now a single `denied` expression so the two cases read
+  separately, and an isolation test proves the platform org gets 200 in production while a
+  same-tenant caller gets 404.
+- Every fenced route now logs `platform operator fence: access denied` (tenantId, path) before the 404.
+- `UPLOAD_BODY_LIMIT_BYTES` is `MAX_FILE_BYTES` (now exported from `@platform/files`) plus 5 MiB.
+- `TRUST_PROXY` defaults to `"false"` in the config schema, so the startup guard also covers unset; commented.

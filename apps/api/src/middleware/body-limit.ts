@@ -1,11 +1,12 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { env } from "@platform/config";
+import { MAX_FILE_BYTES } from "@platform/files";
 
 // Upload routes read the whole body into memory and enforce the real per-file limits afterwards
-// (packages/files: 100 MB ceiling), so this only has to stop a body of unbounded size reaching
+// (packages/files: MAX_FILE_BYTES ceiling), so this only has to stop a body of unbounded size reaching
 // them. 5 MB of headroom covers multipart framing.
-export const UPLOAD_BODY_LIMIT_BYTES = 105 * 1024 * 1024;
+export const UPLOAD_BODY_LIMIT_BYTES = MAX_FILE_BYTES + 5 * 1024 * 1024;
 
 function tooLarge(c: Context): Response {
   return c.json(

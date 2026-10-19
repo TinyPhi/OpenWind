@@ -22,6 +22,7 @@ const port = 3000;
 logger.info({ port }, "API server starting");
 
 if (env.NODE_ENV === "production") {
+  // TRUST_PROXY defaults to "false" in the config schema, so unset reaches here as "false".
   if (env.TRUST_PROXY === "false") {
     logger.warn(
       {},
