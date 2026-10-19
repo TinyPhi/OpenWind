@@ -1709,6 +1709,43 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     });
   });
 
+  it("tells the user when the sub-task was created but its remark comment failed (#1002)", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    const base = mockFetchWithAuth.getMockImplementation();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) =>
+      url === `/api/entities/${RECORD_ID}/children` &&
+      (init as { method?: string } | undefined)?.method === "POST"
+        ? Promise.resolve({
+            data: { instance: { id: "child-1" }, relations: [] },
+            warnings: ["remark_comment_failed"],
+          })
+        : (base as (u: string, i?: unknown) => Promise<unknown>)(url, init),
+    );
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.click(screen.getByText("Select assignee"));
+    fireEvent.click(await screen.findByText("Second"));
+    fireEvent.change(screen.getByLabelText("Due date *"), {
+      target: { value: "2099-01-01T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Severity *"), {
+      target: { value: "high" },
+    });
+    fireEvent.change(screen.getByLabelText("Remark *"), {
+      target: { value: "Needed before the board meeting" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    const notice = await screen.findByRole("status", {}, { timeout: 3000 });
+    expect(notice.textContent).toContain(
+      "could not be added as the first comment",
+    );
+  });
+
   it("names the missing values and sends nothing", async () => {
     mockMandatoryTicket({ canAddChildren: true });
     renderRecordDetail();

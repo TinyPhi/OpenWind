@@ -1324,6 +1324,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     useState<Severity>(DEFAULT_SEVERITY);
   const [creatingChild, setCreatingChild] = useState(false);
   const [createChildError, setCreateChildError] = useState<string | null>(null);
+  const [childNotice, setChildNotice] = useState<string | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState<{
     childCount: number;
   } | null>(null);
@@ -2493,17 +2494,20 @@ export function CustomerRecordDetail(): React.ReactElement {
       };
       if (newChildDescription.trim())
         childFields.description = newChildDescription.trim();
-      await fetchWithAuth(`${API_URL}/entities/${id}/children`, {
-        method: "POST",
-        body: JSON.stringify({
-          entityTypeId: effectiveEntityTypeId,
-          fields: childFields,
-          assignedTo: newChildAssignedTo,
-          dueDate: new Date(newChildDueDate).toISOString(),
-          remark: newChildRemark.trim(),
-          severity: newChildSeverity,
-        }),
-      });
+      const created = await fetchWithAuth(
+        `${API_URL}/entities/${id}/children`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            entityTypeId: effectiveEntityTypeId,
+            fields: childFields,
+            assignedTo: newChildAssignedTo,
+            dueDate: new Date(newChildDueDate).toISOString(),
+            remark: newChildRemark.trim(),
+            severity: newChildSeverity,
+          }),
+        },
+      );
       setNewChildTitle("");
       setNewChildAssignedTo("");
       setNewChildDueDate("");
@@ -2511,6 +2515,12 @@ export function CustomerRecordDetail(): React.ReactElement {
       setNewChildRemark("");
       setNewChildSeverity(DEFAULT_SEVERITY);
       setShowCreateChild(false);
+      const warnings = (created as { warnings?: unknown } | null)?.warnings;
+      setChildNotice(
+        Array.isArray(warnings) && warnings.includes("remark_comment_failed")
+          ? "The sub-task was created, but its remark could not be added as the first comment. The remark is saved on the sub-task."
+          : null,
+      );
       void loadChildren();
     } catch (err) {
       setCreateChildError(
@@ -4870,6 +4880,15 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             ) : activeTab === "subtasks" ? (
               <div className="rcd-tab-scroll">
+                {childNotice && (
+                  <div
+                    className="portal-alert-error"
+                    role="status"
+                    style={{ marginBottom: "12px" }}
+                  >
+                    {childNotice}
+                  </div>
+                )}
                 {canCreateChild && !record.deletedAt && (
                   <div className="rcd-linked-tab-actions">
                     <button
