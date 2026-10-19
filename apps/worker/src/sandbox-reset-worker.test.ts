@@ -42,6 +42,10 @@ const mockWithTenantPurgeContext = vi.fn(
       },
     }),
 );
+
+const mockWithEventLogMaintenanceContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTx),
+);
 const mockLockRelease = vi.fn().mockResolvedValue(undefined);
 const mockAcquireTenantAdvisoryLock = vi
   .fn()
@@ -59,6 +63,9 @@ vi.mock("@platform/db", () => ({
     ...args: Parameters<typeof mockWithTenantPurgeContext>
   ) => mockWithTenantPurgeContext(...args),
   orgEmployees: { tenantId: "tenantId", userId: "userId" },
+  withEventLogMaintenanceContext: (
+    ...args: Parameters<typeof mockWithEventLogMaintenanceContext>
+  ) => mockWithEventLogMaintenanceContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
   recordPlatformAdminAction: (...args: unknown[]) =>
@@ -186,6 +193,10 @@ describe("processSandboxResetJob", () => {
       expect.any(Function),
     );
     expect(mockDelete).toHaveBeenCalled();
+    expect(mockWithEventLogMaintenanceContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
     expect(mockSeedAllModulesData).toHaveBeenCalledWith(
       TENANT_ID,
       ["helpdesk", "crm"],
@@ -402,6 +413,27 @@ describe("processSandboxResetJob", () => {
     ).resolves.toBeUndefined();
 
     expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_failed" }),
+    );
+  });
+
+  it("completes the reset and logs error when deleteTenantFiles fails (T13 gap, #836)", async () => {
+    mockDeleteTenantFiles.mockRejectedValueOnce(new Error("s3 down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).resolves.toBeUndefined();
+
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      "sandbox reset: file deletion failed (best-effort, continuing)",
+    );
     expect(mockWriteAuditEntry).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: "sandbox.reset_completed" }),

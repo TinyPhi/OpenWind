@@ -66,6 +66,7 @@ type EntityField = {
     allowedCurrencies?: string[];
     /** Engine-written (e.g. tender submitted_at): shown as text, never an input. */
     readOnly?: boolean;
+    virtual?: boolean;
   };
 };
 
@@ -1565,13 +1566,13 @@ export function CustomerRecordDetail(): React.ReactElement {
   // Derived: true when viewing a child ticket (has a parent)
   const isChildTicket = !!record?.parentId;
   // The fields the details grid shows and edits: a child ticket only its due date and
-  // description, any other record all of them -- except a `severity` field some seeds
-  // (helpdesk) still define: the built-in severity column is the real value.
+  // description, any other record all of them -- except virtual fields, which have their own
+  // built-in control (helpdesk's severity field mirrors the severity column).
   const editableFields = (
     isChildTicket
       ? fields.filter((f) => /^(due_?date|due|description|desc)$/i.test(f.name))
       : fields
-  ).filter((f) => f.name !== "severity");
+  ).filter((f) => !f.config.virtual);
   // team_id shows as the resolved team name; it changes through assignment, never as a
   // free-text input (blanking it would leave a team ticket with nobody).
   const editFormFields = editableFields.filter((f) => f.name !== "team_id");

@@ -32,6 +32,8 @@ export const WorkflowTransitionedV1Schema = baseEvent.extend({
   // Automation recursion depth this transition was triggered at (see issue #120).
   // Absent on events from direct user/API transitions, which start at depth 0.
   depth: z.number().int().nonnegative().optional(),
+  // True when the state was set by the recorded admin override, not a guarded transition.
+  override: z.boolean().optional(),
   // Identity of this workflow.transitioned event — carried through the
   // outbox so the async worker path can dedupe against the same key the
   // sync in-process path already claimed. Declared here rather than on

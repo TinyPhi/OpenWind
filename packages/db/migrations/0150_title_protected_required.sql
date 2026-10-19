@@ -11,6 +11,9 @@
 -- view now shows protected fields (it used to hide every is_system field, which hid the
 -- helpdesk ticket's title); readOnly keeps these two out of the edit form.
 --
+-- And marks the helpdesk ticket's `severity` field `"virtual": true`: the built-in severity
+-- column has its own control, so forms leave this mirror field out of the generic list.
+--
 -- Entity types that have no title field at all (and records with no title value) are left
 -- to the backfill in PR 2 (spec R9), which adds field and values together.
 --
@@ -21,6 +24,7 @@
 --   FROM entity_types et JOIN modules m ON m.id = et.module_id
 --   WHERE ef.entity_type_id = et.id AND m.slug = 'tender' AND et.name = 'tender'
 --     AND ef.name IN ('submitted_at', 'submitted_by');
+--   and the same with 'virtual' for helpdesk/ticket's 'severity'.
 
 UPDATE entity_fields
 SET is_system = true,
@@ -38,3 +42,13 @@ WHERE ef.entity_type_id = et.id
   AND et.name = 'tender'
   AND ef.name IN ('submitted_at', 'submitted_by')
   AND NOT coalesce((ef.config ->> 'readOnly')::boolean, false);
+
+UPDATE entity_fields ef
+SET config = ef.config || '{"virtual": true}'::jsonb
+FROM entity_types et
+JOIN modules m ON m.id = et.module_id
+WHERE ef.entity_type_id = et.id
+  AND m.slug = 'helpdesk'
+  AND et.name = 'ticket'
+  AND ef.name = 'severity'
+  AND NOT coalesce((ef.config ->> 'virtual')::boolean, false);

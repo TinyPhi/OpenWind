@@ -8,18 +8,12 @@
     "title": "Welcome back",
     "description": "Continue with your organisation's identity provider to access your workspace.",
     "signInTag": "Sign in",
-    "signInButton": "Continue with SSO",
+    "signInButton": "Login",
     "redirecting": "Redirecting…",
     "signInFailed": "Sign-in failed. If this continues, please contact support.",
     "securityNote": "Encrypted session · access is scoped to your organisation",
     "helpPrompt": "Need access?",
-    "contactAdmin": "Contact your admin",
-    "footer": {
-      "copyright": "© 2026 OpenWind. Open-source platform.",
-      "github": "GitHub",
-      "docs": "Docs",
-      "privacy": "Privacy"
-    }
+    "contactUs": "Contact us"
   },
   "authCallback": {
     "errorTitle": "Authentication Error",
@@ -29,6 +23,8 @@
   "network": {
     "regionLabel": "Notifications",
     "sessionExpired": "Your session has expired. Please sign in again.",
+    "trialEnded": "Your trial has ended. Contact us to continue using OpenWind.",
+    "tenantSuspended": "This account has been suspended. Please contact support.",
     "dismiss": "Dismiss",
     "offline": "You're offline",
     "reconnecting": "Reconnecting…",

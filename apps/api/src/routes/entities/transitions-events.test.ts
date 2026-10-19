@@ -291,6 +291,7 @@ describe("GET /entities/:id/transitions", () => {
       "t-aaa",
       INSTANCE_ID,
       ["admin"],
+      "u-bbb",
     );
   });
 
@@ -306,6 +307,7 @@ describe("GET /entities/:id/transitions", () => {
       "t-aaa",
       INSTANCE_ID,
       ["admin"],
+      "u-bbb",
     );
   });
 

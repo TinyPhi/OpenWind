@@ -393,7 +393,12 @@ export async function createEntity(
     const states = await db
       .select({ name: workflowStates.name })
       .from(workflowStates)
-      .where(eq(workflowStates.workflowId, input.workflowId));
+      .where(
+        and(
+          eq(workflowStates.workflowId, input.workflowId),
+          eq(workflowStates.tenantId, tenantId),
+        ),
+      );
     const validStates = states.map((s) => s.name);
     if (currentState) {
       if (!validStates.includes(currentState)) {
@@ -406,7 +411,11 @@ export async function createEntity(
         ]);
       }
     } else {
-      const resolved = await resolveInitialState(db, input.workflowId);
+      const resolved = await resolveInitialState(
+        db,
+        tenantId,
+        input.workflowId,
+      );
       // If the workflow's initialState is stale (state was deleted), fall back
       // to the first defined state rather than inserting an invalid value.
       currentState = validStates.includes(resolved)
@@ -770,7 +779,12 @@ export async function updateEntity(
         const states = await db
           .select({ name: workflowStates.name })
           .from(workflowStates)
-          .where(eq(workflowStates.workflowId, existing.workflowId));
+          .where(
+            and(
+              eq(workflowStates.workflowId, existing.workflowId),
+              eq(workflowStates.tenantId, tenantId),
+            ),
+          );
         const validStates = states.map((s) => s.name);
         if (!validStates.includes(input.currentState)) {
           throw new ValidationError([
@@ -1026,7 +1040,12 @@ export async function updateEntity(
         const states = await db
           .select({ name: workflowStates.name })
           .from(workflowStates)
-          .where(eq(workflowStates.workflowId, existing.workflowId));
+          .where(
+            and(
+              eq(workflowStates.workflowId, existing.workflowId),
+              eq(workflowStates.tenantId, tenantId),
+            ),
+          );
         const validStates = states.map((s) => s.name);
         if (!validStates.includes(input.currentState)) {
           throw new ValidationError([
@@ -1700,13 +1719,19 @@ export async function loadEntityFields(
 
 async function resolveInitialState(
   db: DbOrTx,
+  tenantId: string,
   workflowId: string | undefined | null,
 ): Promise<string> {
   if (!workflowId) return "initial";
   const [wf] = await db
     .select({ initialState: workflows.initialState })
     .from(workflows)
-    .where(eq(workflows.id, workflowId))
+    .where(
+      and(
+        eq(workflows.id, workflowId),
+        or(eq(workflows.tenantId, tenantId), isNull(workflows.tenantId)),
+      ),
+    )
     .limit(1);
   return wf?.initialState ?? "initial";
 }
@@ -1925,7 +1950,11 @@ export async function bulkCreateEntities(
       throw err;
     }
 
-    const initialState = await resolveInitialState(db, input.workflowId);
+    const initialState = await resolveInitialState(
+      db,
+      tenantId,
+      input.workflowId,
+    );
 
     toInsert.push({
       entityTypeId: input.entityTypeId,
@@ -2561,7 +2590,12 @@ export async function bulkSetState(
         name: workflowStates.name,
       })
       .from(workflowStates)
-      .where(inArray(workflowStates.workflowId, workflowIds));
+      .where(
+        and(
+          inArray(workflowStates.workflowId, workflowIds),
+          eq(workflowStates.tenantId, tenantId),
+        ),
+      );
     for (const r of stateRows) {
       const set = statesByWorkflow.get(r.workflowId) ?? new Set<string>();
       set.add(r.name);
@@ -2771,7 +2805,12 @@ export async function setEntityState(
     const states = await db
       .select({ name: workflowStates.name })
       .from(workflowStates)
-      .where(eq(workflowStates.workflowId, existing.workflowId));
+      .where(
+        and(
+          eq(workflowStates.workflowId, existing.workflowId),
+          eq(workflowStates.tenantId, tenantId),
+        ),
+      );
     const validStates = states.map((s) => s.name);
     if (!validStates.includes(state)) {
       throw new ValidationError([

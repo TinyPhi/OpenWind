@@ -19,4 +19,7 @@ USER root
 #             It is imported at security-manager construction, so a missing
 #             authlib is not a failed login: every worker fails to boot.
 RUN uv pip install --python /app/.venv/bin/python --no-cache         psycopg2-binary==2.9.10         Authlib==1.3.2
+# The OpenBao startup loader (ADR-023). Unused unless the production override
+# makes it the entrypoint; the image has Python but no Node, hence this copy.
+COPY packages/openbao-deploy/src/bao-env-loader.py /opt/openbao/bao-env-loader.py
 USER superset

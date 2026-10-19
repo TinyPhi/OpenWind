@@ -9,6 +9,11 @@ import { usePermissions } from "@refinedev/core";
  * EntityTypeProvider/Layout -- which fire tenant requests on mount -- never mount for a
  * platform_admin. The API rejects those requests anyway (requireAuth's
  * PLATFORM_ADMIN_TENANT_ACCESS_DENIED); this keeps the UI from rendering a tenant shell.
+ *
+ * Intentionally fail-open on permissions error (isLoading: false, roles: undefined):
+ * if fetching permissions fails, the tenant shell is rendered rather than a blank screen.
+ * The backend `requireAuth` provides the authoritative security guard by answering
+ * 403 PLATFORM_ADMIN_TENANT_ACCESS_DENIED to platform-admin tokens.
  */
 export function RejectPlatformAdmin({
   children,
@@ -19,7 +24,7 @@ export function RejectPlatformAdmin({
 
   if (isLoading) return <></>;
 
-  if (roles?.includes("platform_admin")) {
+  if (Array.isArray(roles) && roles.includes("platform_admin")) {
     return <Navigate to="/platform-admin/dashboard" replace />;
   }
 

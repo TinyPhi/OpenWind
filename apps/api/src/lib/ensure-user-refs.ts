@@ -1,7 +1,8 @@
 import { eq, and, inArray } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
-import { entityFields, tenantUsers } from "@platform/db";
+import { entityFields, tenantUsers, withTenantContext } from "@platform/db";
 import { listOrgUsers } from "./zitadel-management.js";
+import type { OrgUser } from "./zitadel-management.js";
 
 /**
  * Returns which of `userIds` are members of this tenant, upserting a tenant_users row for any
@@ -23,6 +24,50 @@ export async function ensureTenantMembers(
   const candidateIds = [...new Set(userIds.filter((id) => id.length > 0))];
   if (candidateIds.length === 0) return new Set();
 
+  const members = await findTenantMembers(tx, tenantId, candidateIds);
+  const missingIds = candidateIds.filter((id) => !members.has(id));
+  if (missingIds.length === 0 || !orgId) return members;
+
+  const orgUsers = await listOrgUsers(orgId).catch(() => []);
+  await registerOrgMembers(tx, tenantId, missingIds, orgUsers, members);
+  return members;
+}
+
+/**
+ * Same result as ensureTenantMembers, for callers with no transaction of their own: membership
+ * is read in one short tenant context, Zitadel is called with none open (so a slow or
+ * rate-limited lookup never holds a database connection), and a second short context records
+ * the new members.
+ */
+export async function resolveTenantMembers(
+  tenantId: string,
+  userIds: string[],
+  orgId: string | undefined,
+): Promise<Set<string>> {
+  const candidateIds = [...new Set(userIds.filter((id) => id.length > 0))];
+  if (candidateIds.length === 0) return new Set();
+
+  const members = await withTenantContext(tenantId, (tx) =>
+    findTenantMembers(tx, tenantId, candidateIds),
+  );
+  const missingIds = candidateIds.filter((id) => !members.has(id));
+  if (missingIds.length === 0 || !orgId) return members;
+
+  const orgUsers = await listOrgUsers(orgId).catch(() => []);
+  if (!missingIds.some((id) => orgUsers.some((u) => u.userId === id))) {
+    return members;
+  }
+  await withTenantContext(tenantId, (tx) =>
+    registerOrgMembers(tx, tenantId, missingIds, orgUsers, members),
+  );
+  return members;
+}
+
+async function findTenantMembers(
+  tx: DbOrTx,
+  tenantId: string,
+  candidateIds: string[],
+): Promise<Set<string>> {
   const existing = await tx
     .select({ userId: tenantUsers.userId })
     .from(tenantUsers)
@@ -32,16 +77,22 @@ export async function ensureTenantMembers(
         eq(tenantUsers.tenantId, tenantId),
       ),
     );
-  const members = new Set(existing.map((r) => r.userId));
-  const missingIds = candidateIds.filter((id) => !members.has(id));
-  if (missingIds.length === 0 || !orgId) return members;
+  return new Set(existing.map((r) => r.userId));
+}
 
-  const orgUsers = await listOrgUsers(orgId).catch(() => []);
+// Upserts a tenant_users row for each missing id that is a real member of the org, and adds it to
+// `members`. An id outside the org is skipped, so the caller's own check still rejects it.
+async function registerOrgMembers(
+  tx: DbOrTx,
+  tenantId: string,
+  missingIds: string[],
+  orgUsers: OrgUser[],
+  members: Set<string>,
+): Promise<void> {
   const orgUserById = new Map(orgUsers.map((u) => [u.userId, u]));
-
   for (const userId of missingIds) {
     const profile = orgUserById.get(userId);
-    if (!profile) continue; // not an org member -- the caller's own check rejects it
+    if (!profile) continue;
     await tx
       .insert(tenantUsers)
       .values({
@@ -53,7 +104,6 @@ export async function ensureTenantMembers(
       .onConflictDoNothing();
     members.add(userId);
   }
-  return members;
 }
 
 /**

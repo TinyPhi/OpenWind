@@ -75,6 +75,7 @@ const {
   suspendTenant,
   reactivateTenant,
   scheduleTenantDeletion,
+  ProvisionTenantSchema,
 } = await import("./tenant-lifecycle.js");
 
 const { writeAuditEntry } = await import("@platform/audit");
@@ -312,5 +313,33 @@ describe("scheduleTenantDeletion", () => {
     await expect(
       scheduleTenantDeletion(TENANT_ID, ACTOR_ID),
     ).rejects.toMatchObject({ code: "TENANT_NOT_FOUND" });
+  });
+});
+
+describe("ProvisionTenantSchema retention config", () => {
+  const base = { name: "Acme", slug: "acme" };
+
+  it("accepts retention keys within the sweep policy bounds", () => {
+    const parsed = ProvisionTenantSchema.safeParse({
+      ...base,
+      config: {
+        retention_comment_days: 365,
+        retention_evidence_days: 730,
+        retention_hold: true,
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects retention keys the sweep would silently ignore", () => {
+    for (const config of [
+      { retention_comment_days: 3 },
+      { retention_evidence_days: 30 },
+      { retention_hold: "yes" },
+    ]) {
+      expect(ProvisionTenantSchema.safeParse({ ...base, config }).success).toBe(
+        false,
+      );
+    }
   });
 });

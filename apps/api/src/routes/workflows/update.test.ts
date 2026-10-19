@@ -5,6 +5,8 @@ import type { AuthContext } from "@platform/auth";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
+let mockRoles: string[] = ["admin"];
+let mockUserId = "user-bbb";
 const mockUpdateWorkflow = vi.fn();
 const mockListOrgUsers = vi.fn();
 
@@ -14,9 +16,9 @@ vi.mock("@platform/auth", () => ({
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
       c.set("auth", {
         tenantId: opts?.tenantId ?? "tenant-aaa",
-        userId: "user-bbb",
+        userId: mockUserId,
         orgId: "org-ccc",
-        roles: opts?.roles ?? ["admin"],
+        roles: opts?.roles ?? mockRoles,
         email: "test@example.com",
       });
       await next();
@@ -26,7 +28,10 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
-let mockBeforeRow: { assignedTo: string[] | null } | null = {
+let mockBeforeRow: {
+  assignedTo: string[] | null;
+  allowStateOverride?: boolean;
+} | null = {
   assignedTo: [],
 };
 const mockPreRead = vi.fn();
@@ -50,6 +55,7 @@ vi.mock("@platform/db", () => ({
     id: "workflows.id",
     tenantId: "workflows.tenantId",
     assignedTo: "workflows.assignedTo",
+    allowStateOverride: "workflows.allowStateOverride",
   },
 }));
 
@@ -110,6 +116,7 @@ describe("PATCH /workflows/:id", () => {
     ]);
     mockUpdateWorkflow.mockResolvedValue({ id: "wf-001", isActive: false });
     mockBeforeRow = { assignedTo: [] };
+    mockRoles = ["admin"];
     mockWriteAuditEntry.mockResolvedValue(undefined);
   });
 
@@ -306,5 +313,84 @@ describe("PATCH /workflows/:id", () => {
 
       expect(res.status).toBe(500);
     });
+  });
+});
+
+describe("PATCH /workflows/:id allowStateOverride (guarded override switch)", () => {
+  const patch = (body: unknown) =>
+    makeApp().request("/wf-001", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRoles = ["admin"];
+    mockUserId = "user-bbb";
+    mockBeforeRow = { assignedTo: [], allowStateOverride: false };
+    mockUpdateWorkflow.mockResolvedValue({
+      id: "wf-001",
+      assignedTo: [],
+      allowStateOverride: true,
+    });
+    mockWriteAuditEntry.mockResolvedValue(undefined);
+  });
+
+  it("lets a tenant admin turn it on and records the change", async () => {
+    const res = await patch({ allowStateOverride: true });
+
+    expect(res.status).toBe(200);
+    expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        tenantId: "tenant-aaa",
+        actorId: "user-bbb",
+        resourceType: "workflow",
+        resourceId: "wf-001",
+        action: "workflow.override_policy_updated",
+        beforeSnapshot: { allowStateOverride: false },
+        afterSnapshot: { allowStateOverride: true },
+      }),
+    );
+  });
+
+  it("refuses anyone who is not a tenant admin, before touching the workflow", async () => {
+    mockRoles = ["agent"];
+
+    const res = await patch({ allowStateOverride: true });
+
+    expect(res.status).toBe(403);
+    expect(mockUpdateWorkflow).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("refuses an admin-scoped API key: it may not arm overrides for someone else to use", async () => {
+    mockUserId = "apikey:5d1c7e0a-0000-4000-8000-000000000001";
+
+    const res = await patch({ allowStateOverride: true });
+
+    expect(res.status).toBe(403);
+    expect(mockUpdateWorkflow).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("writes no entry when the switch is resubmitted unchanged", async () => {
+    mockBeforeRow = { assignedTo: [], allowStateOverride: true };
+
+    const res = await patch({ allowStateOverride: true });
+
+    expect(res.status).toBe(200);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not require admin for other workflow settings", async () => {
+    mockRoles = ["agent"];
+    mockUpdateWorkflow.mockResolvedValue({ id: "wf-001", isActive: false });
+
+    const res = await patch({ isActive: false });
+
+    expect(res.status).toBe(200);
   });
 });

@@ -35,7 +35,7 @@
  * non-null conditions; only helpdesk gates on allowedRoles (admin/agent) -- actorRoles
  * below is a superset covering every core module's gates.
  */
-import { and, eq, gte, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import {
   withTenantContext,
   entityTypes,
@@ -264,6 +264,32 @@ function defaultValueForField(
   }
 }
 
+/**
+ * Marks as delivered every outbox event this transaction has written for the tenant, so the
+ * automation consumer never sees seeded data (#830). It compares against the database's own
+ * transaction clock: an outbox row's created_at defaults to now(), which Postgres pins to the
+ * start of the transaction, so a cut-off taken from the app clock after BEGIN is later than
+ * every row the transaction wrote and would match none of them. (Rows another transaction
+ * writes for this tenant while this one runs would match too; a sandbox being seeded has no
+ * other writers.)
+ */
+export async function suppressOutboxEventsWrittenByThisTransaction(
+  tx: DbOrTx,
+  tenantId: string,
+): Promise<void> {
+  const now = new Date();
+  await tx
+    .update(outboxEvents)
+    .set({ deliveredAt: now, notifiedDeliveredAt: now })
+    .where(
+      and(
+        eq(outboxEvents.tenantId, tenantId),
+        isNull(outboxEvents.deliveredAt),
+        sql`${outboxEvents.createdAt} >= transaction_timestamp()`,
+      ),
+    );
+}
+
 async function seedModuleData(
   tenantId: string,
   slug: string,
@@ -341,7 +367,12 @@ async function seedModuleDataInTx(
   const transitionRows = await tx
     .select()
     .from(workflowTransitions)
-    .where(eq(workflowTransitions.workflowId, workflow.id));
+    .where(
+      and(
+        eq(workflowTransitions.workflowId, workflow.id),
+        eq(workflowTransitions.tenantId, tenantId),
+      ),
+    );
   const transitionLookup = new Map<string, (typeof transitionRows)[number]>();
   for (const t of transitionRows) {
     transitionLookup.set(`${t.fromState}->${t.toState}`, t);
@@ -374,6 +405,9 @@ async function seedModuleDataInTx(
         : {}),
     });
 
+    // Suppress outbox event immediately so automationQueue cannot race with data seeding (#830)
+    await suppressOutboxEventsWrittenByThisTransaction(tx, tenantId);
+
     let currentState = instance.currentState;
     for (const toState of plan.recordPaths[i] ?? []) {
       const transition = transitionLookup.get(`${currentState}->${toState}`);
@@ -392,6 +426,10 @@ async function seedModuleDataInTx(
         comment: SEED_COMMENT,
         triggeredBy: "system",
       });
+
+      // Suppress outbox event immediately after transition (#830)
+      await suppressOutboxEventsWrittenByThisTransaction(tx, tenantId);
+
       currentState = toState;
     }
     seeded++;

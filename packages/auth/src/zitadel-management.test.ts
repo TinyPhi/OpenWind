@@ -85,9 +85,25 @@ describe("listOrgUsers", () => {
 
 describe("getOrgMetadataForUser", () => {
   it("returns null manager/department/title when no service account token is configured", async () => {
-    const result = await getOrgMetadataForUser("user-1");
+    mockLoggerWarn.mockClear();
+    const result = await getOrgMetadataForUser("user-1", "tenant-test-1");
 
     expect(result).toEqual({ managerId: null, department: null, title: null });
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      { userId: "user-1", tenantId: "tenant-test-1" },
+      "getOrgMetadataForUser: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
+  });
+
+  it("omits tenantId from log context when tenantId is not provided (backwards compatibility) (#724)", async () => {
+    mockLoggerWarn.mockClear();
+    const result = await getOrgMetadataForUser("user-legacy");
+
+    expect(result).toEqual({ managerId: null, department: null, title: null });
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      { userId: "user-legacy" },
+      "getOrgMetadataForUser: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
   });
 
   it("does not permanently cache the no-token result — retries on the next call", async () => {
@@ -106,7 +122,7 @@ describe("getOrgMetadataForUser", () => {
     expect(noTokenWarnings).toHaveLength(2);
   });
 
-  it("returns empty metadata and logs the error when the Zitadel call fails", async () => {
+  it("returns empty metadata and logs the error with tenantId when the Zitadel call fails (#724)", async () => {
     mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
       type: "serviceaccount",
       keyId: "key-1",
@@ -165,11 +181,18 @@ describe("getOrgMetadataForUser", () => {
     });
 
     mockLoggerError.mockClear();
-    const result = await getOrgMetadataForUser("user-network-error");
+    const result = await getOrgMetadataForUser(
+      "user-network-error",
+      "tenant-fail",
+    );
 
     expect(result).toEqual({ managerId: null, department: null, title: null });
     expect(mockLoggerError).toHaveBeenCalledWith(
-      { err: metadataError, userId: "user-network-error" },
+      {
+        err: metadataError,
+        userId: "user-network-error",
+        tenantId: "tenant-fail",
+      },
       "Failed to fetch Zitadel user org metadata",
     );
   });
@@ -764,6 +787,153 @@ describe("getUserById", () => {
       );
     } finally {
       zitadel.status = 200;
+      mockHttpRequest.mockReset();
+    }
+  });
+
+  it("treats a 429 like an outage: serves the cached user instead of reporting them gone", async () => {
+    serveZitadel();
+    zitadel.status = 200;
+    zitadel.email = "limited@example.com";
+    try {
+      await getUserById("u-1", { fresh: true });
+      zitadel.status = 429;
+
+      expect((await getUserById("u-1", { fresh: true }))?.email).toBe(
+        "limited@example.com",
+      );
+    } finally {
+      zitadel.status = 200;
+      mockHttpRequest.mockReset();
+    }
+  });
+});
+
+describe("listOrgUsers pagination", () => {
+  function human(i: number): Record<string, unknown> {
+    return {
+      userId: `u-${i}`,
+      state: "USER_STATE_ACTIVE",
+      human: { email: { email: `u${i}@example.com` } },
+    };
+  }
+
+  it("fetches every page of a large org, so members past the first 500 are kept", async () => {
+    mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
+      type: "serviceaccount",
+      keyId: "key-1",
+      key: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      userId: "service-user-1",
+    });
+    const total = 1200;
+    const offsets: string[] = [];
+    mockHttpRequest.mockImplementation(
+      (
+        options: { path?: string },
+        callback?: (res: IncomingMessage) => void,
+      ) => {
+        let written = "";
+        const req: Partial<ClientRequest> = {
+          setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+          on: vi.fn() as unknown as ClientRequest["on"],
+          write: ((chunk: string) => {
+            written += chunk;
+            return true;
+          }) as unknown as ClientRequest["write"],
+          end: (() => {
+            let body: unknown = {};
+            if (options.path?.includes("/oauth/v2/token")) {
+              body = { access_token: "read-token", expires_in: 60 };
+            } else if (options.path?.includes("ListUsers")) {
+              const offset = Number(
+                (JSON.parse(written) as { query: { offset?: string } }).query
+                  .offset ?? "0",
+              );
+              offsets.push(String(offset));
+              const count = Math.min(500, total - offset);
+              body = {
+                result: Array.from({ length: count }, (_, i) =>
+                  human(offset + i),
+                ),
+                details: { totalResult: String(total) },
+              };
+            }
+            const response = new EventEmitter() as EventEmitter & {
+              statusCode: number;
+            };
+            response.statusCode = 200;
+            queueMicrotask(() => {
+              callback?.(response as IncomingMessage);
+              response.emit("data", Buffer.from(JSON.stringify(body)));
+              response.emit("end");
+            });
+          }) as unknown as ClientRequest["end"],
+        };
+        return req as ClientRequest;
+      },
+    );
+    try {
+      const users = await listOrgUsers("org-large-952");
+
+      expect(users).toHaveLength(total);
+      expect(offsets).toEqual(["0", "500", "1000"]);
+      expect(users.some((u) => u.userId === "u-1199")).toBe(true);
+    } finally {
+      mockHttpRequest.mockReset();
+    }
+  });
+
+  it("does not keep an empty result cached after a failed fetch, so the next call retries", async () => {
+    mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
+      type: "serviceaccount",
+      keyId: "key-1",
+      key: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      userId: "service-user-1",
+    });
+    let listStatus = 429;
+    let listCalls = 0;
+    mockHttpRequest.mockImplementation(
+      (
+        options: { path?: string },
+        callback?: (res: IncomingMessage) => void,
+      ) => {
+        const req: Partial<ClientRequest> = {
+          setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+          on: vi.fn() as unknown as ClientRequest["on"],
+          write: vi.fn() as unknown as ClientRequest["write"],
+          end: (() => {
+            let status = 200;
+            let body: unknown = {};
+            if (options.path?.includes("/oauth/v2/token")) {
+              body = { access_token: "read-token", expires_in: 60 };
+            } else if (options.path?.includes("ListUsers")) {
+              listCalls++;
+              status = listStatus;
+              body = { result: [human(1)], details: { totalResult: "1" } };
+            }
+            const response = new EventEmitter() as EventEmitter & {
+              statusCode: number;
+            };
+            response.statusCode = status;
+            queueMicrotask(() => {
+              callback?.(response as IncomingMessage);
+              response.emit("data", Buffer.from(JSON.stringify(body)));
+              response.emit("end");
+            });
+          }) as unknown as ClientRequest["end"],
+        };
+        return req as ClientRequest;
+      },
+    );
+    try {
+      expect(await listOrgUsers("org-evict-952")).toEqual([]);
+      listStatus = 200;
+
+      const users = await listOrgUsers("org-evict-952");
+
+      expect(users.map((u) => u.userId)).toEqual(["u-1"]);
+      expect(listCalls).toBe(2);
+    } finally {
       mockHttpRequest.mockReset();
     }
   });

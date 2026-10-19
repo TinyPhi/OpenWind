@@ -4,7 +4,7 @@
 
 status: implemented (PR #482)
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-10-14 (OpenBao addendum, #911)
 
 ---
 
@@ -18,6 +18,9 @@ updated: 2026-08-25
 - `docs/local-setup.md`'s Backup & Disaster Recovery section reflects the 24h RPO
   policy, the real schedule, and the restore procedure someone unfamiliar with the
   incident could follow under pressure.
+- (Addendum, #911) In production, a database backup can be turned back into working connector
+  credentials: the OpenBao data holding the matching Transit key is backed up and restored together
+  with the database, in a known order.
 
 ## §C Constraints
 
@@ -29,12 +32,15 @@ updated: 2026-08-25
 | schedule mechanism | host-level cron or systemd timer — the docker compose stack runs on a server (per CLAUDE.md), not inside a container                                                  |
 | out of scope       | point-in-time recovery (WAL shipping/`wal-g`/`barman`), offsite/off-host backup storage, per-tenant selective restore — all explicitly deferred, not silently dropped |
 | off-limits         | `.github/workflows/*` (this is host cron, not CI)                                                                                                                     |
+| OpenBao (#911)     | production OpenBao is a separate server run from a separate operations repository (ADR-023); its snapshots, unseal keys and key custody are owned there, not here     |
 
 ## §I Interfaces
 
 - `scripts/backup.sh` — existing script, env-var driven (`BACKUP_DIR`, `POSTGRES_SERVICE`, `POSTGRES_BACKUP_USER`, `POSTGRES_BACKUP_DB`). MinIO-specific vars (`MINIO_MC_SERVICE`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) are removed; replaced with a files-directory path input.
 - Output layout unchanged in spirit: `${BACKUP_DIR}/<UTC timestamp>/postgres-platform.dump` + `${BACKUP_DIR}/<UTC timestamp>/files/...` (renamed from `minio/platform-files/...`).
 - `docs/local-setup.md` "Backup & Disaster Recovery" section — existing section, rewritten in place.
+- `docs/runbooks/openbao-secrets.md` "Backup and restore with OpenBao" — the OpenBao half of a
+  production restore (addendum, #911).
 
 ## §R Requirements
 
@@ -56,11 +62,18 @@ R4: RPO/RTO policy is stated as policy, not left implicit in a script comment
 ✓ `docs/local-setup.md` states "RPO: 24h" and "RTO: <measured duration>, established <date>" in plain language near the top of the Backup & Disaster Recovery section
 ✓ the doc states explicitly what's out of scope (PITR, offsite storage, per-tenant restore) so a reader doesn't assume more coverage than exists
 
+R5 (addendum, #911): A production restore brings back working connector credentials, not just rows
+✓ the database and OpenBao are backed up on the same schedule, and each backup set records which OpenBao snapshot belongs to which database dump — `connector_credentials` holds only Transit ciphertext, so a dump restored without the matching Transit key is unreadable for credentials
+✓ the restore order is written down and followed: (1) OpenBao restored and unsealed, (2) database restored, (3) applications started — apps started before step 1 fail closed at start (ADR-023 Decision 4), apps started before step 2 run against the wrong data
+✓ one OpenBao restore (snapshot → unseal → a test decrypt of an existing credential) has been performed against a non-production target before go-live, and timed alongside the database restore
+✓ the doc says where the per-service role files (`OPENWIND_SECRETS_DIR`, mode 0600) and the server's non-secret `.env` live, that neither is in this backup, and how to recreate them (re-onboard the roles; rebuild `.env` from `.env.production.example`)
+
 ## §V Invariants
 
 - Backup tooling must never reference a storage backend the app no longer uses — a stale backup script is worse than no script, since it creates false confidence until the day it's needed and fails.
 - Every backup-affecting architecture change (e.g. a future move off local-disk storage) must update `scripts/backup.sh` in the same PR — this is now the second time the backup script has drifted from `packages/files`' actual storage backend.
 - RTO in the runbook must always be a measured number with a date, not an estimate — an unmeasured RTO gives false confidence during an actual incident.
+- A database backup and the OpenBao snapshot it depends on are one backup set (addendum, #911). Restoring one without the other is not a restore: credentials come back as ciphertext nothing can decrypt, or a newer Transit key meets older data. A Transit key version must never be trimmed (`min_decryption_version` raised) while a retained database backup still holds ciphertext from an older version.
 - A backup script must never exit 0 for a state it cannot distinguish from silent data loss (e.g. an expected source path missing) — fail loudly instead. A backup script that always reports success regardless of what it actually captured is worse than no backup script at all.
 
 ## §T Tasks
@@ -72,6 +85,8 @@ R4: RPO/RTO policy is stated as policy, not left implicit in a script comment
 | T3  | write a cron entry / systemd timer example wiring `backup.sh` to a 24h schedule                                                                                                  | 2     | done   | T1      |
 | T4  | perform one supervised test restore (`pg_restore` + files-directory restore) against a non-prod target, time it                                                                  | 2     | done   | T1      |
 | T5  | rewrite `docs/local-setup.md`'s Backup & Disaster Recovery section: RPO/RTO policy statement, schedule, exact restore procedure with measured timing, explicit out-of-scope list | 2     | done   | T3,T4   |
+| T6  | (#911) document the joint DB + OpenBao backup set, restore order and role-file recreation in `docs/runbooks/openbao-secrets.md`                                                  | 3     | done   | —       |
+| T7  | (#911) perform and time one OpenBao restore together with a database restore on a non-production target; record the result in the runbook                                        | 3     | open   | T6      |
 
 phase gate: all unit + integration tests pass before advancing to next phase (N/A for shell-script-only changes beyond manual verification — record this explicitly rather than silently skipping the gate)
 

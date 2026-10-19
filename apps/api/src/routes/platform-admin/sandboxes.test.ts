@@ -57,6 +57,7 @@ vi.mock("@platform/db", () => ({
     totalSteps: "totalSteps",
     error: "error",
     resultTenantId: "resultTenantId",
+    rolledBack: "rolledBack",
   },
   withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
   checkSandboxQuota: (...args: unknown[]) => mockCheckSandboxQuota(...args),
@@ -70,6 +71,7 @@ vi.mock("@platform/db", () => ({
     completedSteps: number;
     totalSteps: number;
     error: string | null;
+    rolledBack?: boolean | null;
   }) => ({
     id: row.id,
     status: row.status,
@@ -77,6 +79,7 @@ vi.mock("@platform/db", () => ({
     completedSteps: row.completedSteps,
     totalSteps: row.totalSteps,
     error: row.error,
+    rolledBack: row.rolledBack ?? null,
   }),
 }));
 
@@ -261,6 +264,24 @@ describe("POST /platform-admin/sandboxes", () => {
     expect(mockDbDelete).toHaveBeenCalledTimes(1);
     expect(mockDbDeleteWhere).toHaveBeenCalledTimes(1);
   });
+
+  it("returns 503 even when db.delete cleanup itself fails (#816)", async () => {
+    mockQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+    mockDbDeleteWhere.mockRejectedValueOnce(new Error("db down"));
+
+    const res = await makeApp().request("/sandboxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgName: "Acme Sandbox", trialDays: 14 }),
+    });
+
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "ENQUEUE_FAILED",
+    });
+    expect(mockDbDelete).toHaveBeenCalledTimes(1);
+    expect(mockDbDeleteWhere).toHaveBeenCalledTimes(1);
+  });
 });
 
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
@@ -277,6 +298,7 @@ describe("GET /platform-admin/sandboxes/:jobId/progress", () => {
         completedSteps: 4,
         totalSteps: 14,
         error: null,
+        rolledBack: null,
       },
     ]);
 
@@ -291,6 +313,36 @@ describe("GET /platform-admin/sandboxes/:jobId/progress", () => {
         completedSteps: 4,
         totalSteps: 14,
         error: null,
+        rolledBack: null,
+      },
+    });
+  });
+
+  it("returns rolledBack status when a failed job was rolled back (#829)", async () => {
+    mockSelectRows.mockResolvedValueOnce([
+      {
+        id: JOB_ID,
+        status: "failed",
+        currentStep: "create_org",
+        completedSteps: 1,
+        totalSteps: 14,
+        error: "ZITADEL_API_ERROR",
+        rolledBack: true,
+      },
+    ]);
+
+    const res = await makeApp().request(`/sandboxes/${JOB_ID}/progress`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: {
+        id: JOB_ID,
+        status: "failed",
+        currentStep: "create_org",
+        completedSteps: 1,
+        totalSteps: 14,
+        error: "ZITADEL_API_ERROR",
+        rolledBack: true,
       },
     });
   });

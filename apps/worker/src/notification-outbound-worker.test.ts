@@ -156,6 +156,41 @@ describe("notification outbound worker: de-dupe gate", () => {
     expect(mockUpdate.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("looks recipients up a few at a time, not all at once", async () => {
+    claimedRows = [{ title: "T", body: "B", link: null }];
+    recipientRows = Array.from({ length: 23 }, (_, i) => ({
+      userId: `u-${i}`,
+    }));
+    let inFlight = 0;
+    let peak = 0;
+    vi.mocked(getUserById).mockImplementation(async (userId: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight--;
+      return {
+        userId,
+        email: `${userId}@example.com`,
+        displayName: "U",
+        loginName: "u",
+      };
+    });
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-many", tenantId: "t-1" },
+    });
+
+    expect(getUserById).toHaveBeenCalledTimes(23);
+    expect(peak).toBeLessThanOrEqual(5);
+    vi.mocked(getUserById).mockReset();
+    vi.mocked(getUserById).mockResolvedValue({
+      userId: "u-1",
+      email: "u@example.com",
+      displayName: "U",
+      loginName: "u",
+    });
+  });
+
   it("reads each recipient's email fresh from Zitadel and sends that address", async () => {
     claimedRows = [{ title: "T", body: "B", link: null }];
     vi.mocked(getUserById).mockResolvedValueOnce({

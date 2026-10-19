@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { AuthContext } from "./types.js";
+import type * as JwksModule from "./jwks.js";
 import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -102,23 +103,21 @@ const mockExtractAuthContext = vi.fn();
 const mockExtractPlatformAdminContext = vi.fn();
 const mockIsMfaVerified = vi.fn();
 const mockIsMfaFresh = vi.fn();
-vi.mock("./jwks.js", () => ({
-  verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
-  extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
-  extractPlatformAdminContext: (...args: unknown[]) =>
-    mockExtractPlatformAdminContext(...args),
-  // Real logic, not a stub: these tests should decide from the token's own roles claim.
-  isPlatformAdminToken: (claims: {
-    "urn:zitadel:iam:org:project:roles"?: Record<string, unknown>;
-  }) =>
-    Object.keys(claims["urn:zitadel:iam:org:project:roles"] ?? {}).includes(
-      "platform_admin",
-    ),
-}));
+vi.mock("./jwks.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof JwksModule>();
+  return {
+    ...actual,
+    verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
+    extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
+    extractPlatformAdminContext: (...args: unknown[]) =>
+      mockExtractPlatformAdminContext(...args),
+  };
+});
 
 vi.mock("./platform-admin-mfa.js", () => ({
   isMfaVerified: (...args: unknown[]) => mockIsMfaVerified(...args),
   isMfaFresh: (...args: unknown[]) => mockIsMfaFresh(...args),
+  PLATFORM_ADMIN_MFA_SESSION_HEADER: "X-Platform-Admin-Mfa",
 }));
 
 const mockIntrospectToken = vi.fn();
@@ -249,10 +248,11 @@ function makeApp(handlers: Parameters<Hono["get"]>[1][]) {
   return app;
 }
 
-async function get(app: Hono, token?: string) {
+async function get(app: Hono, token?: string, mfaSession?: string) {
   const headers: Record<string, string> = token
     ? { Authorization: `Bearer ${token}` }
     : {};
+  if (mfaSession) headers["X-Platform-Admin-Mfa"] = mfaSession;
   return app.request("/test", { headers });
 }
 
@@ -402,6 +402,74 @@ describe("requireAuth", () => {
 
       const app = makeApp([requireAuth()]);
       const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 TENANT_TRIAL_EXPIRED for API-key requests when trial_ends_at is in the past (#831)", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() - 60_000),
+      };
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: tenantId,
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("TENANT_TRIAL_EXPIRED");
+    });
+
+    it("allows API-key requests when trial_ends_at is in the future (#831)", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() + 60_000),
+      };
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: tenantId,
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(200);
+    });
+
+    it("allows API-key requests when trial_ends_at is null (#831)", async () => {
+      mockTenantRow = { status: "active", trialEndsAt: null };
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: tenantId,
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
 
       expect(res.status).toBe(200);
     });
@@ -1578,14 +1646,30 @@ describe("requirePlatformAdmin", () => {
     expect(await res.json()).toMatchObject({ error: "MFA_REQUIRED" });
   });
 
-  it("allows a platform_admin token with MFA verified", async () => {
+  it("allows a platform_admin token with MFA verified for the presented sign-in session", async () => {
     mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
     mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
     mockIsMfaVerified.mockResolvedValueOnce(true);
     mockMfaDevBypass = false;
     const app = makeApp([requirePlatformAdmin()]);
-    const res = await get(app, "valid.jwt.token");
+    const res = await get(app, "valid.jwt.token", "mfa-session-1");
     expect(res.status).toBe(200);
+    expect(mockIsMfaVerified).toHaveBeenCalledWith(
+      "pa-user-1",
+      "mfa-session-1",
+    );
+  });
+
+  it("checks without a session when the request carries none (a browser that never entered a code)", async () => {
+    mockIsMfaVerified.mockReset();
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    mockIsMfaVerified.mockResolvedValueOnce(false);
+    mockMfaDevBypass = false;
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(403);
+    expect(mockIsMfaVerified).toHaveBeenCalledWith("pa-user-1", undefined);
   });
 
   it("allows a platform_admin token with MFA unverified when the dev bypass is on", async () => {
@@ -1617,15 +1701,15 @@ describe("requireFreshMfa (ADR-022 step-up, #865)", () => {
     mockIsMfaVerified.mockResolvedValueOnce(true);
   }
 
-  it("returns 403 MFA_REAUTH_REQUIRED when the admin is verified (12h) but not fresh", async () => {
+  it("returns 403 MFA_REAUTH_REQUIRED when the sign-in is verified but not fresh", async () => {
     arrangeVerifiedAdmin();
     mockIsMfaFresh.mockResolvedValueOnce(false);
     mockMfaDevBypass = false;
     const app = makeApp([requirePlatformAdmin(), requireFreshMfa()]);
-    const res = await get(app, "valid.jwt.token");
+    const res = await get(app, "valid.jwt.token", "mfa-session-1");
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: "MFA_REAUTH_REQUIRED" });
-    expect(mockIsMfaFresh).toHaveBeenCalledWith("pa-user-1");
+    expect(mockIsMfaFresh).toHaveBeenCalledWith("pa-user-1", "mfa-session-1");
   });
 
   it("allows the request when the admin is fresh", async () => {

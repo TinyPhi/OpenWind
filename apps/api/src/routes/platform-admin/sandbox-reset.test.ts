@@ -211,6 +211,31 @@ describe("POST /sandboxes/:tenantId/reset", () => {
     expect(mockRelease).toHaveBeenCalled();
   });
 
+  it("returns 504 RESET_TIMEOUT and releases the lock when the reset job times out waiting for worker (#864)", async () => {
+    const mockRelease = vi.fn().mockResolvedValue(undefined);
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: true,
+      release: mockRelease,
+    });
+    const mockWaitUntilFinished = vi
+      .fn()
+      .mockRejectedValue(new Error("Job job-1 timed out after 60000ms"));
+    mockQueueAdd.mockResolvedValue({
+      waitUntilFinished: mockWaitUntilFinished,
+    });
+    const app = makeApp();
+
+    const res = await app.request(`/sandboxes/${TENANT_ID}/reset`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(504);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "RESET_TIMEOUT",
+    });
+    expect(mockRelease).toHaveBeenCalled();
+  });
+
   it("still releases the lock even when release itself would otherwise mask a 200 response", async () => {
     const mockRelease = vi.fn().mockRejectedValue(new Error("unlock blip"));
     mockAcquireTenantAdvisoryLock.mockResolvedValue({

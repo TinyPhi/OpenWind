@@ -31,6 +31,9 @@ const READ_ONLY_FIELDS = [
   "tender/tender.submitted_by",
 ];
 
+// Fields with their own built-in control, left out of the generic field list.
+const VIRTUAL_FIELDS = ["helpdesk/ticket.severity"];
+
 const MODULES_DIR = fileURLToPath(
   new URL("../../../../modules", import.meta.url),
 );
@@ -45,6 +48,7 @@ interface SeedFieldRow {
 }
 
 // Splits at top-level commas, keeping quoted strings and parenthesised groups whole.
+// Handles single quotes only: entity_fields seed values must not use $$-quoting.
 function splitTopLevel(text: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -178,5 +182,13 @@ describe("module seeds — mandatory title and protected fields", () => {
       return !row || !/"readOnly"\s*:\s*true/.test(row.config);
     });
     expect(notReadOnly).toEqual([]);
+  });
+
+  it("marks fields with a built-in control virtual", () => {
+    const notVirtual = VIRTUAL_FIELDS.filter((k) => {
+      const row = rows.find((r) => key(r) === k);
+      return !row || !/"virtual"\s*:\s*true/.test(row.config);
+    });
+    expect(notVirtual).toEqual([]);
   });
 });

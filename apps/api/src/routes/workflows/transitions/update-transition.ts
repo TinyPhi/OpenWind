@@ -5,14 +5,18 @@ import { workflowTransitions, withTenantContext } from "@platform/db";
 import { and, eq } from "drizzle-orm";
 import { updateWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
+import { TransitionConditionsSchema } from "./condition-schema.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
-import { auditTransitionRoleChanges } from "../../../lib/audit-workflow-access.js";
+import {
+  auditTransitionRoleChanges,
+  auditTransitionConditionChanges,
+} from "../../../lib/audit-workflow-access.js";
 
 const UpdateTransitionSchema = z.object({
   label: z.string().max(200).nullable().optional(),
   allowedRoles: z.array(z.string()).optional(),
-  conditions: z.unknown().optional(),
+  conditions: TransitionConditionsSchema.nullable().optional(),
   requiresComment: z.boolean().optional(),
   requiresFields: z.array(z.string()).optional(),
 });
@@ -30,9 +34,12 @@ export const updateTransitionHandler = factory.createHandlers(
     try {
       const transition = await withTenantContext(tenantId, async (tx) => {
         const [before] =
-          input.allowedRoles !== undefined
+          input.allowedRoles !== undefined || input.conditions !== undefined
             ? await tx
-                .select({ allowedRoles: workflowTransitions.allowedRoles })
+                .select({
+                  allowedRoles: workflowTransitions.allowedRoles,
+                  conditions: workflowTransitions.conditions,
+                })
                 .from(workflowTransitions)
                 .where(
                   and(
@@ -52,7 +59,7 @@ export const updateTransitionHandler = factory.createHandlers(
           {
             label: input.label ?? undefined,
             allowedRoles: input.allowedRoles,
-            conditions: input.conditions as never,
+            conditions: input.conditions,
             requiresComment: input.requiresComment,
             requiresFields: input.requiresFields,
           },
@@ -69,6 +76,22 @@ export const updateTransitionHandler = factory.createHandlers(
                 toState: updated.toState,
                 before: before.allowedRoles,
                 after: updated.allowedRoles,
+              },
+            ],
+          });
+        }
+        if (before && input.conditions !== undefined) {
+          await auditTransitionConditionChanges(tx, {
+            tenantId,
+            actorId: auth.userId,
+            workflowId,
+            changes: [
+              {
+                transitionId,
+                fromState: updated.fromState,
+                toState: updated.toState,
+                before: before.conditions,
+                after: updated.conditions,
               },
             ],
           });

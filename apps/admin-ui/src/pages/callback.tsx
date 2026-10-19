@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { userManager } from "../authProvider.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
+import {
+  clearPlatformAdminMfaSession,
+  getPlatformAdminMfaSession,
+  PLATFORM_ADMIN_MFA_SESSION_HEADER,
+} from "../lib/platform-admin-mfa-session.js";
 import { toTypeSlug, type EntityType } from "../entity-type-context.js";
 import type { HandoffState } from "./login.js";
 
@@ -15,19 +20,23 @@ import type { HandoffState } from "./login.js";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function isHandoffState(state: unknown): state is HandoffState {
+export function isHandoffState(state: unknown): state is HandoffState {
+  if (typeof state !== "object" || state === null) {
+    return false;
+  }
+  // state is narrowed to non-null object; cast to Record<string, unknown> allows
+  // property access to validate properties before establishing the HandoffState type guard.
+  const s = state as Record<string, unknown>;
   return (
-    typeof state === "object" &&
-    state !== null &&
-    typeof (state as HandoffState).workflowId === "string" &&
-    typeof (state as HandoffState).entityTypeId === "string" &&
-    UUID_RE.test((state as HandoffState).workflowId) &&
-    UUID_RE.test((state as HandoffState).entityTypeId) &&
+    typeof s.workflowId === "string" &&
+    typeof s.entityTypeId === "string" &&
+    UUID_RE.test(s.workflowId) &&
+    UUID_RE.test(s.entityTypeId) &&
     // docs/specs/third-party-api-origin-tagging.md R2 — required. A state
     // object missing it (e.g. an in-flight redirect started before this
     // param existed) falls through to the default /dashboard destination
     // below, same graceful-degradation posture as a bad workflowId (R5).
-    typeof (state as HandoffState).appClientId === "string"
+    typeof s.appClientId === "string"
   );
 }
 
@@ -50,13 +59,32 @@ export function AuthCallback(): React.ReactElement {
           return;
         }
 
+        // A completed sign-in never inherits the previous one's platform-admin verification,
+        // so every platform-admin login asks for a new code (docs/specs/multi-org-sandbox.md R1).
+        // The old token is also ended on the server (keyed by the same user), so a copy of it
+        // left anywhere is useless rather than valid for hours. Not awaited: sign-in must not
+        // wait on it, so the token travels in the request itself rather than from storage.
+        const staleMfaSession = getPlatformAdminMfaSession();
+        if (staleMfaSession) {
+          fetchWithAuth(`${API_URL}/platform-admin/mfa/end`, {
+            method: "POST",
+            headers: { [PLATFORM_ADMIN_MFA_SESSION_HEADER]: staleMfaSession },
+          }).catch(() => undefined);
+        }
+        clearPlatformAdminMfaSession();
+
         // Platform Admin (docs/specs/multi-org-sandbox.md T17) -- checked before the
         // handoff branch below (a platform_admin token never carries handoff state,
         // but checking role first keeps this the one unconditional branch). Same
         // Object.keys(rolesMap) check as authProvider.ts's getPermissions() and
         // packages/auth/src/jwks.ts's extractPlatformAdminContext (server-side) --
         // never duplicated as a separate parsing implementation.
+        // user.profile is typed non-optional (IdTokenClaims, oidc-client-ts); widening it to
+        // include undefined keeps the optional chaining below defensive for a stored user
+        // with no profile, which the declared type can't express.
         const profile = user.profile as Record<string, unknown> | undefined;
+        // Every custom claim is typed unknown (IdTokenClaims index signature), and the roles
+        // claim is an object keyed by role name, which the type system can't know.
         const rolesMap = (profile?.["urn:zitadel:iam:org:project:roles"] ??
           {}) as Record<string, unknown>;
         if (Object.keys(rolesMap).includes("platform_admin")) {

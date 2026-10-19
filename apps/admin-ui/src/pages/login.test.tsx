@@ -62,10 +62,32 @@ describe("Login", () => {
     renderAt("/login");
 
     expect(screen.getByRole("heading", { name: "Welcome back" })).toBeDefined();
-    expect(
-      screen.getByRole("button", { name: /Continue with SSO/ }),
-    ).toBeDefined();
-    expect(screen.getByText("Contact your admin")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Login" })).toBeDefined();
+    expect(screen.getByText("Contact us")).toBeDefined();
+  });
+
+  it("'Contact us' opens a Gmail trial-request draft to info@rokkalabs.com in a new tab", () => {
+    renderAt("/login");
+
+    const link = screen.getByRole("link", { name: "Contact us" });
+    const href = new URL(link.getAttribute("href") ?? "");
+    expect(href.origin).toBe("https://mail.google.com");
+    expect(href.searchParams.get("to")).toBe("info@rokkalabs.com");
+    expect(href.searchParams.get("su")).toMatch(/trial/i);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("shows the navbar's logo (icon + wordmark) and no footer", () => {
+    const { container } = renderAt("/login");
+
+    const logo = container.querySelector(".lp-float-logo");
+    expect(logo?.querySelector("img.logo-icon")?.getAttribute("src")).toBe(
+      "/favicon.svg",
+    );
+    expect(logo?.querySelector(".logo-text")?.textContent).toBe("OpenWind");
+    expect(container.querySelector("footer")).toBeNull();
+    expect(screen.queryByText(/© 2026/)).toBeNull();
   });
 
   // Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md,
@@ -73,7 +95,7 @@ describe("Login", () => {
   // completely unaffected by this feature's addition.
   it("with no handoff query params, a manual sign-in still calls signinRedirect with prompt: login and removeUser first", async () => {
     renderAt("/login");
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.removeUser).toHaveBeenCalled();
@@ -94,7 +116,7 @@ describe("Login", () => {
 
     renderAt("/login");
     expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Continue with SSO/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
     await waitFor(() => {
       expect(consoleError).toHaveBeenCalledWith(
@@ -104,9 +126,7 @@ describe("Login", () => {
     });
     await waitFor(() => {
       expect(
-        screen
-          .getByRole("button", { name: /Continue with SSO/ })
-          .hasAttribute("disabled"),
+        screen.getByRole("button", { name: "Login" }).hasAttribute("disabled"),
       ).toBe(false);
     });
     // A fixed sentence for the user; the raw error stays out of the page.
@@ -129,7 +149,7 @@ describe("Login", () => {
     renderAt(
       "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&appClientId=app-1",
     );
-    fireEvent.click(screen.getByRole("button", { name: /Continue with SSO/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Sign-in failed. If this continues, please contact support.",
@@ -155,7 +175,7 @@ describe("Login", () => {
     renderAt(
       "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&title=Client+dinner&remark=needs+approval&appClientId=app-1",
     );
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({
@@ -172,7 +192,7 @@ describe("Login", () => {
 
   it("ignores handoff params missing workflowId or entityTypeId and falls back to normal login on click", async () => {
     renderAt("/login?title=Client+dinner");
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({
@@ -187,7 +207,7 @@ describe("Login", () => {
     renderAt(
       "/login?workflowId=not-a-uuid&entityTypeId=22222222-2222-4222-a222-222222222222&appClientId=app-1",
     );
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({
@@ -201,7 +221,7 @@ describe("Login", () => {
     renderAt(
       "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=et-1&appClientId=app-1",
     );
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({
@@ -215,7 +235,7 @@ describe("Login", () => {
     renderAt(
       "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&appClientId=app-1",
     );
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({
@@ -238,7 +258,7 @@ describe("Login", () => {
     renderAt(
       "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&title=Client+dinner",
     );
-    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+    screen.getByRole("button", { name: "Login" }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({

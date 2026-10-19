@@ -26,6 +26,8 @@ export interface FieldInputField {
     target_entity_type?: string;
     /** Engine-written: callers show the value as text, never this input. */
     readOnly?: boolean;
+    /** Has its own built-in control: callers leave it out of the generic field list. */
+    virtual?: boolean;
   };
 }
 

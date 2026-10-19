@@ -30,6 +30,7 @@ import Redis from "ioredis";
 import {
   db,
   withTenantContext,
+  withEventLogMaintenanceContext,
   outboxEvents,
   automationExecutions,
   automationRules,
@@ -185,6 +186,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await redis.quit();
+  // app_user cannot DELETE workflow events (migration 0147).
+  await withEventLogMaintenanceContext(TENANT, (tx) =>
+    tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT)),
+  );
   await withTenantContext(TENANT, async (tx) => {
     await tx
       .delete(notificationRecipients)
@@ -197,7 +202,6 @@ afterAll(async () => {
     await tx
       .delete(automationRules)
       .where(eq(automationRules.tenantId, TENANT));
-    await tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT));
     await tx
       .delete(entityInstances)
       .where(eq(entityInstances.tenantId, TENANT));

@@ -236,6 +236,31 @@ describe("POST /sandboxes/:tenantId/delete", () => {
     expect(mockRelease).toHaveBeenCalled();
   });
 
+  it("returns 504 DELETE_TIMEOUT when the delete job times out waiting for worker (#864)", async () => {
+    const mockRelease = vi.fn().mockResolvedValue(undefined);
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: true,
+      release: mockRelease,
+    });
+    const mockWaitUntilFinished = vi
+      .fn()
+      .mockRejectedValue(new Error("Job job-1 timed out after 60000ms"));
+    mockQueueAdd.mockResolvedValue({
+      waitUntilFinished: mockWaitUntilFinished,
+    });
+    const app = makeApp();
+
+    const res = await app.request(`/sandboxes/${TENANT_ID}/delete`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(504);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "DELETE_TIMEOUT",
+    });
+    expect(mockRelease).toHaveBeenCalled();
+  });
+
   it("still returns 200 even when the pre-check lock's release itself fails", async () => {
     const mockRelease = vi.fn().mockRejectedValue(new Error("unlock blip"));
     mockAcquireTenantAdvisoryLock.mockResolvedValue({

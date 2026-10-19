@@ -2,15 +2,41 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { PlatformAdminAuthContext } from "@platform/auth";
+import type * as PlatformDb from "@platform/db";
+import type * as DrizzleOrm from "drizzle-orm";
 
-const { mockPlatformAdmin } = vi.hoisted(() => ({
-  mockPlatformAdmin: {
-    userId: "pa-1",
-    roles: ["platform_admin"],
-    email: "ops@openwind.io",
-    displayName: "Ops",
+const { mockPlatformAdmin, mockLimitRows, mockWhere, mockTx } = vi.hoisted(
+  () => {
+    const mockLimitRows = vi.fn();
+    const mockWhere = vi.fn();
+    const mockTx = {
+      select: () => ({
+        from: () => ({
+          where: (cond: unknown) => {
+            mockWhere(cond);
+            return {
+              orderBy: () => ({
+                limit: (n: number) => mockLimitRows(n),
+              }),
+              limit: (n: number) => mockLimitRows(n),
+            };
+          },
+        }),
+      }),
+    };
+    return {
+      mockPlatformAdmin: {
+        userId: "pa-1",
+        roles: ["platform_admin"],
+        email: "ops@openwind.io",
+        displayName: "Ops",
+      },
+      mockLimitRows,
+      mockWhere,
+      mockTx,
+    };
   },
-}));
+);
 
 vi.mock("@platform/auth", () => ({
   requirePlatformAdmin:
@@ -24,65 +50,28 @@ vi.mock("@platform/auth", () => ({
     },
 }));
 
-const mockOrderByRows = vi.fn();
-const mockLimitRows = vi.fn();
-const mockWhere = vi.fn();
-const mockTx = {
-  select: () => ({
-    from: () => ({
-      where: (cond: unknown) => {
-        mockWhere(cond);
-        return {
-          orderBy: () => mockOrderByRows(),
-          limit: () => mockLimitRows(),
-        };
-      },
-    }),
-  }),
-};
+vi.mock("@platform/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof PlatformDb>();
+  return {
+    ...actual,
+    withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
+  };
+});
 
-vi.mock("@platform/db", () => ({
-  tenants: {
-    id: "id",
-    name: "name",
-    isSandbox: "isSandbox",
-    status: "status",
-    trialEndsAt: "trialEndsAt",
-    createdAt: "createdAt",
-  },
-  withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
-  // Real, minimal re-implementation (not mocked away) so these tests exercise the actual
-  // allow-list logic, not a stand-in that could silently diverge from
-  // packages/db/src/platform-admin-view.ts.
-  toPlatformAdminSandboxView: (row: {
-    id: string;
-    name: string;
-    isSandbox: boolean;
-    trialEndsAt: Date | null;
-    createdAt: Date;
-  }) => ({
-    id: row.id,
-    name: row.name,
-    isSandbox: row.isSandbox,
-    createdAt: row.createdAt.toISOString(),
-    trialStatus: !row.trialEndsAt
-      ? "none"
-      : row.trialEndsAt.getTime() > Date.now()
-        ? "active"
-        : "expired",
-    trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
-  }),
-}));
-
-vi.mock("drizzle-orm", () => ({
-  eq: (a: unknown, b: unknown) => ["eq", a, b],
-  and: (...args: unknown[]) => ["and", ...args],
-  inArray: (a: unknown, b: unknown) => ["inArray", a, b],
-  desc: (a: unknown) => ["desc", a],
-}));
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof DrizzleOrm>();
+  return {
+    ...actual,
+    eq: (a: unknown, b: unknown) => ["eq", a, b],
+    and: (...args: unknown[]) => ["and", ...args],
+    inArray: (a: unknown, b: unknown) => ["inArray", a, b],
+    desc: (a: unknown) => ["desc", a],
+  };
+});
 
 const { sandboxListHandler, sandboxDetailHandler } =
   await import("./sandboxes-list.js");
+const { tenants } = await import("@platform/db");
 
 function makeApp() {
   const app = new Hono<{
@@ -101,20 +90,20 @@ beforeEach(() => {
 
 describe("GET /sandboxes", () => {
   it("lists only active or suspended sandboxes, so deleted ones drop out", async () => {
-    mockOrderByRows.mockResolvedValue([]);
+    mockLimitRows.mockResolvedValue([]);
 
     await makeApp().request("/sandboxes");
 
     expect(mockWhere).toHaveBeenCalledWith([
       "and",
-      ["eq", "isSandbox", true],
-      ["inArray", "status", ["active", "suspended"]],
+      ["eq", tenants.isSandbox, true],
+      ["inArray", tenants.status, ["active", "suspended"]],
     ]);
   });
 
-  it("returns every sandbox as a PlatformAdminSandboxView, newest first", async () => {
+  it("returns every sandbox as a PlatformAdminSandboxView, newest first, with hasMore false by default", async () => {
     const trialEndsAt = new Date(Date.now() + 86_400_000);
-    mockOrderByRows.mockResolvedValue([
+    mockLimitRows.mockResolvedValue([
       {
         id: TENANT_ID,
         name: "Acme Sandbox",
@@ -129,6 +118,7 @@ describe("GET /sandboxes", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.hasMore).toBe(false);
     expect(body.data).toEqual([
       {
         id: TENANT_ID,
@@ -139,10 +129,65 @@ describe("GET /sandboxes", () => {
         trialEndsAt: trialEndsAt.toISOString(),
       },
     ]);
+    // Default limit is 100, so limit + 1 = 101 rows requested
+    expect(mockLimitRows).toHaveBeenCalledWith(101);
+  });
+
+  it("returns hasMore true and slices data when more rows than limit exist (#845)", async () => {
+    mockLimitRows.mockResolvedValue([
+      {
+        id: "tenant-1",
+        name: "Sandbox 1",
+        isSandbox: true,
+        trialEndsAt: null,
+        createdAt: new Date("2026-10-02T00:00:00Z"),
+      },
+      {
+        id: "tenant-2",
+        name: "Sandbox 2",
+        isSandbox: true,
+        trialEndsAt: null,
+        createdAt: new Date("2026-10-01T00:00:00Z"),
+      },
+      {
+        id: "tenant-3",
+        name: "Sandbox 3",
+        isSandbox: true,
+        trialEndsAt: null,
+        createdAt: new Date("2026-09-30T00:00:00Z"),
+      },
+    ]);
+    const app = makeApp();
+
+    const res = await app.request("/sandboxes?limit=2");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(mockLimitRows).toHaveBeenCalledWith(3);
+    expect(body.hasMore).toBe(true);
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0].id).toBe("tenant-1");
+    expect(body.data[1].id).toBe("tenant-2");
+  });
+
+  it("returns 400 when limit is invalid (< 1 or > 500) (#845)", async () => {
+    const app = makeApp();
+
+    const resZero = await app.request("/sandboxes?limit=0");
+    expect(resZero.status).toBe(400);
+
+    const resNegative = await app.request("/sandboxes?limit=-5");
+    expect(resNegative.status).toBe(400);
+
+    const resTooLarge = await app.request("/sandboxes?limit=501");
+    expect(resTooLarge.status).toBe(400);
+
+    const resNaN = await app.request("/sandboxes?limit=invalid");
+    expect(resNaN.status).toBe(400);
   });
 
   it("returns an empty array when there are no sandboxes", async () => {
-    mockOrderByRows.mockResolvedValue([]);
+    mockLimitRows.mockResolvedValue([]);
     const app = makeApp();
 
     const res = await app.request("/sandboxes");
@@ -150,6 +195,7 @@ describe("GET /sandboxes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual([]);
+    expect(body.hasMore).toBe(false);
   });
 });
 

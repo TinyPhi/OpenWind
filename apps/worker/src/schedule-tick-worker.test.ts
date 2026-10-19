@@ -142,11 +142,14 @@ const claimTx = {
 
 let transactionCallCount = 0;
 
+const mockIsTenantActive = vi.fn().mockResolvedValue(true);
+
 vi.mock("@platform/db", () => ({
   db: {
     transaction: (fn: (tx: unknown) => Promise<unknown>) =>
       fn(transactionCallCount++ === 0 ? pollTx : claimTx),
   },
+  isTenantActive: (tenantId: string) => mockIsTenantActive(tenantId),
   withTenantContext: (...args: [string, (tx: unknown) => Promise<unknown>]) =>
     mockWithTenantContext(...args),
   setScheduleSweeperRole: (...args: unknown[]) =>
@@ -201,6 +204,7 @@ describe("schedulerTick", () => {
     mockWithTenantContext.mockClear();
     mockPostScheduleRemarkComment.mockClear().mockResolvedValue(undefined);
     mockSetScheduleSweeperRole.mockClear();
+    mockIsTenantActive.mockReset().mockResolvedValue(true);
   });
 
   it("fires a due rule, creates a ticket, and records a success execution", async () => {
@@ -711,6 +715,18 @@ describe("schedulerTick", () => {
       expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
         status: "success",
       });
+    });
+
+    it("skips rules for tenants that are inactive or have expired trials (#835)", async () => {
+      const rule = makeRule({ tenantId: "tenant-expired" });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockIsTenantActive.mockResolvedValueOnce(false);
+
+      await schedulerTick();
+
+      expect(mockCreateEntity).not.toHaveBeenCalled();
+      expect(insertedExecutions).toHaveLength(0);
     });
   });
 });

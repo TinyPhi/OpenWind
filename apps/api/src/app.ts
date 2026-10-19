@@ -107,7 +107,12 @@ export function createApp(): Hono<AppVars> {
         return ALLOWED_ORIGINS?.[0] ?? "http://localhost:3001";
       },
       allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-      allowHeaders: ["Content-Type", "Authorization", "X-Correlation-ID"],
+      allowHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Correlation-ID",
+        "X-Platform-Admin-Mfa",
+      ],
       exposeHeaders: ["X-Correlation-ID"],
       credentials: true,
     }),

@@ -6,13 +6,7 @@ export interface OrderableField {
   sortOrder: number;
 }
 
-/**
- * Moves `activeId` to `overId`'s place and renumbers the fields. System fields (every
- * workflow's title) are protected -- the API refuses any change to them, sort order
- * included -- so they stay pinned first with their sort order untouched, and only the
- * others are renumbered after them (docs/specs/mandatory-ticket-fields.md R1). Returns
- * null when either id isn't a movable field.
- */
+// System fields are pinned first; their sort order is never touched (API rejects changes).
 export function reorderFields<T extends OrderableField>(
   fields: T[],
   activeId: string,

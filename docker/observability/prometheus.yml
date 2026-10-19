@@ -24,3 +24,23 @@ scrape_configs:
       credentials: "dev-metrics-token-12345"
     static_configs:
       - targets: ["ow-worker:3002"]
+
+  # OpenBao (ADR-023; docs/runbooks/openbao-secrets.md). Commented out because
+  # the target is deployment-specific. Before enabling it:
+  #   - Prometheus must be able to reach OpenBao (in production, on the
+  #     per-project OpenBao network, not through the public proxy);
+  #   - OpenBao must allow the scrape: either a token with read access to
+  #     sys/metrics, or unauthenticated_metrics_access on its listener
+  #     (OpenBao operations repo);
+  #   - replace openbao.example.com:8200 with your server's name and port.
+  # The OpenBaoDown and OpenBaoSealed rules in alert.rules.yml fire only once
+  # this job exists.
+  # - job_name: "openbao"
+  #   scheme: https
+  #   metrics_path: "/v1/sys/metrics"
+  #   params:
+  #     format: ["prometheus"]
+  #   authorization:
+  #     credentials_file: "/etc/prometheus/openbao-metrics-token"
+  #   static_configs:
+  #     - targets: ["openbao.example.com:8200"]

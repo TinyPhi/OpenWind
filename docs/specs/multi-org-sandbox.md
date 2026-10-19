@@ -38,14 +38,15 @@ does not write this ADR.
 ```
 POST   /platform-admin/sandboxes                 -> starts provisioning job, returns job id
 GET    /platform-admin/sandboxes/:jobId/progress -> polled by wait-screen {step, total, status}
-GET    /platform-admin/sandboxes                 -> list (metadata only: name, created, trial status)
+GET    /platform-admin/sandboxes                 -> list (paginated, ?limit=; returns {data, hasMore})
 GET    /platform-admin/sandboxes/:tenantId        -> read metadata (no business data)
 GET    /platform-admin/sandboxes/:jobId/handover -> per-account username, email, role + password, for handoff
-POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, cancels queued jobs
-DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts
+POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, cancels queued jobs (200 on success, 504 RESET_TIMEOUT, 500 RESET_FAILED)
+DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts (200 on success, 504 DELETE_TIMEOUT, 500 DELETE_FAILED)
 
 POST   /platform-admin/mfa/request               -> sends a one-time verification code (R1)
-POST   /platform-admin/mfa/verify                -> verifies the code, unlocks the routes above
+POST   /platform-admin/mfa/verify                -> verifies the code, returns this sign-in's MFA session token
+POST   /platform-admin/mfa/end                   -> ends the presented MFA session (sign-out)
 ```
 
 `platform_admin`-reachable response shapes are a **fixed, narrow DTO allow-list** — every response
@@ -84,9 +85,21 @@ option at all on this instance/plan), discovered during implementation. `POST
 TTL, 5-attempt lockout) via OpenWind's own outbound-notification path; `POST
 /platform-admin/mfa/verify` checks it and marks the admin verified for 12 hours. Built:
 `packages/auth/src/platform-admin-mfa.ts`.
+✓ **(revised 2026-10-15, owner decision)** A code is needed on **every** platform-admin sign-in.
+A verified code returns a random MFA session token; the verified marker (at most 12 hours) and the
+step-up "fresh" marker are keyed by the user id **and** that token's hash, and every
+`/platform-admin/*` request must carry the token (`X-Platform-Admin-Mfa`). admin-ui drops it on
+every completed sign-in and on sign-out (which also calls `POST /platform-admin/mfa/end`), so a
+re-login, a second browser or another device always needs its own code. Previously the marker
+was per user id only, so any sign-in within 12 hours of a verified one skipped the code.
+✓ The code screen (sign-in page and the reset/delete step-up dialog share it) shows the masked
+address the code went to, six digit boxes (paste and autofill supported, submits on the sixth
+digit), a countdown to the code's expiry, the resend cooldown, and distinct messages for a wrong
+code (with attempts left), an expired code and too many attempts. Wrong-code answers are `422`,
+not `401`: the client refreshes and replays any `401`, which spent two attempts per wrong guess.
 ✓ A documented local-dev bypass for the MFA requirement exists (`PLATFORM_ADMIN_MFA_DEV_BYPASS`),
 and the app refuses to start with that bypass enabled while `NODE_ENV=production` (same guarantee
-as the existing `DEV_TENANT_ID`/`SKIP_AV_SCAN` pattern).
+as the existing `DEV_TENANT_ID`/`SKIP_AV_SCAN` pattern). Only the literal value `true` enables it.
 
 R2: Platform admin's powers are limited to sandbox lifecycle only, never business-data access.
 ✓ Platform admin can create, list, read metadata of, reset, and delete sandboxes.
@@ -175,6 +188,13 @@ tenant-scoped resource checks "is now past this tenant's `trial_ends_at`?" direc
 separate scheduled job flips a precomputed status flag.
 ✓ Past expiry: login is refused; background jobs for that tenant (sync, schedule-rule ticket
 creation, SLA timers, notification dispatch) no-op.
+✓ **(2026-10-15)** "Login is refused" has two halves. Zitadel's password step knows nothing about
+trials and still succeeds; OpenWind then answers every request with `403 TENANT_TRIAL_EXPIRED`
+(`TENANT_SUSPENDED` for a suspended tenant). admin-ui treats either code as the end of the
+session: it signs the user out at once and `/login` says why ("Your trial has ended. Contact us
+to continue using OpenWind."), rather than showing an app shell whose every request fails. The
+tenant's status and trial date are cached for up to 30 s, so ending a trial takes effect within
+that window.
 ✓ Sandbox data is never auto-deleted on expiry — it persists until an explicit delete action.
 
 R6a **(added 2026-10-12, extended 2026-10-13; owner decisions)**: The platform admin can extend a
@@ -250,9 +270,12 @@ exceeding it returns a clear error, not a silent failure or partial provisioning
 - Exactly one lifecycle action (reset/delete) may be in flight per sandbox tenant at a time.
 - A Redis outage or error while checking platform-admin MFA verification always fails closed
   (denies access) — never fails open.
+- Platform-admin MFA verification belongs to one sign-in, never to the account: a request counts as
+  verified only with the MFA session token that sign-in's code produced, and a new sign-in never
+  inherits a previous one's token.
 - Sandbox reset and delete need an MFA code verified within `PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS`
-  (default 300, bounded 60–900) on top of the 12-hour verified flag; list, read, create and trial
-  changes need only the 12-hour flag. A Redis error is "not fresh". The window is a config value,
+  (default 300, bounded 60–900) on top of the sign-in's verified flag; list, read, create and trial
+  changes need only the verified flag. A Redis error is "not fresh". The window is a config value,
   never a constant in route or auth code. (ADR-022 Decision 10, #865)
 - A token carrying `platform_admin` never obtains a tenant context, on any entry point: tenant
   `requireAuth` rejects it with `403 PLATFORM_ADMIN_TENANT_ACCESS_DENIED` before tenant
@@ -318,23 +341,42 @@ The MFA code goes out by email, so an email outage affects the admin's ability t
   code replaces the old one and is valid for 10 minutes, with 5 attempts. Resends are limited to one
   per `PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS` (default 30) per admin; the UI shows the countdown
   and a too-early request gets `429` with `Retry-After`.
-- **Already verified within 12 hours:** list, read, create and trial changes keep working while email is
-  down. Only reset and delete need a fresh code, so they wait until delivery recovers.
-- **Break-glass, operator only:** an operator with Redis access can set the marker directly, for
-  example `SET platform-admin:mfa:fresh:<zitadel user id> 1 EX 300`. This skips the email step by
+- **Already verified in this sign-in:** list, read, create and trial changes keep working while email
+  is down. Only reset and delete need a fresh code, so they wait until delivery recovers. A new
+  sign-in needs a code, so signing out during an email outage locks the admin out until it recovers.
+- **Break-glass, operator only:** an operator with Redis access can set the marker directly. The key
+  is per sign-in: `platform-admin:mfa:fresh:<zitadel user id>:<sha256 hex of the MFA session token>`
+  (the token is in the admin's browser storage, `openwind.platformAdminMfaSession`), for example
+  `SET platform-admin:mfa:fresh:<user id>:<hash> 1 EX 300`. This skips the email step by
   design, so use it only to unblock a stuck destructive action during an email outage and note it in
   the incident log. It is the same trust level as direct database access, which an operator with Redis
   access already has.
-- A kill switch for a suspected-compromised session is still not built (ADR-022 Decision 10 defers it).
+- **Lost verify response (accepted):** a step-up verify ends the session's old token before the
+  browser receives the new one. If that response is lost (timeout, dropped connection), the page
+  holds an ended token and the code is spent; a reload goes back through `/platform-admin/mfa`.
+- A completed sign-in also ends the previous sign-in's token on the server; a session that expires
+  only drops it locally (the server no longer accepts that session), and its marker lapses on its own.
+- Signing out ends that sign-in's MFA session at once (`POST /platform-admin/mfa/end`). A kill switch
+  for every session of a suspected-compromised account is still not built (ADR-022 Decision 10).
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed                                                                                                                                                                             | root cause                                                                                                                                                                             | promoted to §V?                                                                                     |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| B1  | ADR-022 review (PrabhuVijit) found `GRANT platform_admin_role TO app_user` without `WITH INHERIT FALSE` would let every ordinary tenant session passively inherit the role's privileges | Postgres role membership is additive/inheriting by default; the migration's own comment claimed "zero privileges by construction" but the GRANT statement didn't actually enforce that | Yes — added to §V                                                                                   |
-| B2  | TOTP MFA (originally planned, R1) turned out to be unimplementable                                                                                                                      | This Zitadel hosted instance has no SMTP, no SMS gateway, and doesn't offer TOTP as an option at all                                                                                   | No — this is a security-design trade-off, recorded as ADR-022 Decision 10, not just a bug log entry |
-| B3  | Manual testing: a platform_admin landed in the tenant admin-ui shell, and `/entity-types`, `/modules`, `/dashboard/my-view` returned 200 to its token (breaks R1/R2)                    | Tenant `requireAuth`/`extractAuthContext` and the tenant UI shell accepted any valid token; only role-gated routes refused it. The DTO + GRANT layers only cover `/platform-admin/*`   | Yes — added to §V                                                                                   |
-| B4  | PR #838 review: sandbox reset and delete jobs were never processed outside unit tests                                                                                                   | Neither worker module was imported by `apps/worker/src/index.ts`; tests call `processSandbox*Job` directly, so nothing exercised the wiring                                            | Yes — added to §V                                                                                   |
+| id  | what failed                                                                                                                                                                             | root cause                                                                                                                                                                             | promoted to §V?                                                                                          |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| B1  | ADR-022 review (PrabhuVijit) found `GRANT platform_admin_role TO app_user` without `WITH INHERIT FALSE` would let every ordinary tenant session passively inherit the role's privileges | Postgres role membership is additive/inheriting by default; the migration's own comment claimed "zero privileges by construction" but the GRANT statement didn't actually enforce that | Yes — added to §V                                                                                        |
+| B2  | TOTP MFA (originally planned, R1) turned out to be unimplementable                                                                                                                      | This Zitadel hosted instance has no SMTP, no SMS gateway, and doesn't offer TOTP as an option at all                                                                                   | No — this is a security-design trade-off, recorded as ADR-022 Decision 10, not just a bug log entry      |
+| B3  | Manual testing: a platform_admin landed in the tenant admin-ui shell, and `/entity-types`, `/modules`, `/dashboard/my-view` returned 200 to its token (breaks R1/R2)                    | Tenant `requireAuth`/`extractAuthContext` and the tenant UI shell accepted any valid token; only role-gated routes refused it. The DTO + GRANT layers only cover `/platform-admin/*`   | Yes — added to §V                                                                                        |
+| B4  | PR #838 review: sandbox reset and delete jobs were never processed outside unit tests                                                                                                   | Neither worker module was imported by `apps/worker/src/index.ts`; tests call `processSandbox*Job` directly, so nothing exercised the wiring                                            | Yes — added to §V                                                                                        |
+| B5  | Manual testing: `PLATFORM_ADMIN_MFA_DEV_BYPASS=false` left the MFA bypass on                                                                                                            | `z.coerce.boolean()` reads any non-empty string, including `"false"`, as true                                                                                                          | No — fixed: only the literal `true` enables it                                                           |
+| B6  | A wrong MFA code used two of the five attempts                                                                                                                                          | Wrong codes answered `401`; the client refreshes its token and replays every `401`, so the same code was checked twice                                                                 | No — fixed: wrong-code answers are `422`                                                                 |
+| B7  | Signing out and back in (or signing in elsewhere) within 12 hours skipped the MFA code                                                                                                  | The verified marker was keyed by user id only, so it belonged to the account rather than the sign-in                                                                                   | Yes — added to §V (verification belongs to one sign-in)                                                  |
+| B8  | `POST /platform-admin/sandboxes` returned generic 500 when Redis and DB failed together (#816)                                                                                          | Cleanup `db.delete()` in the enqueue catch block lacked its own try/catch, masking the intended 503 `ENQUEUE_FAILED`                                                                   | No — fixed: cleanup delete is guarded and returns 503                                                    |
+| B9  | Keyset pagination on `platform_admin_audit_log` skipped rows on equal timestamps (#894)                                                                                                 | Keyset pagination compared `created_at` only; concurrent or same-microsecond inserts lacked a secondary order key                                                                      | No — fixed: uses `(created_at DESC, id DESC)` composite cursor                                           |
+| B10 | Reset/delete routes returned 500 on BullMQ timeout, prompting 409 conflict on retry (#864)                                                                                              | `job.waitUntilFinished` TTL expiration was caught in the same block as worker failures, returning 500 instead of 504                                                                   | No — fixed: distinguishes 504 `DELETE_TIMEOUT` / `RESET_TIMEOUT` from 500 job failures                   |
+| B11 | API-key `requireAuth` path lacked regression test coverage for sandbox trial expiry (#831)                                                                                              | The JWT path was tested in `middleware.test.ts` but the API-key branch had no dedicated test verifying 403 `TENANT_TRIAL_EXPIRED`                                                      | No — fixed: regression tests added for expired, future, and null trials                                  |
+| B12 | Dashboard refresh lacked unmount cleanup and stale-response sequence guard (#846, #876 follow-up)                                                                                       | `refresh()` in `dashboard.tsx` ran unguarded across unmount and StrictMode remounts, permitting stale out-of-order overwrites                                                          | No — fixed: `isMountedRef` and sequence tracking discard superseded or unmounted fetches                 |
+| B13 | `sandboxes-list.test.ts` and `middleware.test.ts` re-implemented security DTO and role functions inline (#871, #897)                                                                    | Wholesale module mocks duplicated `toPlatformAdminSandboxView` and `isPlatformAdminToken`, creating silent drift risks from upstream schemas/claims                                    | No — fixed: uses `importOriginal` to execute the real functions from `@platform/db` and `@platform/auth` |
+| B14 | `RejectPlatformAdmin` and switch-account lacked explicit test coverage for failure branches (#896, #924)                                                                                | Permissions load errors (fail-open) and switch-account redirect rejection had no unit tests verifying fail-open rendering and error UI reset                                           | No — fixed: regression tests added in `reject-platform-admin.test.tsx` and `login.test.tsx`              |
 
 ---
 
