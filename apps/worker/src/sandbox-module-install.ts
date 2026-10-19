@@ -18,8 +18,16 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
-import { db, executeRawInTenantContext, modules, tenants } from "@platform/db";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import {
+  db,
+  executeRawInTenantContext,
+  withTenantContext,
+  modules,
+  tenants,
+  workflows,
+  entityTypes,
+} from "@platform/db";
 import { logger } from "@platform/logger";
 
 function getWorkspaceRoot(): string {
@@ -76,7 +84,45 @@ async function installModuleForSandbox(
  * same reasoning as the apps/api counterpart (unrelated business domains, idempotent seed
  * SQL since #161).
  */
-export async function installCoreModulesForSandbox(tenantId: string): Promise<{
+/**
+ * The sandbox's admin owns each module's seeded workflows, so a ticket that names nobody has
+ * someone to fall back to (docs/specs/mandatory-ticket-fields.md R7). Only where no owner is
+ * set yet, the same rule as ModuleService.installModule in apps/api.
+ */
+async function recordWorkflowOwner(
+  tenantId: string,
+  moduleId: string,
+  ownerId: string,
+): Promise<void> {
+  await withTenantContext(tenantId, (tx) =>
+    tx
+      .update(workflows)
+      .set({ createdBy: ownerId })
+      .where(
+        and(
+          eq(workflows.tenantId, tenantId),
+          isNull(workflows.createdBy),
+          inArray(
+            workflows.entityTypeId,
+            tx
+              .select({ id: entityTypes.id })
+              .from(entityTypes)
+              .where(
+                and(
+                  eq(entityTypes.tenantId, tenantId),
+                  eq(entityTypes.moduleId, moduleId),
+                ),
+              ),
+          ),
+        ),
+      ),
+  );
+}
+
+export async function installCoreModulesForSandbox(
+  tenantId: string,
+  ownerId?: string,
+): Promise<{
   succeeded: string[];
   failed: { slug: string; error: string }[];
 }> {
@@ -91,6 +137,7 @@ export async function installCoreModulesForSandbox(tenantId: string): Promise<{
   for (const { id, slug, name } of coreModules) {
     try {
       await installModuleForSandbox(tenantId, slug, id, name);
+      if (ownerId) await recordWorkflowOwner(tenantId, id, ownerId);
       succeeded.push(slug);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

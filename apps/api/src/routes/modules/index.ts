@@ -64,11 +64,12 @@ router.post(
     const { workflowName } = c.req.valid("json");
 
     try {
-      await ModuleService.installModule(
-        auth.tenantId,
-        slug,
-        workflowName !== undefined ? { workflowName } : {},
-      );
+      // The installing admin owns the module's seeded workflows
+      // (docs/specs/mandatory-ticket-fields.md R7).
+      await ModuleService.installModule(auth.tenantId, slug, {
+        installedBy: auth.userId,
+        ...(workflowName !== undefined ? { workflowName } : {}),
+      });
       return c.json({ data: { slug, status: "installed" } }, 201);
     } catch (err: unknown) {
       logger.error(

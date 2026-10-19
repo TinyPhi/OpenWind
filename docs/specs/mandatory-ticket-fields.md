@@ -40,7 +40,14 @@ their own extra fields (create page "Others" tab), which admins may make require
 assignedTo | teamId, fields? }`, pre-filled from the selected workflow.
 - `PATCH /entities/:id`: `dueDate` non-null; `assignedTo` non-null unless switching to
   `teamId`; `severity` accepted (non-null); `remark` not accepted (fixed after create).
-- Fallback owner = the workflow owner (`workflows.created_by`), used by R6/R7/R8.
+- Fallback assignee (owner decision 2026-10-16), used by R6/R7/R8 and the seeder: the workflow's
+  creator, then its workflow admins (current tenant members, not erased), then the tenant's
+  longest-standing admin (Zitadel admin role, earliest `tenant_users` join). Decided at run time;
+  no migration. Installing a module records the installer as owner of its ownerless workflows.
+- Automation default title (owner decision 2026-10-16): the rule's name; a sub-task gets
+  `<rule name>: <parent title>`.
+- Scheduler due date (owner decision 2026-10-16): the ticket's creation time + `due_days`, not
+  the scheduled fire time, so a late catch-up run still gets its full N days.
 
 ## §R Requirements
 
@@ -96,23 +103,23 @@ R10: Schedule rule assigned to a user saves.
 - `is_system` means protected, never hidden. Hiding/read-only is `config.readOnly`.
 - Every workflow record has all five, always. No code path may write NULL/blank to any of them.
 - User-id fields are Zitadel ids (numeric strings) — never validate them as UUIDs; test fixtures use real-shaped ids.
-- An assignment fallback is the workflow owner, never "nobody".
+- An assignment fallback is the workflow owner or the longest-standing admin, never "nobody": with nobody, the creator fails rather than create an unassigned ticket.
 
 ## §T Tasks
 
-| id  | task                                                                                        | phase | status                           | depends                   |
-| --- | ------------------------------------------------------------------------------------------- | ----- | -------------------------------- | ------------------------- |
-| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                        | —                         |
-| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                        | —                         |
-| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                        | —                         |
-| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                        | —                         |
-| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                        | —                         |
-| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | 2.1 engine + API paths; 2.2 rest | PR 1                      |
-| T7  | R5 PATCH/bulk PATCH enforcement                                                             | 2     | todo                             | T6                        |
-| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | todo                             | T6                        |
-| T9  | R8 erasure/removal reassign to workflow owner                                               | 2     | todo                             | T6                        |
-| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo                             | T6–T9                     |
-| T11 | R6 partner API fallback owner                                                               | 2     | blocked                          | ADR-012 amendment (human) |
+| id  | task                                                                                        | phase | status                        | depends                   |
+| --- | ------------------------------------------------------------------------------------------- | ----- | ----------------------------- | ------------------------- |
+| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                     | —                         |
+| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                     | —                         |
+| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                     | —                         |
+| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                     | —                         |
+| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                     | —                         |
+| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | done 2.1 #973 + 2.2           | PR 1                      |
+| T7  | R5 PATCH/bulk PATCH enforcement                                                             | 2     | todo                          | T6                        |
+| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | defaults + config 2.2; UI 2.4 | T6                        |
+| T9  | R8 erasure/removal reassign to workflow owner                                               | 2     | todo                          | T6                        |
+| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo                          | T6–T9                     |
+| T11 | R6 partner API fallback owner                                                               | 2     | blocked                       | ADR-012 amendment (human) |
 
 phase gate: PR 1 merged and on the server before PR 2 starts. Owner overrode this on 2026-10-16: PR 2 stacks on #965.
 

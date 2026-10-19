@@ -40,7 +40,13 @@ import type { EntityType } from "@platform/entity-engine";
 import {
   createAutomationRule,
   executeAutomationRules,
+  registerFallbackAssigneeResolver,
 } from "@platform/automation-engine";
+
+// The worker registers the real fallback (workflow owner, then the tenant's longest-standing
+// admin); this suite runs no worker, so it stands in for it. Tender's seeded rule names no
+// assignee, so the sub-task goes to the fallback (docs/specs/mandatory-ticket-fields.md R7).
+const FALLBACK_ASSIGNEE = "395069484982800301";
 
 const TENANT = "ffffffff-0000-4000-f000-000000000162";
 
@@ -50,6 +56,7 @@ let redis: Redis;
 
 beforeAll(async () => {
   redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+  registerFallbackAssigneeResolver(() => Promise.resolve(FALLBACK_ASSIGNEE));
 
   await db
     .insert(tenants)
@@ -117,6 +124,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  registerFallbackAssigneeResolver(null);
   await redis.quit();
   // app_user cannot DELETE workflow events (migration 0147).
   await withEventLogMaintenanceContext(TENANT, (tx) =>
@@ -210,7 +218,14 @@ describe("automation 'create_child' action (#162)", () => {
 
     const after = await withTenantContext(TENANT, (tx) =>
       tx
-        .select({ id: entityInstances.id, fields: entityInstances.fields })
+        .select({
+          id: entityInstances.id,
+          fields: entityInstances.fields,
+          assignedTo: entityInstances.assignedTo,
+          dueDate: entityInstances.dueDate,
+          remark: entityInstances.remark,
+          severity: entityInstances.severity,
+        })
         .from(entityInstances)
         .where(eq(entityInstances.tenantId, TENANT)),
     );
@@ -219,6 +234,18 @@ describe("automation 'create_child' action (#162)", () => {
     expect(
       (child?.fields as Record<string, unknown> | undefined)?.["description"],
     ).toBe("Tender A\n\nRoof replacement");
+    // The five mandatory values, from the defaults (the rule has no template).
+    expect(
+      (child?.fields as Record<string, unknown> | undefined)?.["title"],
+    ).toBe(
+      "Spawn costing child ticket on first entry to pending_costing_review: Tender A",
+    );
+    expect(child?.assignedTo).toBe(FALLBACK_ASSIGNEE);
+    expect(child?.dueDate).not.toBeNull();
+    expect(child?.remark).toBe(
+      "Created by automation: Spawn costing child ticket on first entry to pending_costing_review",
+    );
+    expect(child?.severity).toBe("medium");
 
     const updatedParent = await withTenantContext(TENANT, (tx) =>
       getEntity(tx, TENANT, parent.id),

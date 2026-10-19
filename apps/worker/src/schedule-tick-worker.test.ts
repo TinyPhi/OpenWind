@@ -41,6 +41,7 @@ vi.mock("@platform/telemetry", () => ({
 const mockCreateEntity = vi.fn();
 vi.mock("@platform/entity-engine", () => ({
   createEntity: (...args: unknown[]) => mockCreateEntity(...args),
+  DEFAULT_TICKET_SEVERITY: "medium",
 }));
 
 const mockValidateScheduleRuleRefs = vi.fn().mockResolvedValue([]);
@@ -561,7 +562,9 @@ describe("schedulerTick", () => {
   });
 
   describe("mandate fields (docs/specs/schedule-rules-mandate-fields.md)", () => {
-    it("teamId mode writes fields.team_id and does not pass assignedTo, leaving resolution to the entity.created -> resolve_oncall cascade", async () => {
+    // createEntity stores teamId in fields.team_id itself, so it survives on types with no
+    // team_id field (docs/specs/mandatory-ticket-fields.md B4).
+    it("teamId mode passes teamId (not assignedTo), leaving resolution to the entity.created -> resolve_oncall cascade", async () => {
       const rule = makeRule({
         template: {
           title: "Team review",
@@ -583,12 +586,37 @@ describe("schedulerTick", () => {
       expect(mockCreateEntity).toHaveBeenCalledTimes(1);
       const createArgs = mockCreateEntity.mock.calls[0]?.[2] as {
         assignedTo?: string;
+        teamId?: string;
         fields: Record<string, unknown>;
       };
       expect(createArgs.assignedTo).toBeUndefined();
-      expect(createArgs.fields["team_id"]).toBe(
-        "22222222-2222-2222-2222-222222222222",
-      );
+      expect(createArgs.teamId).toBe("22222222-2222-2222-2222-222222222222");
+    });
+
+    // docs/specs/mandatory-ticket-fields.md R4: severity and remark go to their own columns.
+    it("passes the remark and severity (default medium) as columns", async () => {
+      const rule = makeRule({
+        template: {
+          title: "Columns",
+          teamId: "22222222-2222-2222-2222-222222222222",
+          due_days: 1,
+          remark: "Weekly check",
+        },
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-cols",
+        workflowId: "wf-1",
+        currentState: "open",
+      });
+
+      await schedulerTick();
+
+      expect(mockCreateEntity.mock.calls[0]?.[2]).toMatchObject({
+        remark: "Weekly check",
+        severity: "medium",
+      });
     });
 
     it("assignedTo mode passes assignedTo directly and writes no team_id field", async () => {
@@ -620,7 +648,9 @@ describe("schedulerTick", () => {
       expect(createArgs.fields["team_id"]).toBeUndefined();
     });
 
-    it("resolves due date as the fire's scheduled instant plus due_days days", async () => {
+    // Owner decision 2026-10-16: counted from the ticket's creation, so a late catch-up run
+    // still gets its full due_days instead of being created already past due.
+    it("resolves due date as the ticket's creation time plus due_days days", async () => {
       const scheduledAt = new Date(Date.now() - 1000);
       const rule = makeRule({
         nextFireAt: scheduledAt,
@@ -639,14 +669,16 @@ describe("schedulerTick", () => {
         currentState: "open",
       });
 
+      const before = Date.now();
       await schedulerTick();
 
       const createArgs = mockCreateEntity.mock.calls[0]?.[2] as {
         dueDate: string;
       };
-      expect(new Date(createArgs.dueDate).getTime()).toBe(
-        scheduledAt.getTime() + 3 * 24 * 60 * 60 * 1000,
-      );
+      const due = new Date(createArgs.dueDate).getTime();
+      const threeDays = 3 * 24 * 60 * 60 * 1000;
+      expect(due).toBeGreaterThanOrEqual(before + threeDays);
+      expect(due).toBeLessThanOrEqual(Date.now() + threeDays);
     });
 
     it("posts the remark as the ticket's first comment, attributed to the rule's creator", async () => {
