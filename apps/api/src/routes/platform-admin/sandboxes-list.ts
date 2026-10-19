@@ -47,7 +47,8 @@ export const sandboxListHandler = platformAdminFactory.createHandlers(
             inArray(tenants.status, ["active", "suspended"]),
           ),
         )
-        .orderBy(desc(tenants.createdAt))
+        // id breaks ties between sandboxes created in the same instant, so the order is stable.
+        .orderBy(desc(tenants.createdAt), desc(tenants.id))
         .limit(limit + 1),
     );
 

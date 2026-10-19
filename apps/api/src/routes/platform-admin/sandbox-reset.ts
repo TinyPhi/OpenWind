@@ -9,6 +9,7 @@ import {
 } from "@platform/db";
 import { eq } from "drizzle-orm";
 import { logger } from "@platform/logger";
+import { classifyJobAfterWaitError } from "../../lib/job-wait.js";
 import {
   sandboxResetQueue,
   sandboxResetQueueEvents,
@@ -113,8 +114,10 @@ export const sandboxResetHandler = platformAdminFactory.createHandlers(
         WAIT_FOR_RESET_TTL_MS,
       );
     } catch (err) {
-      const isTimeout = err instanceof Error && /timed out/i.test(err.message);
-      if (isTimeout) {
+      // Ask the job, not the message: a job that failed with "timed out" in its own error is a
+      // failure, and one that finished just after the wait gave up is a success (#994).
+      const outcome = await classifyJobAfterWaitError(job);
+      if (outcome === "still-running") {
         logger.warn(
           { err, tenantId, userId, jobId },
           "platform-admin sandbox reset: wait timed out — job still running in background",
@@ -129,17 +132,19 @@ export const sandboxResetHandler = platformAdminFactory.createHandlers(
         );
       }
 
-      logger.error(
-        { err, tenantId, userId, jobId },
-        "platform-admin sandbox reset: reset job failed",
-      );
-      return c.json(
-        {
-          error: "RESET_FAILED",
-          message: "Sandbox reset did not complete successfully",
-        },
-        500,
-      );
+      if (outcome !== "completed") {
+        logger.error(
+          { err, tenantId, userId, jobId },
+          "platform-admin sandbox reset: reset job failed",
+        );
+        return c.json(
+          {
+            error: "RESET_FAILED",
+            message: "Sandbox reset did not complete successfully",
+          },
+          500,
+        );
+      }
     }
 
     return c.json({ data: { tenantId } }, 200);
