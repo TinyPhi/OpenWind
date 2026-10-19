@@ -27,6 +27,7 @@ import {
   scheduleTenantDeletion,
 } from "../../lib/tenant-lifecycle.js";
 import { factory } from "./factory.js";
+import { isPlatformOperatorTenant } from "../../lib/platform-operator.js";
 
 const TenantIdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -63,7 +64,7 @@ export const listTenantsHandlers = factory.createHandlers(
   requireRole("superadmin"),
   zValidator("query", ListTenantsQuerySchema),
   async (c) => {
-    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
+    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
     const { status, limit, offset } = c.req.valid("query");
@@ -88,7 +89,7 @@ export const getTenantHandlers = factory.createHandlers(
   zValidator("param", TenantIdParamSchema),
   async (c) => {
     const { id } = c.req.valid("param");
-    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
+    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
 
@@ -144,7 +145,7 @@ export const suspendTenantHandlers = factory.createHandlers(
   async (c) => {
     const { id } = c.req.valid("param");
     const { userId } = c.get("auth");
-    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
+    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
 
@@ -184,7 +185,7 @@ export const reactivateTenantHandlers = factory.createHandlers(
   async (c) => {
     const { id } = c.req.valid("param");
     const { userId } = c.get("auth");
-    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
+    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
 
@@ -237,10 +238,9 @@ export const updateTenantRateLimitHandlers = factory.createHandlers(
       if (authTenantId !== env.PLATFORM_ORG_ID) {
         return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
       }
-    } else {
-      if (authTenantId !== id) {
-        return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
-      }
+    } else if (env.NODE_ENV === "production" || authTenantId !== id) {
+      // Without a platform org, dev/test lets a tenant adjust only itself; production refuses.
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
 
     const [row] = await db
@@ -274,7 +274,7 @@ export const deleteTenantHandlers = factory.createHandlers(
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
     const { userId } = c.get("auth");
-    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
+    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
 

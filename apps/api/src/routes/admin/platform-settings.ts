@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { logger } from "@platform/logger";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
+import { isPlatformOperatorTenant } from "../../lib/platform-operator.js";
 
 const PlatformSettingsPatchSchema = z.object({
   outboundNotificationsEnabled: z.boolean(),
@@ -21,6 +22,9 @@ export const getPlatformSettingsHandler = factory.createHandlers(
   requireAuth(),
   requireRole("superadmin"),
   async (c) => {
+    if (!isPlatformOperatorTenant(c.get("auth").tenantId)) {
+      return c.json({ error: "NOT_FOUND", message: "Not found" }, 404);
+    }
     const [row] = await db
       .select()
       .from(platformSettings)
@@ -43,7 +47,10 @@ export const updatePlatformSettingsHandler = factory.createHandlers(
   zValidator("json", PlatformSettingsPatchSchema),
   async (c) => {
     const { outboundNotificationsEnabled } = c.req.valid("json");
-    const { userId } = c.get("auth");
+    const { userId, tenantId } = c.get("auth");
+    if (!isPlatformOperatorTenant(tenantId)) {
+      return c.json({ error: "NOT_FOUND", message: "Not found" }, 404);
+    }
 
     try {
       const [row] = await db

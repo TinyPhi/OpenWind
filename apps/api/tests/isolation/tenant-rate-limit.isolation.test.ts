@@ -169,4 +169,24 @@ describe("PATCH /admin/tenants/:id/rate-limit — real update", () => {
     const override = await getTenantRateLimitOverride(db, TENANT);
     expect(override).toBe(800);
   });
+
+  it("refuses even a same-tenant rate limit change in production when PLATFORM_ORG_ID is unset (#1015)", async () => {
+    const originalNodeEnv = env.NODE_ENV;
+    env.PLATFORM_ORG_ID = undefined;
+    env.NODE_ENV = "production";
+    _clearTenantRateLimitCacheForTests();
+    try {
+      const res = await makeApp(["superadmin"], TENANT).request(
+        `/${TENANT}/rate-limit`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ratePerMin: 900 }),
+        },
+      );
+      expect(res.status).toBe(404);
+    } finally {
+      env.NODE_ENV = originalNodeEnv;
+    }
+  });
 });

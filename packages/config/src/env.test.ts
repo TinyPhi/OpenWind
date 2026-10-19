@@ -35,6 +35,24 @@ describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   });
 });
 
+describe("API_BODY_LIMIT_BYTES (#1012)", () => {
+  it("defaults to 2 MiB and honors an override", () => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV).API_BODY_LIMIT_BYTES).toBe(
+      2 * 1024 * 1024,
+    );
+    expect(
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, API_BODY_LIMIT_BYTES: "4096" })
+        .API_BODY_LIMIT_BYTES,
+    ).toBe(4096);
+  });
+
+  it("refuses a limit too small to carry a request", () => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, API_BODY_LIMIT_BYTES: "10" }),
+    ).toThrow();
+  });
+});
+
 describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
   it("default to a 5-minute freshness window and a 30-second resend cooldown", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);

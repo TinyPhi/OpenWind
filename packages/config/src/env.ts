@@ -81,6 +81,13 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // Largest accepted request body for every route except file uploads (those take a fixed,
+    // larger cap in apps/api/src/middleware/body-limit.ts). Over the limit: 413 PAYLOAD_TOO_LARGE.
+    API_BODY_LIMIT_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .default(2 * 1024 * 1024),
     // Retention sweep defaults (docs/specs/retention-classes.md). Per-tenant
     // overrides live in tenants.config. Evidence and comment defaults are
     // placeholders pending owner/counsel confirmation.

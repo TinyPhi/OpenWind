@@ -3,6 +3,7 @@ import { startErrorTracking } from "@platform/telemetry";
 startErrorTracking();
 import { serve } from "@hono/node-server";
 import { logger } from "@platform/logger";
+import { env } from "@platform/config";
 import { closeRedis } from "@platform/redis";
 import {
   startTenantStatusInvalidationSubscriber,
@@ -19,6 +20,21 @@ const app = createApp();
 const port = 3000;
 
 logger.info({ port }, "API server starting");
+
+if (env.NODE_ENV === "production") {
+  if (env.TRUST_PROXY === "false") {
+    logger.warn(
+      {},
+      "TRUST_PROXY is false in production: behind a reverse proxy every client shares one rate-limit bucket; see docs/deployment-hardening.md",
+    );
+  }
+  if (!env.PLATFORM_ORG_ID) {
+    logger.warn(
+      {},
+      "PLATFORM_ORG_ID is not set in production: the /admin/tenants routes refuse every caller until it is",
+    );
+  }
+}
 
 const server = serve({ fetch: app.fetch, port }, () => {
   logger.info({ port }, "API server listening");
