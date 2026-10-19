@@ -132,6 +132,16 @@ describe("POST /entities/:id/children — the five mandatory values", () => {
     expect(mockCreateChildRelation).not.toHaveBeenCalled();
   });
 
+  // The due date may trail the clock by up to 15s (DUE_DATE_GRACE_MS), as on createEntity.
+  it.each([
+    [14_000, 201],
+    [16_000, 400],
+  ])("treats a due date %ims in the past as %i", async (ago, status) => {
+    const dueDate = new Date(Date.now() - ago).toISOString();
+    const res = await post({ ...VALID, dueDate });
+    expect(res.status).toBe(status);
+  });
+
   it("refuses both an assignee and a team", async () => {
     const res = await post({
       ...VALID,

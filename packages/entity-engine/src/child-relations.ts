@@ -202,6 +202,24 @@ export async function createChildRelation(
   } = input;
   const severity = input.severity ?? DEFAULT_TICKET_SEVERITY;
 
+  // A sub-task is a workflow record too: same five mandatory values, same team rule as
+  // createEntity (docs/specs/mandatory-ticket-fields.md R4) -- an explicit teamId is
+  // checked against the tenant; a team_id already in the fields counts as a team as before.
+  // Checked before the parent lock, so a rejected create never holds it.
+  if (teamId) await assertTeamInTenant(db, tenantId, teamId);
+  checkMandatoryFields(
+    {
+      title: childFields["title"],
+      dueDate,
+      remark,
+      severity,
+      assignedTo,
+      teamId: teamId ?? childFields["team_id"],
+    },
+    { tenantId, entityTypeId, path: "createChildRelation" },
+    { assignee: input.mandatoryExemption === "partner_unresolved_assignee" },
+  );
+
   // Load parent — lock row to prevent concurrent race on cap/depth
   const [parent] = await db
     .select({
@@ -335,23 +353,6 @@ export async function createChildRelation(
       ? { [assignedTo]: { level: "read_write", tag: "assigned" } }
       : {}),
   };
-
-  // A sub-task is a workflow record too: same five mandatory values, same team rule as
-  // createEntity (docs/specs/mandatory-ticket-fields.md R4) -- an explicit teamId is
-  // checked against the tenant; a team_id already in the fields counts as a team as before.
-  if (teamId) await assertTeamInTenant(db, tenantId, teamId);
-  checkMandatoryFields(
-    {
-      title: childFields["title"],
-      dueDate,
-      remark,
-      severity,
-      assignedTo,
-      teamId: teamId ?? childFields["team_id"],
-    },
-    { tenantId, entityTypeId, path: "createChildRelation" },
-    { assignee: input.mandatoryExemption === "partner_unresolved_assignee" },
-  );
 
   // Insert child instance — inherit parent's workflowId so comments/history work
   const [childInstance] = await db

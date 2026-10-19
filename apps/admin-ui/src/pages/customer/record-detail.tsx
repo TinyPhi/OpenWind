@@ -4080,7 +4080,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <input
                   type="datetime-local"
                   className="portal-input"
-                  aria-label="Due date"
+                  aria-label="Sidebar due date"
                   value={dueDateInput}
                   disabled={!canChangeDueDate}
                   onChange={(e) => handleDueDateInputChange(e.target.value)}

@@ -56,3 +56,13 @@
 - **Next.** PR 2.2: automations, the scheduler (severity and remark into their columns), the
   sandbox seeder, the demo script, and an owner on template-installed workflows. Open
   question for the owner: who owns existing ownerless workflows.
+- **Review R1 fixes (2026-10-19).** Rebuilt on the rebuilt #965 (upstream `main` + its R3
+  fixes); one conflict in `bulkCreateEntities`, taking upstream's new `resolveInitialState`
+  signature.
+  - A malformed `workflowId` gets its own error, "Not a valid workflow id", before any query.
+  - Sub-task creation checks the team and the five values before locking the parent ticket.
+  - The ticket sidebar's due-date input is labelled "Sidebar due date", apart from the Edit
+    form's "Due Date".
+  - Tests: the partner exemption under enforce; the 15s due-date grace on sub-tasks.
+  - The silent remark-comment failure is out of scope; recorded in
+    `docs/reviews/pending-review-findings.md`.

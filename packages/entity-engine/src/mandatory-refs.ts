@@ -46,18 +46,25 @@ export async function assertWorkflowMatchesType(
   workflowId: string,
   entityTypeId: string,
 ): Promise<void> {
-  const [row] = UUID_RE.test(workflowId)
-    ? await db
-        .select({ entityTypeId: workflows.entityTypeId })
-        .from(workflows)
-        .where(
-          and(
-            eq(workflows.id, workflowId),
-            or(eq(workflows.tenantId, tenantId), isNull(workflows.tenantId)),
-          ),
-        )
-        .limit(1)
-    : [];
+  if (!UUID_RE.test(workflowId)) {
+    throw new ValidationError([
+      {
+        field: "workflowId",
+        code: "invalid",
+        message: "Not a valid workflow id",
+      },
+    ]);
+  }
+  const [row] = await db
+    .select({ entityTypeId: workflows.entityTypeId })
+    .from(workflows)
+    .where(
+      and(
+        eq(workflows.id, workflowId),
+        or(eq(workflows.tenantId, tenantId), isNull(workflows.tenantId)),
+      ),
+    )
+    .limit(1);
   if (row?.entityTypeId !== entityTypeId) {
     throw new ValidationError([
       {

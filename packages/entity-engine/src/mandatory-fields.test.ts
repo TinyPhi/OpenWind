@@ -100,6 +100,22 @@ describe("checkMandatoryFields", () => {
     expect(mockWarn).not.toHaveBeenCalled();
   });
 
+  it("doesn't throw for an exempt assignee under enforce", () => {
+    setMandatoryFieldsMode("enforce");
+    expect(() =>
+      checkMandatoryFields({ ...COMPLETE, assignedTo: undefined }, CONTEXT, {
+        assignee: true,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      checkMandatoryFields(
+        { ...COMPLETE, assignedTo: undefined, remark: "" },
+        CONTEXT,
+        { assignee: true },
+      ),
+    ).toThrow(ValidationError);
+  });
+
   it("logs every use of the partner exemption", () => {
     checkMandatoryFields({ ...COMPLETE, assignedTo: undefined }, CONTEXT, {
       assignee: true,

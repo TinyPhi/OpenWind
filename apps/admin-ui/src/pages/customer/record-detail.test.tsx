@@ -1616,7 +1616,7 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     renderRecordDetail();
     await screen.findByRole("heading", { name: "Printer offline" });
 
-    const sidebarDue = screen.getByLabelText("Due date");
+    const sidebarDue = screen.getByLabelText("Sidebar due date");
     const future = new Date(Date.now() + 9 * 86_400_000);
     const pad = (n: number): string => String(n).padStart(2, "0");
     fireEvent.change(sidebarDue, {
