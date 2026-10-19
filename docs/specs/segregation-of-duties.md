@@ -66,12 +66,13 @@ is evaluated by the same engine path that checks roles and conditions, under the
   in a later step) skip transition guards, so they are refused on any workflow that carries an actor rule
   (`STATE_CHANGE_NOT_ALLOWED`, docs/specs/state-override.md T6). The child-status route only moves child tickets,
   which keep their own fixed states. A workflow with no actor rule and no override is unchanged.
-- **A workflow admin can remove a rule.** The transition edit and delete routes accept a workflow admin who is not a
-  tenant admin, so that person can clear a transition's `conditions` (audited as
-  `workflow.transition_conditions_updated`, not blocked). On a workflow without the override switch the direct-write
-  lock is derived from those conditions, so removing the last actor rule also lifts it. Vendor-approval ships the
-  switch on, so its lock holds. Restricting removal or change of `actor_*` conditions to a tenant admin who is a
-  person is a follow-up (an API decision).
+- **Only a person admin changes a rule (#1008).** Creating a transition with an `actor_*` condition, changing or
+  clearing one, deleting a transition that carries one, and a canvas save that drops one are refused with 403 unless
+  the caller holds `admin` and is not an API key. Re-sending the stored condition is not a change, and a workflow admin
+  can still edit a transition that has no rule. Deleting a whole workflow and moving a ruled transition to other steps on
+  the canvas are gated the same way. Not covered: a concurrent edit (the check reads the stored rule without a row lock, so an
+  admin adding a rule in the same instant can be overwritten), and module and plugin install and seed paths, which write
+  transitions without going through these routes.
 - A record with no user creator (created by the scheduler or an automation) has no conflict for
   `actor_not_creator`: any identified actor passes. Pinned by a unit test in `condition-evaluator.test.ts`.
 - A transition that does not change state (a self-loop) never counts as acting, so a workflow that uses

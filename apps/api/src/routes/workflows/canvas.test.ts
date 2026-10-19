@@ -296,6 +296,57 @@ describe("PUT /workflows/:id/canvas", () => {
     expect((body as { error: string }).error).toBe("NOT_FOUND");
   });
 
+  describe("actor rules (#1008)", () => {
+    const withRule = {
+      ...BASE_WORKFLOW,
+      transitions: [
+        {
+          ...BASE_WORKFLOW.transitions[0],
+          conditions: { op: "actor_not_creator" },
+        },
+      ],
+    };
+    const dropAll = () =>
+      makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ states: BASE_WORKFLOW.states, transitions: [] }),
+      });
+
+    it("refuses a non-admin whose save would delete a transition that carries an actor rule", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-owner", roles: ["agent"] };
+      const res = await dropAll();
+      expect(res.status).toBe(403);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("refuses a non-admin moving a ruled transition to other steps", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-owner", roles: ["agent"] };
+      const res = await makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          states: BASE_WORKFLOW.states,
+          transitions: [
+            {
+              ...BASE_WORKFLOW.transitions[0],
+              fromState: "closed",
+              toState: "open",
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("lets a person admin delete it", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      expect((await dropAll()).status).toBe(200);
+    });
+  });
+
   describe("transition role audit (#640)", () => {
     const save = (transitions: unknown[]) =>
       makeApp().request(`/${WF_ID}/canvas`, {
