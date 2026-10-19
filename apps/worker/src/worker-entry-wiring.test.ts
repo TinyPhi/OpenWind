@@ -26,7 +26,15 @@ function workerModules(): string[] {
 describe("worker entry point wiring", () => {
   it("finds the BullMQ worker modules it is guarding", () => {
     const modules = workerModules();
-    expect(modules.length).toBeGreaterThan(0);
+    expect(modules.length).toBeGreaterThanOrEqual(3);
+    // Pin the three sandbox workers as a floor (guarantees PR #838 review finding stays guarded)
+    expect(modules).toEqual(
+      expect.arrayContaining([
+        "sandbox-provisioning-worker.ts",
+        "sandbox-reset-worker.ts",
+        "sandbox-delete-worker.ts",
+      ]),
+    );
     for (const mod of modules) {
       expect(mod).toMatch(/\.ts$/);
       expect(mod).not.toMatch(/\.test\.ts$/);

@@ -59,6 +59,7 @@ interface ParsedSeedRule {
 /**
  * Pure, safe deterministic parser for PostgreSQL jsonb_build_object / jsonb_build_array expressions.
  * ZERO eval / new Function -- eliminates any code injection or ReDoS risk.
+ * Throws on malformed syntax, missing commas, or unparseable input.
  */
 function parseJsonbBuildExpr(expr: string): unknown {
   let pos = 0;
@@ -89,7 +90,9 @@ function parseJsonbBuildExpr(expr: string): unknown {
 
   function parseValue(): unknown {
     skipWhitespace();
-    if (pos >= expr.length) return null;
+    if (pos >= expr.length) {
+      throw new Error(`Unexpected end of expression at pos ${pos}`);
+    }
 
     if (expr[pos] === "'") {
       return parseString();
@@ -98,8 +101,9 @@ function parseJsonbBuildExpr(expr: string): unknown {
     if (expr.startsWith("jsonb_build_object", pos)) {
       pos += "jsonb_build_object".length;
       skipWhitespace();
-      if (expr[pos] !== "(")
-        throw new Error("Expected ( after jsonb_build_object at " + pos);
+      if (expr[pos] !== "(") {
+        throw new Error(`Expected ( after jsonb_build_object at pos ${pos}`);
+      }
       pos++; // skip (
       const obj: Record<string, unknown> = {};
       while (pos < expr.length) {
@@ -109,11 +113,13 @@ function parseJsonbBuildExpr(expr: string): unknown {
           break;
         }
         const key = parseValue();
-        if (typeof key !== "string")
-          throw new Error("Object key must be string at " + pos);
+        if (typeof key !== "string") {
+          throw new Error(`Object key must be string at pos ${pos}`);
+        }
         skipWhitespace();
-        if (expr[pos] !== ",")
-          throw new Error("Expected , after object key at " + pos);
+        if (expr[pos] !== ",") {
+          throw new Error(`Expected ',' after object key at pos ${pos}`);
+        }
         pos++; // skip ,
         const val = parseValue();
         obj[key] = val;
@@ -123,6 +129,10 @@ function parseJsonbBuildExpr(expr: string): unknown {
         } else if (expr[pos] === ")") {
           pos++;
           break;
+        } else {
+          throw new Error(
+            `Expected ',' or ')' after object value at pos ${pos}`,
+          );
         }
       }
       return obj;
@@ -131,8 +141,9 @@ function parseJsonbBuildExpr(expr: string): unknown {
     if (expr.startsWith("jsonb_build_array", pos)) {
       pos += "jsonb_build_array".length;
       skipWhitespace();
-      if (expr[pos] !== "(")
-        throw new Error("Expected ( after jsonb_build_array at " + pos);
+      if (expr[pos] !== "(") {
+        throw new Error(`Expected ( after jsonb_build_array at pos ${pos}`);
+      }
       pos++; // skip (
       const arr: unknown[] = [];
       while (pos < expr.length) {
@@ -148,6 +159,10 @@ function parseJsonbBuildExpr(expr: string): unknown {
         } else if (expr[pos] === ")") {
           pos++;
           break;
+        } else {
+          throw new Error(
+            `Expected ',' or ')' after array element at pos ${pos}`,
+          );
         }
       }
       return arr;
@@ -176,13 +191,26 @@ function parseJsonbBuildExpr(expr: string): unknown {
       return val;
     }
 
-    return null;
+    throw new Error(
+      `Unrecognized token in jsonb expression at pos ${pos}: ${expr.slice(pos, pos + 20)}`,
+    );
   }
 
-  return parseValue();
+  const result = parseValue();
+  skipWhitespace();
+  if (pos < expr.length) {
+    throw new Error(
+      `Trailing unparsed tokens at pos ${pos}: ${expr.slice(pos)}`,
+    );
+  }
+  return result;
 }
 
 function parseRulesFromSql(sql: string, filePath: string): ParsedSeedRule[] {
+  const expectedRuleCount = (
+    sql.match(/INSERT\s+INTO\s+automation_rules/gi) ?? []
+  ).length;
+
   const statements = sql.split(/INSERT\s+INTO\s+automation_rules/i).slice(1);
 
   const rules: ParsedSeedRule[] = [];
@@ -190,6 +218,12 @@ function parseRulesFromSql(sql: string, filePath: string): ParsedSeedRule[] {
   for (const stmt of statements) {
     const semiIdx = stmt.indexOf(";");
     const body = semiIdx !== -1 ? stmt.slice(0, semiIdx) : stmt;
+
+    if (/\bVALUES\s*\(/i.test(body)) {
+      throw new Error(
+        `${filePath}: multi-row or VALUES-based INSERT is not supported by seed parser; use SELECT form`,
+      );
+    }
 
     const triggerMatch = body.match(/'([a-z]+\.[a-z_]+)'/i);
     if (!triggerMatch) {
@@ -223,14 +257,23 @@ function parseRulesFromSql(sql: string, filePath: string): ParsedSeedRule[] {
     }
     const triggerConfig = JSON.parse(objMatches[0]);
 
+    if (objMatches.length > 2) {
+      throw new Error(
+        `${filePath}: unexpected additional jsonb object literals (found ${objMatches.length})`,
+      );
+    }
+
     let conditions: unknown | null = null;
     if (objMatches.length > 1) {
       conditions = JSON.parse(objMatches[1]);
     } else if (body.includes("jsonb_build_object")) {
       const match = body.match(/jsonb_build_object\s*\([\s\S]*?\)\s*\)\s*\)/i);
-      if (match) {
-        conditions = parseJsonbBuildExpr(match[0]);
+      if (!match) {
+        throw new Error(
+          `${filePath}: statement contains "jsonb_build_object" but failed to match expression`,
+        );
       }
+      conditions = parseJsonbBuildExpr(match[0]);
     } else {
       const afterTrigger = body.slice(
         body.indexOf(objMatches[0]) + objMatches[0].length,
@@ -252,6 +295,12 @@ function parseRulesFromSql(sql: string, filePath: string): ParsedSeedRule[] {
       conditions,
       actions,
     });
+  }
+
+  if (rules.length !== expectedRuleCount) {
+    throw new Error(
+      `${filePath}: parsed ${rules.length} rules but expected ${expectedRuleCount} INSERT statements`,
+    );
   }
 
   return rules;
