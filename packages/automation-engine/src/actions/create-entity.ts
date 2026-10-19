@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { workflows } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
@@ -17,24 +17,20 @@ async function workflowOfType(
   tenantId: string,
   entityTypeId: string,
 ): Promise<string | null> {
-  for (const owner of [
-    eq(workflows.tenantId, tenantId),
-    isNull(workflows.tenantId),
-  ]) {
-    const [row] = await db
-      .select({ id: workflows.id })
-      .from(workflows)
-      .where(
-        and(
-          eq(workflows.entityTypeId, entityTypeId),
-          owner,
-          eq(workflows.isActive, true),
-        ),
-      )
-      .limit(1);
-    if (row) return row.id;
-  }
-  return null;
+  // The tenant's own workflow wins over a global template.
+  const [row] = await db
+    .select({ id: workflows.id })
+    .from(workflows)
+    .where(
+      and(
+        eq(workflows.entityTypeId, entityTypeId),
+        or(eq(workflows.tenantId, tenantId), isNull(workflows.tenantId)),
+        eq(workflows.isActive, true),
+      ),
+    )
+    .orderBy(sql`${workflows.tenantId} IS NULL`)
+    .limit(1);
+  return row?.id ?? null;
 }
 
 /**

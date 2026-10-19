@@ -8,7 +8,10 @@
  * registers a resolver at startup (the same pattern as entity-engine's audit hook), since
  * this package can't call Zitadel.
  */
+import { and, eq } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
+import { tenantUsers } from "@platform/db";
+import { logger } from "@platform/logger";
 import { AutomationError, type TicketTemplate } from "../types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -40,6 +43,21 @@ export interface ResolvedTicketValues {
 
 function nonBlank(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() !== "" ? v : undefined;
+}
+
+async function isTenantMember(
+  db: DbOrTx,
+  tenantId: string,
+  userId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ userId: tenantUsers.userId })
+    .from(tenantUsers)
+    .where(
+      and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.userId, userId)),
+    )
+    .limit(1);
+  return row !== undefined;
 }
 
 export async function resolveTicketValues(
@@ -74,7 +92,20 @@ export async function resolveTicketValues(
   };
 
   const teamId = nonBlank(t.teamId);
-  const assignedTo = nonBlank(t.assignedTo) ?? nonBlank(input.legacyAssignee);
+  let assignedTo = nonBlank(t.assignedTo) ?? nonBlank(input.legacyAssignee);
+  // A rule keeps the assignee it was saved with; once they leave the tenant, the ticket goes
+  // to the fallback owner instead.
+  if (
+    !teamId &&
+    assignedTo &&
+    !(await isTenantMember(db, tenantId, assignedTo))
+  ) {
+    logger.warn(
+      { tenantId, workflowId: input.workflowId, ruleName: input.ruleName },
+      "automation: the rule's assignee is no longer a tenant member; using the fallback",
+    );
+    assignedTo = undefined;
+  }
   if (teamId) {
     values.teamId = teamId;
   } else if (assignedTo) {
@@ -85,12 +116,11 @@ export async function resolveTicketValues(
       : null;
     if (!fallback) {
       // The execution is recorded as failed with this message; no ticket is created unassigned.
-      const err = new AutomationError("NO_ASSIGNEE", {
-        workflowId: input.workflowId,
-      });
-      err.message =
-        "NO_ASSIGNEE: set an assignee in the rule's template, or give the workflow an owner";
-      throw err;
+      throw new AutomationError(
+        "NO_ASSIGNEE",
+        { workflowId: input.workflowId },
+        "NO_ASSIGNEE: set an assignee in the rule's template, or give the workflow an owner",
+      );
     }
     values.assignedTo = fallback;
   }

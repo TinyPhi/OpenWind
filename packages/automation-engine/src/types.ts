@@ -182,8 +182,9 @@ export class AutomationError extends Error {
       // docs/specs/mandatory-ticket-fields.md R7: no template assignee and no fallback.
       | "NO_ASSIGNEE",
     public readonly meta?: Record<string, unknown>,
+    message?: string,
   ) {
-    super(code);
+    super(message ?? code);
     this.name = "AutomationError";
   }
 }
