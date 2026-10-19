@@ -360,6 +360,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: dev # tsx as root; the Dockerfile's default target is the non-root runtime image
     # host-gateway explicitly restores the host.docker.internal mapping that
     # Docker Desktop normally provides automatically. Observed live: after a
     # Docker Desktop crash/restart, that automatic mapping can go missing —
@@ -445,6 +446,7 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
+      target: dev
     # Same host.docker.internal restoration as ow-backend above, needed here
     # for the identical ZITADEL_JWKS_URL/ZITADEL_INTROSPECTION_URL usage below.
     extra_hosts:
