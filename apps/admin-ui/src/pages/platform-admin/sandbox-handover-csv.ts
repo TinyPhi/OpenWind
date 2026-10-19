@@ -35,6 +35,12 @@ export function buildHandoverCsv(accounts: HandoverCsvAccount[]): string {
 /**
  * Formats the credentials as a tab-separated table with a header row, ready for the clipboard.
  * Pastes cleanly into spreadsheets (Excel, Google Sheets), Slack or a text document.
+ *
+ * Values are raw on purpose, unlike `csvCell`: this text exists to be pasted as real credentials,
+ * and prefixing a value that starts with a formula trigger would change the password. The server
+ * generates every value (usernames and emails are slugs, passwords start "Ow-"), so none starts
+ * with a trigger or contains a tab or newline. If that ever changes, escape here and say so on
+ * the handover screen instead.
  */
 export function formatHandoverClipboard(
   accounts: HandoverCsvAccount[],

@@ -40,6 +40,19 @@ const cellStyle: React.CSSProperties = {
   verticalAlign: "top",
 };
 
+// Standard visually-hidden pattern: present for screen readers, not drawn.
+const VISUALLY_HIDDEN: React.CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 /**
  * T17 (docs/specs/multi-org-sandbox.md R5). Create -> poll progress -> one-time handover
  * reveal, mirroring CreateApiKeyModal's form/reveal two-phase shape. Polling (not a
@@ -63,6 +76,7 @@ export function CreateSandboxModal({
   const [downloadFailed, setDownloadFailed] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [copyFailed, setCopyFailed] = React.useState(false);
+  const [handoverFailed, setHandoverFailed] = React.useState(false);
   const copyTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -91,7 +105,18 @@ export function CreateSandboxModal({
     setDownloadFailed(false);
     setCopied(false);
     setCopyFailed(false);
+    setHandoverFailed(false);
     if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+  }
+
+  // A job was started and has not reported failure, so the sandbox exists or soon will, even if
+  // polling lost track of it. Closing then must refresh the list, not just dismiss the dialog.
+  const jobMayExist = Boolean(jobId) && progress?.status !== "failed";
+
+  function dismiss(): void {
+    if (handover || jobMayExist) onCreated();
+    else onClose();
+    resetForm();
   }
 
   async function handleCopyCredentials(): Promise<void> {
@@ -176,11 +201,24 @@ export function CreateSandboxModal({
         if (res.data.status === "completed") {
           doneRef.current = true;
           clearInterval(interval);
-          // fetchWithAuth returns unknown; { data: SandboxHandover } is the
-          // platform-admin/sandboxes/:id/handover contract.
-          const handoverRes = (await fetchWithAuth(
-            `${API_URL}/platform-admin/sandboxes/${jobId}/handover`,
-          )) as { data: SandboxHandover };
+          let handoverRes: { data: SandboxHandover };
+          try {
+            // fetchWithAuth returns unknown; { data: SandboxHandover } is the
+            // platform-admin/sandboxes/:id/handover contract.
+            handoverRes = (await fetchWithAuth(
+              `${API_URL}/platform-admin/sandboxes/${jobId}/handover`,
+            )) as { data: SandboxHandover };
+          } catch {
+            // The sandbox exists; only its one-time credentials could not be loaded. Say that,
+            // not a generic "failed to load progress" (the job is done, and polling has stopped).
+            if (!isCancelled()) {
+              setHandoverFailed(true);
+              setError(
+                "The sandbox was created, but its credentials could not be loaded. The handover is shown only once, so it may not be available again. Check the sandbox list.",
+              );
+            }
+            return;
+          }
           if (!isCancelled()) setHandover(handoverRes.data);
         } else if (res.data.status === "failed") {
           doneRef.current = true;
@@ -207,9 +245,7 @@ export function CreateSandboxModal({
 
   function handleOpenChange(next: boolean): void {
     if (next) return;
-    if (handover) onCreated();
-    else onClose();
-    resetForm();
+    dismiss();
   }
 
   const isProvisioning =
@@ -302,6 +338,10 @@ export function CreateSandboxModal({
               >
                 {copied ? "Copied!" : "Copy credentials"}
               </Button>
+              {/* Always rendered so assistive technology registers the live region before its text changes. */}
+              <span role="status" aria-live="polite" style={VISUALLY_HIDDEN}>
+                {copied ? "Credentials copied to clipboard" : ""}
+              </span>
               <Button
                 variant="primary"
                 onClick={() => {
@@ -331,14 +371,18 @@ export function CreateSandboxModal({
                 {error}
               </p>
             )}
+            {error && !handoverFailed && progress?.status !== "failed" && (
+              <p style={{ color: "var(--text-muted)" }}>
+                The sandbox may still be created. Its credentials are shown only
+                once, so closing this now means you will not see them. Check the
+                sandbox list afterwards.
+              </p>
+            )}
             {(progress?.status === "failed" || error) && (
               <Button
                 variant="secondary"
                 style={{ marginTop: 16 }}
-                onClick={() => {
-                  onClose();
-                  resetForm();
-                }}
+                onClick={dismiss}
               >
                 Close
               </Button>
