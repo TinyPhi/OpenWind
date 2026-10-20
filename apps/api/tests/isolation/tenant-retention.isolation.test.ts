@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { inArray, eq } from "drizzle-orm";
-import { db, tenants, adminAuditLog } from "@platform/db";
+import { db, tenants, adminAuditLog, withTenantContext } from "@platform/db";
 import type { AuthContext } from "@platform/auth";
 import { updateTenantRetentionHandlers } from "../../src/routes/admin/tenants.js";
 import { env } from "@platform/config";
@@ -61,11 +61,34 @@ function makeApp(roles: string[], callerTenantId: string = PLATFORM_ORG) {
   return app;
 }
 
+// requireIntrospection() reads the Authorization header directly off the
+// request regardless of the auth context already being set — an sk_-prefixed
+// bearer token short-circuits it (API keys are exempt from introspection),
+// avoiding the need for a live Zitadel connection in this test.
+function skHeaders(extra: Record<string, string> = {}) {
+  return {
+    "Content-Type": "application/json",
+    Authorization: "Bearer sk_isolation_test_bypass",
+    ...extra,
+  };
+}
+
+describe("PATCH /admin/tenants/:id/retention — token introspection", () => {
+  it("rejects with 401 when Authorization header is missing", async () => {
+    const res = await makeApp(["superadmin"]).request(`/${TENANT}/retention`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retention_days: 120 }),
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("PATCH /admin/tenants/:id/retention — role gate", () => {
   it("agent is forbidden from setting retention config", async () => {
     const res = await makeApp(["agent"]).request(`/${TENANT}/retention`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: skHeaders(),
       body: JSON.stringify({ retention_days: 120 }),
     });
     expect(res.status).toBe(403);
@@ -74,7 +97,7 @@ describe("PATCH /admin/tenants/:id/retention — role gate", () => {
   it("admin is forbidden from setting retention config", async () => {
     const res = await makeApp(["admin"]).request(`/${TENANT}/retention`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: skHeaders(),
       body: JSON.stringify({ retention_days: 120 }),
     });
     expect(res.status).toBe(403);
@@ -88,7 +111,7 @@ describe("PATCH /admin/tenants/:id/retention — platform operator & nonexistent
       "aaaaaaaa-8888-4000-a000-000000000088",
     ).request(`/${TENANT}/retention`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: skHeaders(),
       body: JSON.stringify({ retention_days: 120 }),
     });
     expect(res.status).toBe(404);
@@ -99,7 +122,7 @@ describe("PATCH /admin/tenants/:id/retention — platform operator & nonexistent
       "/aaaaaaaa-9999-4000-a000-000000000f99/retention",
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: skHeaders(),
         body: JSON.stringify({ retention_days: 120 }),
       },
     );
@@ -111,7 +134,7 @@ describe("PATCH /admin/tenants/:id/retention — updates and audit trail", () =>
   it("requires confirmShorten when reducing retention window", async () => {
     const res = await makeApp(["superadmin"]).request(`/${TENANT}/retention`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: skHeaders(),
       body: JSON.stringify({ retention_days: 30 }),
     });
     expect(res.status).toBe(400);
@@ -122,7 +145,7 @@ describe("PATCH /admin/tenants/:id/retention — updates and audit trail", () =>
   it("successfully updates retention policy when confirmShorten: true is supplied", async () => {
     const res = await makeApp(["superadmin"]).request(`/${TENANT}/retention`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: skHeaders(),
       body: JSON.stringify({ retention_days: 30, confirmShorten: true }),
     });
     expect(res.status).toBe(200);
@@ -140,10 +163,12 @@ describe("PATCH /admin/tenants/:id/retention — updates and audit trail", () =>
     expect(cfg["rate_limit_per_min"]).toBe(500);
 
     // Verify audit log row
-    const auditRows = await db
-      .select()
-      .from(adminAuditLog)
-      .where(eq(adminAuditLog.resourceId, TENANT));
+    const auditRows = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select()
+        .from(adminAuditLog)
+        .where(eq(adminAuditLog.resourceId, TENANT)),
+    );
 
     expect(auditRows.length).toBeGreaterThanOrEqual(1);
     const latest = auditRows[auditRows.length - 1];
