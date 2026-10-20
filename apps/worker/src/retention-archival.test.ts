@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type * as ConfigModule from "@platform/config";
 
 // mock bullmq
 vi.mock("bullmq", () => ({
@@ -34,6 +35,16 @@ vi.mock("./retention-sweep.js", () => ({
 
 vi.mock("./queues.js", () => ({ connection: {} }));
 
+vi.mock("@platform/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof ConfigModule>();
+  return { ...actual, env: { ...actual.env, USER_EXPORT_TTL_DAYS: 7 } };
+});
+const mockDeleteExpiredUserExports = vi.fn();
+vi.mock("@platform/files", () => ({
+  deleteExpiredUserDataExports: (...args: unknown[]) =>
+    mockDeleteExpiredUserExports(...args),
+}));
+
 vi.mock("@platform/auth", () => ({
   isTenantTrialActive: (trialEndsAt: number | null) =>
     trialEndsAt === null || trialEndsAt > Date.now(),
@@ -55,6 +66,32 @@ describe("Retention Archival Sweep", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSweepTenant.mockResolvedValue({});
+    mockDeleteExpiredUserExports.mockResolvedValue(0);
+  });
+
+  it("deletes expired user-data export files even for a tenant under hold", async () => {
+    mockWhereSelect.mockResolvedValueOnce([
+      { id: "held", config: { retention_hold: true }, trialEndsAt: null },
+    ]);
+
+    await runRetentionArchivalSweep();
+
+    expect(mockDeleteExpiredUserExports).toHaveBeenCalledWith(
+      "held",
+      7 * 86_400_000,
+    );
+    expect(mockSweepTenant).not.toHaveBeenCalled();
+  });
+
+  it("still sweeps the tenant when the export-file deletion fails", async () => {
+    mockWhereSelect.mockResolvedValueOnce([
+      { id: "t1", config: {}, trialEndsAt: null },
+    ]);
+    mockDeleteExpiredUserExports.mockRejectedValueOnce(new Error("disk"));
+
+    await runRetentionArchivalSweep();
+
+    expect(mockSweepTenant).toHaveBeenCalledTimes(1);
   });
 
   it("sweeps each active tenant with its resolved policy", async () => {
