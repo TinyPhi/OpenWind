@@ -278,6 +278,41 @@ metrics, so alert on them as well as on the email:
 
 To check on demand, restart `ow-worker`.
 
+## Container images: non-root, compiled, health-checked
+
+`apps/api/Dockerfile` and `apps/worker/Dockerfile` are multi-stage builds on `node:22-slim`
+with two targets:
+
+- `runtime` (the default, last stage) runs `node dist/index.js` as the unprivileged `node`
+  user (uid/gid 1000). It holds production dependencies only (`pnpm deploy --legacy --prod`),
+  its code is root-owned and read-only to the app, and it has a `HEALTHCHECK`.
+  `docker-compose.prod.yml` selects it with `build.target: runtime`.
+- `dev` is the old behaviour: the whole workspace run with `tsx` as root. The base
+  `docker-compose.yml` selects it, so `docker compose up -d` is unchanged for development.
+
+Health checks run inside the container with `node` (the slim image has no `curl`): the API
+polls `GET /health` on port 3000, the worker polls `GET /healthz` on port 3002 (healthy only
+while both of its Redis connections are ready; it does not check Postgres). Nothing is
+published for the worker port.
+
+### File storage ownership
+
+`/data/files` is where the API writes uploads and the worker's virus scan reads them. Both
+now run as uid 1000, so the host directory behind `FILES_STORAGE_PATH_HOST` must be owned by
+it, or every upload fails with a permission error:
+
+```bash
+sudo mkdir -p "$FILES_STORAGE_PATH_HOST"
+sudo chown -R 1000:1000 "$FILES_STORAGE_PATH_HOST"
+sudo chmod 750 "$FILES_STORAGE_PATH_HOST"
+```
+
+Existing deployments must run the `chown` once before switching to the new images; files
+written earlier by root are otherwise readable but not deletable by the app. A fresh Docker
+named volume mounted at `/data/files` needs nothing: the image creates the directory owned
+by uid 1000, and Docker copies that ownership into an empty named volume. Rollback to the old
+image is safe (root can read and write uid 1000 files).
+
 ## Go-live checklist
 
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.
@@ -294,3 +329,5 @@ To check on demand, restart `ow-worker`.
 - [ ] An OpenBao restore has been tested together with a database restore.
 - [ ] Every Zitadel machine key has an expiry date, `OPS_ALERT_EMAIL` is set, and the
       key-expiry metrics are alerted on.
+- [ ] API and worker run the `runtime` image target (`node`, uid 1000, not `tsx`, not root),
+      both report `healthy` in `docker ps`, and `FILES_STORAGE_PATH_HOST` is owned by 1000:1000.
