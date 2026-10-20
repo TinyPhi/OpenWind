@@ -11,10 +11,18 @@ import "../../i18n.js";
 
 const fetchWithAuth =
   vi.fn<(url: string, opts?: RequestInit | undefined) => Promise<unknown>>();
+const showAlert = vi.fn<(message: string, title?: string) => void>();
 vi.mock("../../lib/api.js", () => ({
   fetchWithAuth: (url: string, opts?: RequestInit): unknown =>
     fetchWithAuth(url, opts),
   API_URL: "/api",
+}));
+
+vi.mock("../../components/global-alert-dialog.js", () => ({
+  showAlert: (message: string, title?: string): void => {
+    if (title === undefined) showAlert(message);
+    else showAlert(message, title);
+  },
 }));
 
 vi.mock("../../entity-type-context.js", () => ({
@@ -105,6 +113,10 @@ function renderAt(
         <Route
           path="/records/:typeSlug/new"
           element={<CustomerRecordCreate />}
+        />
+        <Route
+          path="/records/:typeSlug/:id"
+          element={<div>Created record detail</div>}
         />
       </Routes>
     </MemoryRouter>,
@@ -471,6 +483,79 @@ describe("CustomerRecordCreate — mandatory assignedTo/dueDate", () => {
       expect(body.assignedTo).toBe(TEST_USER.userId);
       expect(body.dueDate).toBeTruthy();
     });
+  });
+});
+
+describe("CustomerRecordCreate — first-comment warning", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("alerts about a failed first comment and still navigates to the created record", async () => {
+    renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Title")).toBeDefined();
+    });
+
+    fetchWithAuth.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes("/fields")) return Promise.resolve({ data: FIELDS });
+      if (url.includes("/workflows")) return Promise.resolve({ data: [] });
+      if (url.includes("/admin/teams"))
+        return Promise.resolve({ data: [TEST_TEAM] });
+      if (url.includes("/users")) return Promise.resolve({ data: [TEST_USER] });
+      if (url === "/api/entities" && opts?.method === "POST") {
+        return Promise.resolve({
+          data: { id: "new-ticket-1" },
+          warnings: ["remark_comment_failed"],
+        });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    fireEvent.change(titleInput(), { target: { value: "Some ticket" } });
+    await fillMandatoryFields();
+    fireEvent.click(screen.getByText("Create Ticket"));
+
+    await waitFor(() => {
+      expect(showAlert).toHaveBeenCalledWith(
+        "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket.",
+      );
+      expect(screen.getByText("Created record detail")).toBeDefined();
+    });
+  });
+
+  it("does not alert for an ordinary successful creation", async () => {
+    renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Title")).toBeDefined();
+    });
+
+    fetchWithAuth.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes("/fields")) return Promise.resolve({ data: FIELDS });
+      if (url.includes("/workflows")) return Promise.resolve({ data: [] });
+      if (url.includes("/admin/teams"))
+        return Promise.resolve({ data: [TEST_TEAM] });
+      if (url.includes("/users")) return Promise.resolve({ data: [TEST_USER] });
+      if (url === "/api/entities" && opts?.method === "POST") {
+        return Promise.resolve({ data: { id: "new-ticket-1" } });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    fireEvent.change(titleInput(), { target: { value: "Some ticket" } });
+    await fillMandatoryFields();
+    fireEvent.click(screen.getByText("Create Ticket"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Created record detail")).toBeDefined();
+    });
+    expect(showAlert).not.toHaveBeenCalled();
   });
 });
 

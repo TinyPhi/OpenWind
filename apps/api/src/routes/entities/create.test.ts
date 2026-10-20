@@ -9,6 +9,7 @@ import type * as EntityEngine from "@platform/entity-engine";
 const mockCreateEntity = vi.fn();
 const mockListUserIdsWithRole = vi.fn();
 const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
+const mockPostRemarkComment = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -37,6 +38,10 @@ vi.mock("../../lib/zitadel-management.js", () => ({
 // here we only need to confirm create.ts wires it in with the right args.
 vi.mock("../../lib/ensure-user-refs.js", () => ({
   ensureUserRefsKnown: (...args: unknown[]) => mockEnsureUserRefsKnown(...args),
+}));
+
+vi.mock("../../lib/post-remark-comment.js", () => ({
+  postRemarkComment: (...args: unknown[]) => mockPostRemarkComment(...args),
 }));
 
 const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
@@ -93,6 +98,7 @@ function makeApp() {
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const TYPE_ID = "00000000-0000-0000-0000-000000000001";
+const WORKFLOW_ID = "00000000-0000-0000-0000-000000000002";
 
 const fakeInstance = {
   id: "inst-1",
@@ -129,6 +135,7 @@ describe("POST /entities", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
+    mockPostRemarkComment.mockResolvedValue(undefined);
     mockSelectLimitResult = [];
   });
 
@@ -196,6 +203,42 @@ describe("POST /entities", () => {
       "t-aaa",
       expect.objectContaining({ entityTypeId: TYPE_ID }),
     );
+  });
+
+  it("returns 201 with remark_comment_failed when the first comment cannot be posted", async () => {
+    mockCreateEntity.mockResolvedValue({
+      ...fakeInstance,
+      workflowId: WORKFLOW_ID,
+    });
+    mockPostRemarkComment.mockRejectedValue(new Error("comment store down"));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ workflowId: WORKFLOW_ID }),
+    });
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      data: { id: "inst-1" },
+      warnings: ["remark_comment_failed"],
+    });
+  });
+
+  it("omits warnings when the first comment posts successfully", async () => {
+    mockCreateEntity.mockResolvedValue({
+      ...fakeInstance,
+      workflowId: WORKFLOW_ID,
+    });
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ workflowId: WORKFLOW_ID }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).not.toHaveProperty("warnings");
   });
 
   it("returns 400 when entityTypeId is not a valid UUID", async () => {

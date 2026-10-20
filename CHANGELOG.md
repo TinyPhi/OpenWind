@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — entity create remark warning (#1022)]
+
+### Fixed
+
+- Ticket creation now warns the user when the ticket succeeds but its best-effort first remark cannot be added as a comment, matching the existing sub-task behavior.
+
+---
+
 ## [Unreleased — per-sign-in platform-admin MFA, login polish and handover CSV (#947)]
 
 ### Security

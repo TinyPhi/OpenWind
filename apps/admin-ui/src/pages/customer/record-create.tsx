@@ -15,6 +15,7 @@ import {
   DEFAULT_SEVERITY,
   type Severity,
 } from "../../components/severity-tag.js";
+import { showAlert } from "../../components/global-alert-dialog.js";
 
 type UserOption = {
   userId: string;
@@ -722,6 +723,15 @@ export function CustomerRecordCreate(): React.ReactElement {
           // shouldn't block navigation — it can be re-attached from the
           // detail page.
         }
+      }
+      const warnings = (res as { warnings?: unknown } | null)?.warnings;
+      if (
+        Array.isArray(warnings) &&
+        warnings.includes("remark_comment_failed")
+      ) {
+        showAlert(
+          "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket.",
+        );
       }
       if (routeState.returnTo) {
         navigate(routeState.returnTo);
