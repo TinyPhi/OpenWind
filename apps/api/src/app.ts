@@ -32,6 +32,7 @@ import { usersRouter } from "./routes/platform/users.js";
 import { filesRouter } from "./routes/files/index.js";
 import { adminRouter } from "./routes/admin/index.js";
 import { preferencesRouter } from "./routes/preferences/index.js";
+import { accessRouter } from "./routes/access/index.js";
 import { savedViewsRouter } from "./routes/saved-views/index.js";
 import { reportingRouter } from "./routes/reporting/index.js";
 import { orgDirectoryRouter } from "./routes/org-directory.js";
@@ -163,6 +164,8 @@ export function createApp(): Hono<AppVars> {
     });
   }
 
+  // Asked by the admin UI before rendering any page (docs/specs/tenant-access-gate.md).
+  app.route("/auth", accessRouter);
   app.route("/entity-types", entityTypesRouter);
   app.route("/entities", entitiesRouter);
   app.route("/workflows", workflowsRouter);

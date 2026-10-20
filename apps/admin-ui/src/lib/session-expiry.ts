@@ -13,13 +13,25 @@ const REASONS: readonly SessionEndReason[] = [
   "suspended",
 ];
 
-// The auth layer's answers for a tenant that may no longer be used at all. Sign-in itself goes
-// through Zitadel, which knows nothing about OpenWind trials, so without this the user lands in
-// an app whose every request is refused.
-const TENANT_ACCESS_ENDED: Readonly<Record<string, SessionEndReason>> = {
-  TENANT_TRIAL_EXPIRED: "trial_ended",
-  TENANT_SUSPENDED: "suspended",
+/**
+ * Why this login may not use this environment (docs/specs/tenant-access-gate.md). Sign-in goes
+ * through Zitadel, which knows nothing about OpenWind tenants, trials or roles, so these come
+ * from the API: requireAuth() for the tenant, GET /auth/access for the role.
+ */
+export type AccessDeniedReason =
+  | "TENANT_NOT_FOUND"
+  | "TENANT_SUSPENDED"
+  | "TENANT_TRIAL_EXPIRED"
+  | "NO_ROLE";
+
+const ACCESS_DENIED_STATUS: Readonly<Record<AccessDeniedReason, number>> = {
+  TENANT_NOT_FOUND: 404,
+  TENANT_SUSPENDED: 403,
+  TENANT_TRIAL_EXPIRED: 403,
+  NO_ROLE: 403,
 };
+
+export const ACCESS_DENIED_PATH = "/access-denied";
 
 const LOGIN_PATHS = new Set(["/login", "/platform-admin/login"]);
 
@@ -41,15 +53,46 @@ export function isSessionEndingUnauthorized(
 }
 
 /**
- * The reason to end the session for a 403 that says the tenant itself is closed (trial over,
- * suspended), or null for any other 403 -- a forbidden action must not sign anyone out.
+ * The access-denied reason for a response that says this login may not use the app at all, or
+ * null for any other error -- a forbidden action or a missing record must not sign anyone out.
  */
-export function tenantAccessEndedReason(
+export function accessDeniedReason(
   status: number,
   errorCode: string | undefined,
-): SessionEndReason | null {
-  if (status !== 403 || errorCode === undefined) return null;
-  return TENANT_ACCESS_ENDED[errorCode] ?? null;
+): AccessDeniedReason | null {
+  if (!isAccessDeniedReason(errorCode)) return null;
+  return ACCESS_DENIED_STATUS[errorCode] === status ? errorCode : null;
+}
+
+export function isAccessDeniedReason(
+  value: string | null | undefined,
+): value is AccessDeniedReason {
+  return (
+    value !== null &&
+    value !== undefined &&
+    Object.hasOwn(ACCESS_DENIED_STATUS, value)
+  );
+}
+
+/**
+ * Sends the person to the access-denied screen, which explains why, counts down and then signs
+ * them out at Zitadel too. The stored user is kept for that sign-out's id_token_hint. Platform-
+ * admin pages are left alone: a platform admin acting on a missing sandbox can get
+ * TENANT_NOT_FOUND without their own access being in question. Runs once.
+ */
+export function redirectToAccessDenied(reason: AccessDeniedReason): void {
+  if (redirecting) return;
+  const path = window.location.pathname;
+  if (
+    path === ACCESS_DENIED_PATH ||
+    path.startsWith("/platform-admin") ||
+    LOGIN_PATHS.has(path)
+  ) {
+    return;
+  }
+  redirecting = true;
+  emitSessionEnd();
+  window.location.replace(`${ACCESS_DENIED_PATH}?reason=${reason}`);
 }
 
 /**

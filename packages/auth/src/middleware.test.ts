@@ -237,7 +237,7 @@ const {
 
 const VALID_AUTH = {
   userId: "user-123",
-  tenantId: "tenant-abc",
+  tenantId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   roles: ["agent"],
   email: "alice@example.com",
 };
@@ -360,7 +360,7 @@ describe("requireAuth", () => {
   // computed fresh every request against Date.now() -- never a precomputed
   // status flag.
   describe("trial expiry (T12)", () => {
-    const tenantId = "tenant-trial-test";
+    const tenantId = "bbbbbbbb-bbbb-4bbb-8bbb-000000000001";
 
     beforeEach(() => {
       invalidateTenantStatusCache(tenantId);
@@ -660,7 +660,7 @@ describe("requireAuth", () => {
     // module-level db (mockModuleDbSelect), already wired for "active" and "org-ccc".
     const fakeRow = {
       id: "key-id-1",
-      tenant_id: "tenant-abc",
+      tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       scopes: ["read"],
     };
     const mockDb = {
@@ -691,7 +691,7 @@ describe("requireAuth", () => {
     it("returns 401 when argon2 verification fails (tampered or wrong key)", async () => {
       const fakeRow = {
         id: "key-id-2",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
         key_hash_argon2: "$argon2id$v=19$stored-hash",
       };
@@ -711,7 +711,7 @@ describe("requireAuth", () => {
     it("passes without calling argon2 when key_hash_argon2 is null (legacy key)", async () => {
       const fakeRow = {
         id: "key-id-3",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
         key_hash_argon2: null,
       };
@@ -731,7 +731,7 @@ describe("requireAuth", () => {
     it("uses cached argon2 result on repeated requests — calls argon2 only once", async () => {
       const fakeRow = {
         id: "key-id-4",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
         key_hash_argon2: "$argon2id$v=19$stored-hash",
       };
@@ -817,6 +817,7 @@ describe("requireAuth", () => {
   // DEV_TENANT_ID on every token, so a sandbox admin would land in the dev tenant with admin
   // rights. The org's own tenant mapping must win whenever it exists.
   describe("non-production tenant resolution (resolveTenantIdForAuth)", () => {
+    const DEV_TENANT = "00000000-0000-4000-8000-0000000000de";
     it("uses the tenant mapped from the token's org, not the dev tenant, when one exists", async () => {
       mockNodeEnv = "development";
       mockTenantRow = { id: "sandbox-tenant-uuid", status: "active" };
@@ -851,7 +852,7 @@ describe("requireAuth", () => {
       mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
       mockExtractAuthContext.mockReturnValueOnce({
         ...VALID_AUTH,
-        tenantId: "dev-tenant-uuid",
+        tenantId: DEV_TENANT,
         orgId: "unmapped-org-222",
       });
 
@@ -861,7 +862,35 @@ describe("requireAuth", () => {
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as { tenantId: string };
-      expect(body.tenantId).toBe("dev-tenant-uuid");
+      expect(body.tenantId).toBe(DEV_TENANT);
+    });
+
+    // docs/specs/tenant-access-gate.md R1: an org with no tenant on this environment (e.g. a
+    // sandbox created from another environment sharing Zitadel) is refused, not a 500.
+    it("refuses an unmapped org when no dev tenant stands in", async () => {
+      mockNodeEnv = "development";
+      mockModuleDbSelect.mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([])),
+          })),
+        })),
+      }));
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "395327588509155330",
+        orgId: "395327588509155330",
+      });
+
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(404);
+      expect(((await res.json()) as { error: string }).error).toBe(
+        "TENANT_NOT_FOUND",
+      );
     });
   });
 
@@ -903,7 +932,7 @@ describe("requireAuth", () => {
     it("keys the check on the verified tenantId for the API-key path", async () => {
       const fakeRow = {
         id: "key-id-1",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
       };
       const mockDb = {
@@ -918,7 +947,7 @@ describe("requireAuth", () => {
 
       expect(mockCheckRateLimit).toHaveBeenCalledWith(
         expect.anything(),
-        "rl:tenant:tenant-abc",
+        "rl:tenant:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         100,
         60,
       );
@@ -927,7 +956,7 @@ describe("requireAuth", () => {
     it("returns 429 when the tenant has exceeded its quota (API-key path)", async () => {
       const fakeRow = {
         id: "key-id-1",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
       };
       const mockDb = {
@@ -980,7 +1009,7 @@ describe("requireAuth", () => {
     it("keys the check on the api_keys row id, in addition to the tenant tier", async () => {
       const fakeRow = {
         id: "key-id-1",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
       };
       const mockDb = {
@@ -1004,7 +1033,7 @@ describe("requireAuth", () => {
     it("returns 429 when the key's own aggregate quota is exceeded, even though the tenant tier passed", async () => {
       const fakeRow = {
         id: "key-id-1",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
       };
       const mockDb = {
@@ -1038,7 +1067,7 @@ describe("requireAuth", () => {
     it("fails open (200) when the api-key-tier check itself throws", async () => {
       const fakeRow = {
         id: "key-id-1",
-        tenant_id: "tenant-abc",
+        tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scopes: ["read"],
       };
       const mockDb = {
@@ -1129,7 +1158,7 @@ describe("requireIntrospection", () => {
   it("skips introspection for API keys (sk_ prefix)", async () => {
     const fakeRow = {
       id: "key-id-1",
-      tenant_id: "tenant-abc",
+      tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       scopes: ["read"],
     };
     const mockDb = {
@@ -1162,7 +1191,7 @@ describe("fetchUserInfo caching", () => {
   // enrichment (see requireAuth's `!auth.email || auth.displayName === auth.userId`).
   const NEEDS_ENRICHMENT_AUTH = {
     userId: "user-999",
-    tenantId: "tenant-abc",
+    tenantId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     roles: ["agent"],
     email: "",
     displayName: "user-999",
@@ -1238,7 +1267,7 @@ describe("fetchUserInfo caching", () => {
     it("increments api_calls counter on every authenticated request", async () => {
       mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
       mockExtractAuthContext.mockReturnValue({
-        tenantId: "tenant-bill-1",
+        tenantId: "bbbbbbbb-bbbb-4bbb-8bbb-000000000011",
         userId: "user-111",
         roles: ["member"],
         displayName: "John",
@@ -1256,7 +1285,7 @@ describe("fetchUserInfo caching", () => {
     it("injects X-Tenant-Degraded header when degraded state is present", async () => {
       mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
       mockExtractAuthContext.mockReturnValue({
-        tenantId: "tenant-bill-2",
+        tenantId: "bbbbbbbb-bbbb-4bbb-8bbb-000000000021",
         userId: "user-111",
         roles: ["member"],
         displayName: "John",
@@ -1272,7 +1301,7 @@ describe("fetchUserInfo caching", () => {
     it("blocks request when api_calls is degraded", async () => {
       mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
       mockExtractAuthContext.mockReturnValue({
-        tenantId: "tenant-bill-2-blocked",
+        tenantId: "bbbbbbbb-bbbb-4bbb-8bbb-000000000022",
         userId: "user-111",
         roles: ["member"],
         displayName: "John",
@@ -1291,7 +1320,7 @@ describe("fetchUserInfo caching", () => {
     it("blocks request to AI/copilot endpoints when ai_tokens is degraded", async () => {
       mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
       mockExtractAuthContext.mockReturnValue({
-        tenantId: "tenant-bill-2-ai-blocked",
+        tenantId: "bbbbbbbb-bbbb-4bbb-8bbb-000000000023",
         userId: "user-111",
         roles: ["member"],
         displayName: "John",
@@ -1314,7 +1343,7 @@ describe("fetchUserInfo caching", () => {
     it("blocks POST /files upload request when storage is degraded", async () => {
       mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
       mockExtractAuthContext.mockReturnValue({
-        tenantId: "tenant-bill-3",
+        tenantId: "bbbbbbbb-bbbb-4bbb-8bbb-000000000031",
         userId: "user-111",
         roles: ["member"],
         displayName: "John",
@@ -1337,7 +1366,7 @@ describe("fetchUserInfo caching", () => {
     it("fails open if redis throws an error", async () => {
       mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
       mockExtractAuthContext.mockReturnValue({
-        tenantId: "tenant-bill-4",
+        tenantId: "bbbbbbbb-bbbb-4bbb-8bbb-000000000041",
         userId: "user-111",
         roles: ["member"],
         displayName: "John",
@@ -1352,7 +1381,7 @@ describe("fetchUserInfo caching", () => {
   });
 
   describe("enforceTenantIpAllowlist", () => {
-    const tenantId = "tenant-ip-test";
+    const tenantId = "bbbbbbbb-bbbb-4bbb-8bbb-000000000051";
 
     beforeEach(() => {
       vi.clearAllMocks();
