@@ -11,6 +11,7 @@ const mockList = vi.fn();
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
 
+let mockAuthOverride: Partial<AuthContext> = {};
 vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
@@ -20,6 +21,7 @@ vi.mock("@platform/auth", () => ({
         userId: "u-bbb",
         roles: ["admin"],
         email: "test@example.com",
+        ...mockAuthOverride,
       });
       await next();
     },
@@ -256,7 +258,22 @@ describe("GET /workflows/:id", () => {
 });
 
 describe("DELETE /workflows/:id", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuthOverride = {};
+    mockGet.mockResolvedValue({ transitions: [] });
+  });
+
+  it("refuses (403) when the workflow has an actor rule and the caller is not a person admin (#1008)", async () => {
+    mockGet.mockResolvedValue({
+      transitions: [{ conditions: { op: "actor_not_creator" } }],
+    });
+    mockAuthOverride = { userId: "apikey:k1" };
+
+    const res = await makeApp().request(`/${WF_ID}`, { method: "DELETE" });
+    expect(res.status).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
 
   it("returns 204 on successful deletion", async () => {
     mockDelete.mockResolvedValue(undefined);

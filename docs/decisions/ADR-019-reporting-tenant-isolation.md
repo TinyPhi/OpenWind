@@ -72,10 +72,11 @@ no second isolation mechanism to keep in sync with the first.
 
 The tenant comes from, in order: the guest-pass username the API mints (embedded), the verified
 guest token on the request (dashboard-level queries Superset runs as the owner), and the user's
-`tenant:<uuid>` role bound at login (Stage 2). The value must match `_TENANT_ID_RE` (`docker/superset/superset_config.py:128`, an anchored
+`tenant:<uuid>` role bound at login (Stage 2). The value must match `_TENANT_ID_RE` (in
+`docker/superset/superset_config.py`, read by `DB_CONNECTION_MUTATOR`; an anchored
 `^…$` 8-4-4-4-12 hex UUID pattern) before it reaches the connection string; that regex is the
 whole defence against injecting further startup options. Subject ids used for own-rows scoping
-match the anchored `_PRINCIPAL_ID_RE` (`:126`).
+match the anchored `_PRINCIPAL_ID_RE` in the same file.
 
 Two properties this relies on, both verified against the image's source. They cover the chart and
 embedded paths; for Stage 2 SQL Lab the outcome is recorded after the pending review (OQ-6):
@@ -146,7 +147,7 @@ policy instead of offering another way in. The mutator stamps these for any non-
 session. If a session's own-rows binding is unusable — more than one `owuser:` role, or a subject
 that fails `_PRINCIPAL_ID_RE` — it is stamped with `app.reporting_user_id=-`, a subject no ticket
 can have, so the session sees nothing rather than falling back to tenant-wide
-(`superset_config.py:195`, `:300`). As with Decision 2, the Stage 2 outcome is recorded after the
+(the own-rows branch of `DB_CONNECTION_MUTATOR` in `superset_config.py`). As with Decision 2, the Stage 2 outcome is recorded after the
 pending review (OQ-6).
 
 When the scope setting is absent the policy is tenant-wide; the embedded path and staff
@@ -285,6 +286,29 @@ options`), and adding the parameter to `ignore_startup_parameters` would drop it
 | OQ-4 | Should roles be re-checked when a pass is minted, rather than only at sign-in?                                       | Known gap; bounded by the 60 s pass lifetime.                                                                                                                                                                                                   |
 | OQ-5 | Single-logout and MFA for Stage 2 sessions?                                                                          | Session lifetime is capped (480 min); single-logout and MFA are open in `superset-standalone-with-zitadel.md`.                                                                                                                                  |
 | OQ-6 | Does the Stage 2 boundary (Decisions 2 and 6) hold against user-written SQL?                                         | Pending a security review, tracked privately. Stage 2 stays disabled until it closes; Decisions 2 and 6 then record the outcome. SQL Lab returns no rows for Stage 2 users (#716); Stage 1 is unaffected.                                       |
+
+---
+
+## Stage 2 gate criteria
+
+Stage 2 (Superset OAuth SSO, enabled by setting `SUPERSET_OAUTH_CLIENT_ID`) must not be enabled
+until every item below is met and a human has signed off. This section records the gate; it does
+not enable anything.
+
+**Gate owner: PrabhuVijit** (named 2026-10-19). The owner tracks the three items below, confirms
+each is met, and decides when Stage 2 is enabled.
+
+- **Security review (OQ-6).** Owner: PrabhuVijit. Criteria: the
+  review confirms Decisions 2 and 6 hold against user-written SQL, and its outcome is recorded in
+  those decisions. Tracking: the private review, linked from OQ-6.
+- **Erasure (OQ-3).** The Redis result-cache flush and the Superset metadata-database erasure are
+  implemented and tested (`docs/specs/superset-gdpr-erasure.md`, #728).
+- **Connection guard.** The `NullPool` startup assertion and its CI check are in place (done;
+  follow-ups #795–#797).
+- **Enablement.** Once the three items above are signed off, set `SUPERSET_OAUTH_CLIENT_ID` in the
+  deployment's environment (`.env` / `.env.local`; Superset's own secrets are not in OpenBao) and
+  restart the Superset container. No ADR amendment is needed: this ADR already covers the Stage 2
+  design.
 
 ---
 

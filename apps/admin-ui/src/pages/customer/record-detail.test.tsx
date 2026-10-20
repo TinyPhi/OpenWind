@@ -1713,6 +1713,46 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     });
   });
 
+  it("tells the user when the sub-task was created but its remark comment failed (#1002)", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    const base = mockFetchWithAuth.getMockImplementation();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) =>
+      url === `/api/entities/${RECORD_ID}/children` &&
+      (init as { method?: string } | undefined)?.method === "POST"
+        ? Promise.resolve({
+            data: { instance: { id: "child-1" }, relations: [] },
+            warnings: ["remark_comment_failed"],
+          })
+        : (base as (u: string, i?: unknown) => Promise<unknown>)(url, init),
+    );
+    renderRecordDetail();
+    await openSubtaskForm();
+
+    fireEvent.change(screen.getByPlaceholderText("Sub-task title…"), {
+      target: { value: "Swap the toner" },
+    });
+    fireEvent.click(screen.getByText("Select assignee"));
+    fireEvent.click(await screen.findByText("Second"));
+    fireEvent.change(screen.getByLabelText("Due date *"), {
+      target: { value: "2099-01-01T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Severity *"), {
+      target: { value: "high" },
+    });
+    fireEvent.change(screen.getByLabelText("Remark *"), {
+      target: { value: "Needed before the board meeting" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create sub-task" }));
+
+    const notice = await screen.findByRole("status", {}, { timeout: 3000 });
+    expect(notice.textContent).toContain(
+      "could not be added as the first comment",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("names the missing values and sends nothing", async () => {
     mockMandatoryTicket({ canAddChildren: true });
     renderRecordDetail();
@@ -1727,5 +1767,135 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
       await screen.findByText("Assignee, Due date, Remark are required."),
     ).toBeDefined();
     expect(postBodies(`/api/entities/${RECORD_ID}/children`)).toEqual([]);
+  });
+});
+
+describe("CustomerRecordDetail — admin state override (docs/specs/state-override.md T5)", () => {
+  function mockOverrideRoutes(allowStateOverride: boolean): void {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            workflowId: "wf-1",
+            currentState: "draft",
+            fields: { title: "Acme Analytics" },
+          },
+        });
+      }
+      if (url.startsWith("/api/workflows/wf-1")) {
+        return Promise.resolve({
+          data: {
+            states: [
+              { name: "draft", label: "Draft", isTerminal: false },
+              { name: "review", label: "Review", isTerminal: false },
+            ],
+            transitions: [],
+            allowStateOverride,
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+
+  function overridePosts(): Array<Record<string, unknown>> {
+    return mockFetchWithAuth.mock.calls
+      .filter(
+        ([url, init]) =>
+          url === `/api/entities/${RECORD_ID}/override-state` &&
+          (init as { method?: string } | undefined)?.method === "POST",
+      )
+      .map(
+        ([, init]) =>
+          JSON.parse((init as { body: string }).body) as Record<
+            string,
+            unknown
+          >,
+      );
+  }
+
+  beforeEach(() => {
+    mockUserId = ADMIN_USER;
+    mockProfileRoles = ["admin"];
+  });
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("offers the override to an admin when the workflow has switched it on", async () => {
+    mockOverrideRoutes(true);
+    renderRecordDetail();
+    expect(
+      await screen.findByRole("button", { name: "Override state…" }),
+    ).toBeDefined();
+  });
+
+  it("hides it when the workflow has not switched it on", async () => {
+    mockOverrideRoutes(false);
+    renderRecordDetail();
+    await screen.findByText(RECORD_ID.slice(0, 8));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(
+      screen.queryByRole("button", { name: "Override state…" }),
+    ).toBeNull();
+  });
+
+  it("hides it from a non-admin even when the switch is on", async () => {
+    mockProfileRoles = ["agent"];
+    mockOverrideRoutes(true);
+    renderRecordDetail();
+    await screen.findByText(RECORD_ID.slice(0, 8));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(
+      screen.queryByRole("button", { name: "Override state…" }),
+    ).toBeNull();
+  });
+
+  it("refuses a short reason without calling the API, then sends the step and reason", async () => {
+    mockOverrideRoutes(true);
+    renderRecordDetail();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Override state…" }),
+    );
+
+    fireEvent.change(screen.getByLabelText("Move to *"), {
+      target: { value: "review" },
+    });
+    fireEvent.change(screen.getByLabelText("Reason *"), {
+      target: { value: "too short" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Override state" }));
+    expect(
+      await screen.findByText(/reason of at least 10 characters/),
+    ).toBeDefined();
+    expect(overridePosts()).toEqual([]);
+
+    fireEvent.change(screen.getByLabelText("Reason *"), {
+      target: { value: "Sent back: wrong questionnaire attached" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Override state" }));
+    await waitFor(() => expect(overridePosts()).toHaveLength(1));
+    expect(overridePosts()[0]).toEqual({
+      state: "review",
+      reason: "Sent back: wrong questionnaire attached",
+    });
+  });
+
+  it("does not offer the record's current step as a target", async () => {
+    mockOverrideRoutes(true);
+    renderRecordDetail();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Override state…" }),
+    );
+    const select = screen.getByLabelText("Move to *") as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual(["", "review"]);
   });
 });

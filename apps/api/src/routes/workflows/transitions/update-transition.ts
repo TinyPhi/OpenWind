@@ -7,6 +7,10 @@ import { updateWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { TransitionConditionsSchema } from "./condition-schema.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
+import {
+  assertMaySetActorRules,
+  SodRuleForbiddenError,
+} from "../../../lib/sod-rule-gate.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 import {
   auditTransitionRoleChanges,
@@ -50,6 +54,13 @@ export const updateTransitionHandler = factory.createHandlers(
                 )
                 .limit(1)
             : [];
+        if (input.conditions !== undefined) {
+          assertMaySetActorRules(
+            auth,
+            before?.conditions ?? null,
+            input.conditions,
+          );
+        }
         const updated = await updateWorkflowTransition(
           tx,
           tenantId,
@@ -100,6 +111,9 @@ export const updateTransitionHandler = factory.createHandlers(
       });
       return c.json({ data: transition });
     } catch (err) {
+      if (err instanceof SodRuleForbiddenError) {
+        return c.json({ error: "FORBIDDEN", message: err.message }, 403);
+      }
       return handleWorkflowError(c, err);
     }
   },

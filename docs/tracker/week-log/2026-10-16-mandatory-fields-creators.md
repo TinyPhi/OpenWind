@@ -74,6 +74,9 @@ creators, R7 defaults; T6 part 2, T8 part 1)
   now `main` + its own commit (cherry-picked clean, #830's outbox suppression kept) + the R1
   follow-ups above. The diff drops from 106 files to the PR's own.
   - `team_id` is virtual by config (ADR-004): new entity types get it with
-    `config.virtual`, and migration 0151 sets the flag on existing ones. The create, admin
+    `config.virtual`, and migration 0152 sets the flag on existing ones. The create, admin
     create and ticket pages no longer check the name; the ticket's team shows in the
     assign control ("Team: <name>"), not as a field-grid row.
+- **#1004 R2 (2026-10-20).** #1006 merged its own migration 0151 first, so this PR's
+  team_id migration is now `0152_team_id_field_virtual` (journal idx/tag and a `when` after
+  #1006's), with the latest `main` merged in. One-line comment on `workflowOfType`'s sort.

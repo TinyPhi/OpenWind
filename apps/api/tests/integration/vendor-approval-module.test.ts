@@ -29,10 +29,15 @@ import {
   withTenantContext,
 } from "@platform/db";
 import { executeAutomationRules } from "@platform/automation-engine";
-import { createEntity } from "@platform/entity-engine";
+import {
+  createEntity,
+  updateEntity,
+  EntityError,
+} from "@platform/entity-engine";
 import {
   executeTransition,
   getAvailableTransitions,
+  overrideWorkflowState,
   WorkflowError,
 } from "@platform/workflow-engine";
 import { ModuleService } from "../../src/services/module-service.js";
@@ -77,12 +82,15 @@ async function transition(
   to: string,
   actorRoles: string[],
   comment?: string,
+  actorId?: string,
 ): Promise<void> {
   await withTenantContext(TENANT_ID, (tx) =>
     executeTransition(tx, TENANT_ID, {
       instanceId,
       transitionId: tid(from, to),
-      actorId: "u-actor",
+      // One identity per role by default: the review transitions refuse the requester and
+      // anyone who already acted on the vendor (docs/specs/segregation-of-duties.md).
+      actorId: actorId ?? `u-${actorRoles.at(-1) ?? "actor"}`,
       actorRoles,
       ...(comment !== undefined ? { comment } : {}),
     }),
@@ -353,7 +361,10 @@ describe("vendor-approval module (#606)", () => {
         "TRANSITION_FORBIDDEN",
       );
 
-      await transition(id, "it_security_review", "legal_review", ["admin"]);
+      await transition(id, "it_security_review", "legal_review", [
+        "agent",
+        "it_security",
+      ]);
       await expectWorkflowError(
         transition(id, "legal_review", "pending_final_approval", [
           "agent",
@@ -362,7 +373,10 @@ describe("vendor-approval module (#606)", () => {
         "TRANSITION_FORBIDDEN",
       );
 
-      await transition(id, "legal_review", "pending_final_approval", ["admin"]);
+      await transition(id, "legal_review", "pending_final_approval", [
+        "agent",
+        "legal",
+      ]);
       await expectWorkflowError(
         transition(id, "pending_final_approval", "approved", [
           "agent",
@@ -383,7 +397,13 @@ describe("vendor-approval module (#606)", () => {
       expect(forAgent).toHaveLength(0);
 
       const forSecurity = await withTenantContext(TENANT_ID, (tx) =>
-        getAvailableTransitions(tx, TENANT_ID, id, ["agent", "it_security"]),
+        getAvailableTransitions(
+          tx,
+          TENANT_ID,
+          id,
+          ["agent", "it_security"],
+          "u-security-reviewer",
+        ),
       );
       expect(forSecurity.map((t) => t.toState).sort()).toEqual([
         "legal_review",
@@ -409,7 +429,10 @@ describe("vendor-approval module (#606)", () => {
     it("blocks legal approval until a contract draft is attached", async () => {
       const id = await newVendor(READY_FIELDS);
       await transition(id, "draft", "it_security_review", ["agent"]);
-      await transition(id, "it_security_review", "legal_review", ["admin"]);
+      await transition(id, "it_security_review", "legal_review", [
+        "agent",
+        "it_security",
+      ]);
       await expectWorkflowError(
         transition(id, "legal_review", "pending_final_approval", ["legal"]),
         "REQUIRED_FIELDS_MISSING",
@@ -433,9 +456,100 @@ describe("vendor-approval module (#606)", () => {
       expect(await currentState(id)).toBe("rejected");
 
       const outgoing = await withTenantContext(TENANT_ID, (tx) =>
-        getAvailableTransitions(tx, TENANT_ID, id, ["admin"]),
+        getAvailableTransitions(tx, TENANT_ID, id, ["admin"], "u-admin"),
       );
       expect(outgoing).toHaveLength(0);
+    });
+  });
+
+  describe("segregation of duties and the admin override (#776)", () => {
+    const REVIEWER = ["agent", "it_security"];
+
+    it("refuses the requester deciding their own vendor", async () => {
+      const id = await newVendor(READY_FIELDS); // createdBy u-requester
+      await transition(id, "draft", "it_security_review", ["agent"]);
+      await expectWorkflowError(
+        transition(
+          id,
+          "it_security_review",
+          "legal_review",
+          REVIEWER,
+          undefined,
+          "u-requester",
+        ),
+        "CONDITION_NOT_MET",
+      );
+      expect(await currentState(id)).toBe("it_security_review");
+    });
+
+    it("refuses one person deciding two stages of the same vendor", async () => {
+      const id = await newVendor({
+        ...READY_FIELDS,
+        contract_draft: "file-contract-draft",
+      });
+      await transition(id, "draft", "it_security_review", ["agent"]);
+      const both = ["agent", "it_security", "legal"];
+      await transition(
+        id,
+        "it_security_review",
+        "legal_review",
+        both,
+        undefined,
+        "u-both",
+      );
+      await expectWorkflowError(
+        transition(
+          id,
+          "legal_review",
+          "pending_final_approval",
+          both,
+          undefined,
+          "u-both",
+        ),
+        "CONDITION_NOT_MET",
+      );
+    });
+
+    it("no longer lets an admin without the department role decide a review", async () => {
+      const id = await newVendor(READY_FIELDS);
+      await transition(id, "draft", "it_security_review", ["agent"]);
+      await expectWorkflowError(
+        transition(
+          id,
+          "it_security_review",
+          "legal_review",
+          ["admin"],
+          undefined,
+          "u-admin",
+        ),
+        "TRANSITION_FORBIDDEN",
+      );
+    });
+
+    it("ships the override on, and an admin can move a stuck vendor with a reason", async () => {
+      const id = await newVendor(READY_FIELDS);
+      await transition(id, "draft", "it_security_review", ["agent"]);
+      const result = await withTenantContext(TENANT_ID, (tx) =>
+        overrideWorkflowState(tx, TENANT_ID, {
+          instanceId: id,
+          state: "draft",
+          reason: "Sent back: questionnaire was for the wrong entity",
+          actorId: "u-admin",
+          actorRoles: ["admin"],
+        }),
+      );
+      expect(result.toState).toBe("draft");
+      expect(await currentState(id)).toBe("draft");
+    });
+
+    it("refuses writing the step directly", async () => {
+      const id = await newVendor(READY_FIELDS);
+      const err: unknown = await withTenantContext(TENANT_ID, (tx) =>
+        updateEntity(tx, TENANT_ID, id, { currentState: "approved" }),
+      ).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(EntityError);
+      expect((err as EntityError).code).toBe("STATE_CHANGE_NOT_ALLOWED");
+      expect(await currentState(id)).toBe("draft");
     });
   });
 

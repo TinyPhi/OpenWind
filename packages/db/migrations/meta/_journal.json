@@ -1063,7 +1063,14 @@
       "idx": 151,
       "version": "7",
       "when": 1791967476781,
-      "tag": "0151_team_id_field_virtual",
+      "tag": "0151_workflow_events_tenant_created_at_idx",
+      "breakpoints": false
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1791967477781,
+      "tag": "0152_team_id_field_virtual",
       "breakpoints": false
     }
   ]

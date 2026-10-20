@@ -189,6 +189,13 @@ export type CreateEntityInput = {
    * part of the mandatory-fields check and nothing else.
    */
   mandatoryExemption?: "partner_unresolved_assignee" | undefined;
+  /**
+   * docs/specs/state-override.md: an explicit `currentState` on a workflow-bound create must
+   * be the workflow's initial state. Set by the user-facing create route so a caller cannot
+   * start a record in a later step (past every transition guard). Seeds and tests that
+   * deliberately create in another step leave it off.
+   */
+  enforceInitialState?: boolean | undefined;
 };
 
 export type UpdateEntityInput = {

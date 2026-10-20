@@ -149,6 +149,7 @@ type WorkflowFull = {
   maxChildDepth: number | null;
   maxChildrenPerParent: number | null;
   allowAutoGrantOnMention: boolean;
+  allowStateOverride: boolean;
 };
 
 type EntityField = {
@@ -1536,6 +1537,43 @@ export function WorkflowDetail(): React.ReactElement {
       setAllowAutoGrantOnMention(!checked);
     } finally {
       setSavingMentionToggle(false);
+    }
+  }
+
+  // docs/specs/state-override.md D1 — per-workflow switch for the admin state override. Only a
+  // tenant admin (a person, not a key) may change it; the API refuses anyone else.
+  const [allowStateOverride, setAllowStateOverride] = useState(false);
+  const [savingOverrideToggle, setSavingOverrideToggle] = useState(false);
+  const [overrideToggleError, setOverrideToggleError] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (data?.data) {
+      setAllowStateOverride(
+        (data.data as WorkflowFull).allowStateOverride === true,
+      );
+    }
+  }, [data?.data]);
+
+  async function handleToggleStateOverride(checked: boolean): Promise<void> {
+    if (!id) return;
+    setAllowStateOverride(checked);
+    setSavingOverrideToggle(true);
+    setOverrideToggleError(null);
+    try {
+      await fetchWithAuth(`${API_URL}/workflows/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ allowStateOverride: checked }),
+      });
+      void refetch();
+    } catch (err) {
+      setAllowStateOverride(!checked);
+      setOverrideToggleError(
+        err instanceof Error ? err.message : "Failed to save the setting",
+      );
+    } finally {
+      setSavingOverrideToggle(false);
     }
   }
 
@@ -3545,6 +3583,48 @@ export function WorkflowDetail(): React.ReactElement {
                   </span>
                 </label>
               </div>
+
+              {/* Admin state override (docs/specs/state-override.md D1) */}
+              {isAdmin && (
+                <div className="data-panel wfd-settings-panel">
+                  <SectionHeader label="State Override" />
+                  <p
+                    style={{
+                      fontSize: "13px",
+                      color: "var(--text-muted)",
+                      marginBottom: "14px",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    Lets an admin move a record to any step with a written
+                    reason, for cases the transitions cannot fix. It skips the
+                    transition rules, is recorded in the history and the audit
+                    log, and is never open to the record's creator.
+                  </p>
+                  {overrideToggleError && (
+                    <div
+                      className="portal-alert-error"
+                      style={{ marginBottom: "12px" }}
+                    >
+                      {overrideToggleError}
+                    </div>
+                  )}
+                  <label className="form-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={allowStateOverride}
+                      disabled={savingOverrideToggle}
+                      onChange={(e) =>
+                        void handleToggleStateOverride(e.target.checked)
+                      }
+                    />
+                    <span>
+                      Allow admins to override the state of records in this
+                      workflow (off by default)
+                    </span>
+                  </label>
+                </div>
+              )}
 
               {/* Activate / Deactivate */}
               <div className="data-panel wfd-settings-panel">

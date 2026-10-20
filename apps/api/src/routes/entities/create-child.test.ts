@@ -175,9 +175,19 @@ describe("POST /entities/:id/children — the five mandatory values", () => {
     expect(mockCreateChildRelation).not.toHaveBeenCalled();
   });
 
-  it("still returns 201 when posting the remark comment fails", async () => {
+  it("still returns 201 but flags remark_comment_failed when posting the remark comment fails", async () => {
     mockPostRemarkComment.mockRejectedValue(new Error("comment store down"));
     const res = await post(VALID);
     expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: unknown; warnings?: string[] };
+    expect(body.warnings).toEqual(["remark_comment_failed"]);
+  });
+
+  it("returns no warnings when the remark comment posts", async () => {
+    mockPostRemarkComment.mockResolvedValue(undefined);
+    const res = await post(VALID);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("warnings");
   });
 });

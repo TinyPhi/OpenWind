@@ -14,7 +14,7 @@ page or with `ModuleService.installModule(tenantId, "vendor-approval")`.
 
 ### 1. Department roles (once per Zitadel project)
 
-Each review stage is gated by a Zitadel **project** role, with `admin` as the override:
+Each review stage is gated by a Zitadel **project** role. The requester cannot decide their own vendor and nobody decides two stages of the same vendor; an `admin` unsticks a vendor with the recorded state override (the seeded workflow has it switched on), not with a blanket role on the transitions:
 
 | Stage                    | Role               |
 | ------------------------ | ------------------ |
@@ -50,6 +50,11 @@ ids, the same pattern as tender. Install is guarded by `installed_modules`, so t
 happens if that marker is cleared by hand. If it is, any vendor mid-workflow keeps pending
 SLA timers and events that reference the old state ids, and those are not re-resolved.
 Don't force a re-seed on a tenant with active vendors.
+
+The same applies to installs made before the segregation-of-duties transitions landed (#1009): they
+keep their old transitions, where `admin` can still run the review steps, until the workflow is
+changed. A tenant with no live vendors can clear the marker and re-seed. One with live vendors
+should have its review transitions edited on the workflow canvas instead, not re-seeded.
 
 ## Demo data
 

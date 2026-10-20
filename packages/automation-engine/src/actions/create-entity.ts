@@ -28,6 +28,7 @@ async function workflowOfType(
         eq(workflows.isActive, true),
       ),
     )
+    // false (the tenant's own workflow) sorts before true (a global template).
     .orderBy(sql`${workflows.tenantId} IS NULL`)
     .limit(1);
   return row?.id ?? null;
