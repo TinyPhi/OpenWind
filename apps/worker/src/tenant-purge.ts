@@ -87,6 +87,7 @@ import { writeAuditEntry, anonymizeAuditLogForTenant } from "@platform/audit";
 import { deleteTenantFiles } from "@platform/files";
 import { deleteSandboxHandoverCredentials } from "@platform/auth";
 import { connection } from "./queues.js";
+import { enqueueSupersetCacheFlush } from "./superset-cache-flush.js";
 
 import {
   entityInstances,
@@ -485,6 +486,10 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         "tenant-purge: handover credentials deletion failed (best-effort, continuing)",
       );
     }
+
+    // #728: Superset caches query results (including this tenant's) under keys that are not
+    // namespaced by tenant, so the cache is flushed once after the purge. Never throws.
+    await enqueueSupersetCacheFlush(tenantId, "tenant_purged");
 
     logger.info({ tenantId }, "tenant-purge: complete");
   },

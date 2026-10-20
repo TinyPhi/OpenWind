@@ -72,6 +72,10 @@ const EnvSchema = z
     DATABASE_DIRECT_URL: z.string().url().optional(),
     DATABASE_LOCK_POOL_MAX: z.coerce.number().int().min(1).default(5),
     REDIS_URL: z.string().url(),
+    // The Redis db Superset keeps its result cache in (db 2 of the compose Redis). When set, a user
+    // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
+    // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
+    SUPERSET_REDIS_URL: z.string().url().optional(),
     // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
     // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
     // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).

@@ -21,6 +21,10 @@ const mockEraseUserFromTenant = vi.fn();
 // The erasure statements themselves are exercised against real Postgres in
 // tests/isolation/user-erasure-coverage.isolation.test.ts; here only the
 // route's orchestration is checked.
+const { mockEnqueueFlush } = vi.hoisted(() => ({ mockEnqueueFlush: vi.fn() }));
+vi.mock("../../lib/superset-cache-flush-queue.js", () => ({
+  enqueueSupersetCacheFlush: mockEnqueueFlush,
+}));
 vi.mock("../../services/user-erasure.js", () => ({
   eraseUserFromTenant: (...args: unknown[]) => mockEraseUserFromTenant(...args),
 }));
@@ -226,6 +230,17 @@ describe("GET /users", () => {
         }),
       );
       expect(mockInvalidateUserCache).toHaveBeenCalled();
+      expect(mockEnqueueFlush).toHaveBeenCalledWith(
+        expect.any(String),
+        "user_erased",
+      );
+    });
+
+    it("queues no Superset cache flush when the erasure fails (#728)", async () => {
+      mockEraseUserFromTenant.mockRejectedValueOnce(new Error("boom"));
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+      await makeApp().request("/users/target-user-123", { method: "DELETE" });
+      expect(mockEnqueueFlush).not.toHaveBeenCalled();
     });
 
     it("does not audit or touch Zitadel when the erasure fails", async () => {

@@ -117,6 +117,7 @@ services:
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
       REDIS_URL: redis://redis:6379
+      SUPERSET_REDIS_URL: redis://redis:6379/2
       REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
@@ -155,6 +156,7 @@ services:
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
       REDIS_URL: redis://redis:6379
+      SUPERSET_REDIS_URL: redis://redis:6379/2
       REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect

@@ -53,6 +53,18 @@ export const fileCleanupQueue = new Queue("file-cleanup", { connection });
 // (default 30 days). concurrency=1 in the worker prevents DB contention.
 export const tenantPurgeQueue = new Queue("tenant-purge", { connection });
 
+// Superset cache flush (#728) — clears Superset's cached query results after a user erasure or a
+// tenant purge. Jobs are queued by apps/api (same queue name) and by tenant-purge.
+export const supersetCacheFlushQueue = new Queue("superset-cache-flush", {
+  connection,
+  defaultJobOptions: {
+    attempts: 8,
+    backoff: { type: "exponential", delay: 60_000 },
+    removeOnComplete: { age: 3_600 },
+    removeOnFail: { age: 604_800 },
+  },
+});
+
 // Export queue — generates CSV/xlsx/PDF for large entity list exports (> 5 000 rows).
 // API enqueues via apps/api/src/lib/export-queue.ts using the same queue name.
 export const exportQueue = new Queue("export", { connection });
