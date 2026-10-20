@@ -67,6 +67,7 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "SERVER_TLS_SSLMODE",
   ],
   redis: [],
+  "redis-cache": [],
   clamav: [],
   "ow-backend": [
     ...LOADER_ENV,
@@ -74,6 +75,7 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "OPENBAO_TRANSIT_KEY",
     "REDIS_URL",
     "SUPERSET_REDIS_URL",
+    "REDIS_CACHE_URL",
     "ZITADEL_JWKS_URL",
     "ZITADEL_INTROSPECTION_URL",
     "SUPERSET_SITE_URL",
@@ -89,6 +91,7 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "OPENBAO_TRANSIT_KEY",
     "REDIS_URL",
     "SUPERSET_REDIS_URL",
+    "REDIS_CACHE_URL",
     "ZITADEL_JWKS_URL",
     "ZITADEL_INTROSPECTION_URL",
     "FILES_STORAGE_PATH",

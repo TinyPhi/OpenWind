@@ -109,7 +109,7 @@ jobs:
         run: pnpm lint --filter="$TURBO_FILTER"
 
       - name: Cross-package architecture guards
-        run: pnpm --filter @platform/api exec vitest run src/routes/api-keys/decoupling.architecture.test.ts
+        run: pnpm --filter @platform/api exec vitest run .architecture.test.ts
 
       - name: Type check
         run: pnpm typecheck --filter="$TURBO_FILTER"

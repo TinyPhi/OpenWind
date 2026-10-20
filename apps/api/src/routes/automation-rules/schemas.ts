@@ -116,7 +116,11 @@ const TicketTemplateSchema = z
     due_days: z.number().int().min(0).max(3650).optional(),
     remark: z.string().trim().min(1).max(4000).optional(),
     severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-    assignedTo: z.string().trim().min(1).max(255).optional(),
+    assignedTo: z
+      .string()
+      .max(255)
+      .regex(/\S/, "assignedTo can't be blank")
+      .optional(),
     teamId: z.string().uuid().optional(),
   })
   .refine((t) => !(t.assignedTo && t.teamId), {

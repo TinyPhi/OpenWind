@@ -35,7 +35,7 @@ export type { FileErrorCode } from "./errors.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+export const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
 const DEFAULT_QUOTA_MB = 5120; // 5 GB
 const AV_SCAN_QUEUE = "av-scan";
 

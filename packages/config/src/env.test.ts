@@ -40,6 +40,24 @@ describe("SUPERSET_REDIS_URL (#728)", () => {
   });
 });
 
+describe("REDIS_CACHE_URL (#1013)", () => {
+  it("is optional, so one Redis still works for dev", () => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV).REDIS_CACHE_URL).toBeUndefined();
+  });
+
+  it("accepts a url and rejects anything else", () => {
+    const ok = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      REDIS_CACHE_URL: "redis://redis-cache:6379",
+    });
+    expect(ok.REDIS_CACHE_URL).toBe("redis://redis-cache:6379");
+    expect(
+      EnvSchema.safeParse({ ...MINIMAL_VALID_ENV, REDIS_CACHE_URL: "nope" })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   it("defaults to 600 when absent from the environment", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
@@ -52,6 +70,24 @@ describe("RATE_LIMIT_TENANT_PER_MIN", () => {
       RATE_LIMIT_TENANT_PER_MIN: "1200",
     });
     expect(parsed.RATE_LIMIT_TENANT_PER_MIN).toBe(1200);
+  });
+});
+
+describe("API_BODY_LIMIT_BYTES (#1012)", () => {
+  it("defaults to 2 MiB and honors an override", () => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV).API_BODY_LIMIT_BYTES).toBe(
+      2 * 1024 * 1024,
+    );
+    expect(
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, API_BODY_LIMIT_BYTES: "4096" })
+        .API_BODY_LIMIT_BYTES,
+    ).toBe(4096);
+  });
+
+  it("refuses a limit too small to carry a request", () => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, API_BODY_LIMIT_BYTES: "10" }),
+    ).toThrow();
   });
 });
 

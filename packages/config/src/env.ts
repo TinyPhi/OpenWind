@@ -76,6 +76,10 @@ const EnvSchema = z
     // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
     // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
     SUPERSET_REDIS_URL: z.string().url().optional(),
+    // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
+    // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
+    // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).
+    REDIS_CACHE_URL: z.string().url().optional(),
     // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
     // enforces this per verified auth.tenantId, independent of the pre-auth
     // IP-based flood guard in apps/api's rate-limit middleware. Raised from
@@ -85,6 +89,13 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // Largest accepted request body for every route except file uploads (those take a fixed,
+    // larger cap in apps/api/src/middleware/body-limit.ts). Over the limit: 413 PAYLOAD_TOO_LARGE.
+    API_BODY_LIMIT_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .default(2 * 1024 * 1024),
     // Retention sweep defaults (docs/specs/retention-classes.md). Per-tenant
     // overrides live in tenants.config. Evidence and comment defaults are
     // placeholders pending owner/counsel confirmation.

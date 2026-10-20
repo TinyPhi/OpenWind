@@ -21,9 +21,14 @@ function valid(): ComposeConfig {
   return {
     services: {
       redis: {},
+      "redis-cache": {},
       "ow-backend": {
         entrypoint: LOADER,
-        environment: { ...LOADER_SETTINGS, REDIS_URL: "redis://redis:6379" },
+        environment: {
+          ...LOADER_SETTINGS,
+          REDIS_URL: "redis://redis:6379",
+          REDIS_CACHE_URL: "redis://redis-cache:6379",
+        },
         env_file: [{ path: "/srv/secrets/backend.env" }],
         volumes: [{ source: "/srv/files", target: "/data/files" }],
       },
@@ -162,6 +167,15 @@ describe("checkComposeConfig — published ports", () => {
     expect(problems).toMatch(/ow-frontend: ports published on every interface/);
     expect(problems).toMatch(
       /redis: ports published on every interface .*3010:3000/,
+    );
+  });
+
+  it("accepts the cache Redis wiring and fails on a cache port on every interface (#1013)", () => {
+    expect(checkComposeConfig(valid(), [], FILES_OK)).toEqual([]);
+    const cfg = valid();
+    cfg.services!["redis-cache"]!.ports = [{ published: "6380", target: 6379 }];
+    expect(checkComposeConfig(cfg, [], FILES_OK).join("\n")).toMatch(
+      /redis-cache: ports published on every interface/,
     );
   });
 

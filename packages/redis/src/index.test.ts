@@ -19,15 +19,21 @@ const { mockOn, mockQuit, MockRedis } = vi.hoisted(() => {
 });
 
 vi.mock("ioredis", () => ({ default: MockRedis }));
-vi.mock("@platform/config", () => ({
-  env: { REDIS_URL: "redis://localhost:6379" },
+const { mockEnv, mockWarn } = vi.hoisted(() => ({
+  mockEnv: {
+    REDIS_URL: "redis://localhost:6379",
+    REDIS_CACHE_URL: undefined as string | undefined,
+    NODE_ENV: "test",
+  },
+  mockWarn: vi.fn(),
 }));
+vi.mock("@platform/config", () => ({ env: mockEnv }));
 vi.mock("@platform/logger", () => ({
-  logger: { error: vi.fn(), info: vi.fn() },
+  logger: { error: vi.fn(), info: vi.fn(), warn: mockWarn },
 }));
 
 // Import AFTER mocks so the module captures the mocked constructor.
-const { getRedis, closeRedis } = await import("./index.js");
+const { getRedis, getCacheRedis, closeRedis } = await import("./index.js");
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -39,6 +45,9 @@ afterEach(async () => {
   mockOn.mockClear();
   mockQuit.mockClear();
   MockRedis.mockClear();
+  mockWarn.mockClear();
+  mockEnv.REDIS_CACHE_URL = undefined;
+  mockEnv.NODE_ENV = "test";
 });
 
 describe("getRedis", () => {
@@ -80,5 +89,49 @@ describe("closeRedis", () => {
   it("is a no-op when no client exists", async () => {
     await closeRedis();
     expect(mockQuit).not.toHaveBeenCalled();
+  });
+});
+
+describe("getCacheRedis (#1013)", () => {
+  it("is the same client as getRedis() when REDIS_CACHE_URL is unset", () => {
+    expect(getCacheRedis()).toBe(getRedis());
+    expect(MockRedis).toHaveBeenCalledTimes(1);
+  });
+
+  it("is the same client when REDIS_CACHE_URL equals REDIS_URL", () => {
+    mockEnv.REDIS_CACHE_URL = mockEnv.REDIS_URL;
+    expect(getCacheRedis()).toBe(getRedis());
+  });
+
+  it("is a separate singleton on REDIS_CACHE_URL when it differs", () => {
+    mockEnv.REDIS_CACHE_URL = "redis://cache:6379";
+    const cache = getCacheRedis();
+    expect(cache).not.toBe(getRedis());
+    expect(getCacheRedis()).toBe(cache);
+    expect(MockRedis).toHaveBeenCalledWith("redis://cache:6379", {
+      lazyConnect: false,
+    });
+  });
+
+  it("closeRedis quits both clients", async () => {
+    mockEnv.REDIS_CACHE_URL = "redis://cache:6379";
+    getRedis();
+    getCacheRedis();
+    await closeRedis();
+    expect(mockQuit).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns once in production when no cache instance is configured", () => {
+    mockEnv.NODE_ENV = "production";
+    getRedis();
+    getRedis();
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not warn in production when a cache instance is configured", () => {
+    mockEnv.NODE_ENV = "production";
+    mockEnv.REDIS_CACHE_URL = "redis://cache:6379";
+    getRedis();
+    expect(mockWarn).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,7 @@ describe("ActionConfigSchema — ticket template", () => {
     ["a fractional due_days", { due_days: 1.5 }],
     ["an unknown severity", { severity: "urgent" }],
     ["a blank remark", { remark: "  " }],
+    ["a blank assignee", { assignedTo: "  " }],
     ["both an assignee and a team", { assignedTo: "u-1", teamId: TEAM }],
     ["a team that isn't a UUID", { teamId: "platform" }],
   ])("rejects %s", (_what, template) => {
