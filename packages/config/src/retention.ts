@@ -1,10 +1,18 @@
 import { z } from "zod";
 import { env } from "./env.js";
 
+// The range a retention override may take. Defaults are the sweep's long-standing bounds; an
+// operator can change them with RETENTION_*_MIN/MAX (validated in env.ts).
 export const RETENTION_BOUNDS = {
-  noiseDays: { min: 7, max: 3650 },
-  commentDays: { min: 30, max: 3650 },
-  evidenceDays: { min: 365, max: 7300 },
+  noiseDays: { min: env.RETENTION_DAYS_MIN, max: env.RETENTION_DAYS_MAX },
+  commentDays: {
+    min: env.RETENTION_COMMENT_DAYS_MIN,
+    max: env.RETENTION_COMMENT_DAYS_MAX,
+  },
+  evidenceDays: {
+    min: env.RETENTION_EVIDENCE_DAYS_MIN,
+    max: env.RETENTION_EVIDENCE_DAYS_MAX,
+  },
 } as const;
 
 export const retentionDays = (min: number, max: number): z.ZodNumber =>

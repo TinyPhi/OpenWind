@@ -64,8 +64,12 @@ deleted case history by age alone.
      (live token introspection to protect against stolen tokens), and platform-operator fence
      (`denyUnlessPlatformOperator`, answering with 404 for callers outside `PLATFORM_ORG_ID` or
      nonexistent tenants before body validation).
-   - **Bounds:** Validated against `RETENTION_BOUNDS` (`noiseDays` 7–3650, `commentDays` 30–3650,
-     `evidenceDays` 365–7300, matching sweep bounds).
+   - **Bounds:** Validated against `RETENTION_BOUNDS`, which come from validated env vars and default
+     to the sweep's long-standing ranges: `RETENTION_DAYS_MIN`/`MAX` (7–3650), `RETENTION_COMMENT_DAYS_MIN`/
+     `MAX` (30–3650), `RETENTION_EVIDENCE_DAYS_MIN`/`MAX` (365–7300). Startup fails if a minimum is above
+     its maximum, if a platform default (`RETENTION_DEFAULT_DAYS` and the two below) is outside its range,
+     or if a bound is under 1 day or over 100 years. The same range applies to provisioning, the PATCH and
+     the sweep, so a stored value is never one the sweep would ignore.
    - **Clearing overrides:** Passing `null` for any retention parameter deletes the override from
      `tenants.config`, reverting the tenant to platform defaults (`RETENTION_DEFAULT_DAYS`,
      `RETENTION_COMMENT_DAYS`, `RETENTION_EVIDENCE_DAYS`).
@@ -73,7 +77,8 @@ deleted case history by age alone.
      via explicit days or by clearing an override back to a default that is shorter than the active
      override) requires explicit confirmation (`confirmShorten: true`). Requests without confirmation
      fail with 400 `CONFIRM_SHORTEN_REQUIRED` to protect against immediate permanent data loss on the
-     subsequent daily sweep.
+     subsequent daily sweep. `RETENTION_REQUIRE_SHORTEN_CONFIRM=false` turns the requirement off (only
+     the literal `false` does; any other value, including a typo, keeps it on).
    - **Atomicity & Auditing:** The update runs inside `withTenantContext` with `SELECT ... FOR UPDATE`
      row locking on `tenants`, non-destructively updating `tenants.config` (preserving other keys
      such as `rate_limit_per_min`) and recording an immutable audit entry in `admin_audit_log`

@@ -16,6 +16,7 @@ const { mockAuth, mockEnv } = vi.hoisted(() => ({
   mockEnv: {
     PLATFORM_ORG_ID: undefined as string | undefined,
     NODE_ENV: "test" as string,
+    RETENTION_REQUIRE_SHORTEN_CONFIRM: true as boolean,
   },
 }));
 
@@ -169,6 +170,7 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
     mockAuth.roles = ["superadmin"];
     mockEnv.PLATFORM_ORG_ID = undefined;
     mockEnv.NODE_ENV = "test";
+    mockEnv.RETENTION_REQUIRE_SHORTEN_CONFIRM = true;
     fakeTenant.config = {
       retention_days: 90,
       retention_comment_days: 90,
@@ -389,6 +391,20 @@ describe("PATCH /admin/tenants/:id/retention (#637)", () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: string };
     expect(json.error).toBe("CONFIRM_SHORTEN_REQUIRED");
+  });
+
+  it("does not ask for confirmShorten when RETENTION_REQUIRE_SHORTEN_CONFIRM is off (#637)", async () => {
+    mockEnv.RETENTION_REQUIRE_SHORTEN_CONFIRM = false;
+    try {
+      const res = await makeApp().request(`/${TENANT_ID}/retention`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retention_days: 30 }), // current is 90
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      mockEnv.RETENTION_REQUIRE_SHORTEN_CONFIRM = true;
+    }
   });
 
   it("succeeds when shortening with confirmShorten: true", async () => {
