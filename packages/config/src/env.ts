@@ -72,6 +72,10 @@ const EnvSchema = z
     DATABASE_DIRECT_URL: z.string().url().optional(),
     DATABASE_LOCK_POOL_MAX: z.coerce.number().int().min(1).default(5),
     REDIS_URL: z.string().url(),
+    // The Redis db Superset keeps its result cache in (db 2 of the compose Redis). When set, a user
+    // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
+    // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
+    SUPERSET_REDIS_URL: z.string().url().optional(),
     // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
     // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
     // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).
@@ -125,6 +129,22 @@ const EnvSchema = z
       .min(0)
       .max(5000)
       .default(50),
+    // docs/specs/user-data-export.md (#642) — GDPR Art. 15/20 data-subject export.
+    // TTL is how long the generated file stays downloadable before the daily
+    // retention sweep deletes it; the row limit caps each table in the bundle
+    // (truncation is recorded in the bundle metadata); include-audit controls whether the
+    // subject's admin_audit_log entries go in. Strict "true"/"false" so a typo fails startup.
+    USER_EXPORT_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+    USER_EXPORT_ROW_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(100000)
+      .default(10000),
+    USER_EXPORT_INCLUDE_AUDIT: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
     // docs/temporal-scheduler-design.md §3.1/§3.5 — the scheduler tick's poll
     // interval and its cap on missed fires executed in one catch-up run
     // (SCHEDULE_CATCH_UP_MAX exists specifically so a long worker outage on a

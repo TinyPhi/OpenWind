@@ -20,6 +20,26 @@ const MINIMAL_VALID_ENV = {
   OPENBAO_TOKEN: "dev-root-token",
 };
 
+describe("SUPERSET_REDIS_URL (#728)", () => {
+  it("is optional, so the cache flush is off unless configured", () => {
+    expect(
+      EnvSchema.parse(MINIMAL_VALID_ENV).SUPERSET_REDIS_URL,
+    ).toBeUndefined();
+  });
+
+  it("accepts a url and rejects anything else", () => {
+    const ok = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      SUPERSET_REDIS_URL: "redis://redis:6379/2",
+    });
+    expect(ok.SUPERSET_REDIS_URL).toBe("redis://redis:6379/2");
+    expect(
+      EnvSchema.safeParse({ ...MINIMAL_VALID_ENV, SUPERSET_REDIS_URL: "nope" })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe("REDIS_CACHE_URL (#1013)", () => {
   it("is optional, so one Redis still works for dev", () => {
     expect(EnvSchema.parse(MINIMAL_VALID_ENV).REDIS_CACHE_URL).toBeUndefined();
@@ -551,5 +571,36 @@ describe("retention settings (docs/specs/retention-classes.md)", () => {
     expect(() =>
       EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_BATCH_SIZE: "0" }),
     ).toThrow();
+  });
+});
+
+describe("user data export settings (docs/specs/user-data-export.md)", () => {
+  it("default to a 7-day TTL, 10000 rows per table and audit included", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.USER_EXPORT_TTL_DAYS).toBe(7);
+    expect(parsed.USER_EXPORT_ROW_LIMIT).toBe(10000);
+    expect(parsed.USER_EXPORT_INCLUDE_AUDIT).toBe(true);
+  });
+
+  it("accept overrides", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      USER_EXPORT_TTL_DAYS: "2",
+      USER_EXPORT_ROW_LIMIT: "500",
+      USER_EXPORT_INCLUDE_AUDIT: "false",
+    });
+    expect(parsed.USER_EXPORT_TTL_DAYS).toBe(2);
+    expect(parsed.USER_EXPORT_ROW_LIMIT).toBe(500);
+    expect(parsed.USER_EXPORT_INCLUDE_AUDIT).toBe(false);
+  });
+
+  it("reject a zero TTL, a tiny row limit and a non-boolean audit flag", () => {
+    for (const bad of [
+      { USER_EXPORT_TTL_DAYS: "0" },
+      { USER_EXPORT_ROW_LIMIT: "5" },
+      { USER_EXPORT_INCLUDE_AUDIT: "flase" },
+    ]) {
+      expect(() => EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...bad })).toThrow();
+    }
   });
 });

@@ -26,8 +26,12 @@ import {
   buildExportRow,
   type ExportJobPayload,
   type ExportJobResult,
+  type ExportQueuePayload,
+  type ExportQueueResult,
+  isUserDataExportPayload,
   PII_EXPORT_ROLES,
 } from "@platform/entity-engine";
+import { processUserDataExportJob } from "./user-data-export.js";
 import { renderExportPdf } from "./render-export-pdf.js";
 import { saveExport } from "@platform/files";
 import { logger } from "@platform/logger";
@@ -218,9 +222,19 @@ async function runExportJob(job: ExportJob): Promise<ExportJobResult> {
   return { storageKey, format, rowCount: rows.length };
 }
 
-export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
+export function processExportQueueJob(job: {
+  id?: string | undefined;
+  data: ExportQueuePayload;
+}): Promise<ExportQueueResult> {
+  const { data } = job;
+  return isUserDataExportPayload(data)
+    ? processUserDataExportJob({ id: job.id, data })
+    : processExportJob({ id: job.id, data });
+}
+
+export const exportWorker = new Worker<ExportQueuePayload, ExportQueueResult>(
   "export",
-  (job) => processExportJob(job),
+  (job) => processExportQueueJob(job),
   {
     connection,
     concurrency: 3,

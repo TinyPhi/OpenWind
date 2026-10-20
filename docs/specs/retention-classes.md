@@ -53,7 +53,12 @@ deleted case history by age alone.
    `schedule_executions` is append-only; sweeping it needs a `GRANT DELETE` migration and a human
    ADR-017 amendment, so it is not touched.
 
-8. **Retention policy management endpoint (issue #637).** Platform operators can configure
+8. **Data-subject export files (#642).** The same daily sweep also deletes a tenant's
+   `userdata-*.json` export files older than `USER_EXPORT_TTL_DAYS` (default 7)
+   (docs/specs/user-data-export.md). This runs before the hold check, because a hold keeps records, not
+   transient copies of personal data. Other export files are not swept.
+
+9. **Retention policy management endpoint (issue #637).** Platform operators can configure
    per-tenant retention windows and holds via `PATCH /admin/tenants/:id/retention`:
    - **Access control:** Protected by `requireAuth`, `requireRole("superadmin")`, `requireIntrospection()`
      (live token introspection to protect against stolen tokens), and platform-operator fence

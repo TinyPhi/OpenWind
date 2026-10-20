@@ -63,6 +63,7 @@ Last reconciled: 2026-09-28 (#694).
 | [workflow-ownership-admin](workflow-ownership-admin.md)                                           | —           | retroactive spec (ADR-006)                                                       |
 | [retention-classes](retention-classes.md)                                                         | in-progress | Retention classes for workflow_events; sweeps run under tenant context; hold     |
 | [state-override](state-override.md)                                                               | —           | hardening                                                                        |
+| [user-data-export](user-data-export.md)                                                           | in-progress | #642 GDPR Art. 15/20 data-subject export; admin-only, JSON, 7-day expiry         |
 | [event-log-protection](event-log-protection.md)                                                   | in-progress | Column-level UPDATE and a maintenance role for DELETE on workflow_events         |
 | The third-party API specs are per-phase delivery detail. The cross-cutting rules and index live   |
 | in [`docs/third-party-api-design.md`](../third-party-api-design.md), and the decision is ADR-012. |

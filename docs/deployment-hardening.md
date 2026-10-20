@@ -29,6 +29,34 @@ tenant access but is not disk encryption.
 For a suspected personal-data breach (GDPR Article 33), follow the
 [breach notification runbook](runbooks/breach-notification.md).
 
+## Runtime environment mode
+
+`NODE_ENV` defaults to `development`. Only the exact value `production` enables OpenWind's
+production-only safety checks, including rejection of development secrets, unsafe tenant settings
+and insecure OpenBao configuration.
+
+The supported Compose deployment sets this value for the API and worker through
+`docker-compose.prod.yml`. Always start production with both Compose files:
+
+```bash
+DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+$DC up -d
+```
+
+If another orchestrator or a direct process launch is used, set `NODE_ENV=production` explicitly in
+both the API and worker environments. Do not copy the development value from `.env.example`; use
+`.env.production.example` as the production template.
+
+After deployment, verify both OpenWind services received the production value:
+
+```bash
+$DC exec ow-backend printenv NODE_ENV
+$DC exec ow-worker printenv NODE_ENV
+```
+
+Both commands must print `production`. A missing value or `development` means the production safety
+checks are not active; correct the deployment before exposing it.
+
 ## TLS termination and HSTS
 
 Terminate TLS at a reverse proxy or load balancer. Do not expose the backend,
@@ -348,6 +376,7 @@ image is safe (root can read and write uid 1000 files).
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.
 - [ ] TLS 1.2/1.3 certificates renew automatically and expiry is monitored.
 - [ ] HSTS is returned on HTTPS responses; domain-wide options were reviewed.
+- [ ] `NODE_ENV=production` is present in both the API and worker runtime environments.
 - [ ] Forwarding headers are overwritten by the single trusted proxy.
 - [ ] `TRUST_PROXY` names that proxy, and `PLATFORM_ORG_ID` is set to the operator org.
 - [ ] Database, cache, secrets, worker and scanning ports are not public.

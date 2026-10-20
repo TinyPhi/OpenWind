@@ -35,6 +35,7 @@ vi.mock("@platform/auth", () => ({
 vi.mock("../../lib/export-queue.js", () => ({
   exportQueue: { getJob: (...args: unknown[]) => mockGetJob(...args) },
   PII_EXPORT_ROLES: new Set(["pii_export", "admin", "superadmin"]),
+  isUserDataExportPayload: (d: { kind?: string }) => d.kind === "user_data",
 }));
 
 const { exportsRouter } = await import("./download.js");
@@ -341,5 +342,42 @@ describe("GET /exports/:jobId/download audit (#693)", () => {
     await makeApp("tenant-aaa").request("/exports/missing/download");
 
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /exports/:jobId/download — data-subject exports", () => {
+  const USER_DATA_ID = "userdata-00000000-0000-4000-a000-000000000642";
+  const userDataJob = () => ({
+    data: {
+      kind: "user_data",
+      tenantId: "tenant-aaa",
+      subjectUserId: "u-subject",
+      requestedBy: "u-admin",
+    },
+    returnvalue: { storageKey: "tenant-aaa/exports/x.json", format: "json" },
+    getState: vi.fn().mockResolvedValue("completed"),
+  });
+
+  it("never serves a user_data job to an agent: 404, audited as denied, no bytes", async () => {
+    mockGetJob.mockResolvedValue(userDataJob());
+    const res = await makeApp("tenant-aaa", "u-agent", ["agent"]).request(
+      `/exports/${USER_DATA_ID}/download?file=1`,
+    );
+    expect(res.status).toBe(404);
+    expect(mockGetExportStream).not.toHaveBeenCalled();
+    expect(auditEntries()).toHaveLength(1);
+    expect(auditEntries()[0]).toMatchObject({
+      action: "export.download_denied",
+      resourceType: "user_data_export",
+      resourceId: "00000000-0000-4000-a000-000000000642",
+    });
+  });
+
+  it("refuses an admin here too, since the admin route is the only path", async () => {
+    mockGetJob.mockResolvedValue(userDataJob());
+    const res = await makeApp("tenant-aaa", "u-admin", ["admin"]).request(
+      `/exports/${USER_DATA_ID}/download`,
+    );
+    expect(res.status).toBe(404);
   });
 });

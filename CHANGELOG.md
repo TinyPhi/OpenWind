@@ -24,6 +24,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — GDPR data-subject export (#642)]
+
+### Added
+
+- `POST /users/:userId/export` (admin only) builds a JSON file of the personal data stored about one
+  user in the tenant; `GET /users/:userId/export/:jobId/download` (admin only) fetches it. The file
+  is deleted after `USER_EXPORT_TTL_DAYS` (default 7). `USER_EXPORT_ROW_LIMIT` (10000) and
+  `USER_EXPORT_INCLUDE_AUDIT` (true) are also configurable. See `docs/specs/user-data-export.md`.
+
+### Security
+
+- A data-subject export can never be fetched through `GET /exports/:jobId/download`, which agents
+  can reach; that route now answers 404 and audits `export.download_denied`.
+
+---
+
 ## [Unreleased — per-sign-in platform-admin MFA, login polish and handover CSV (#947)]
 
 ### Security
