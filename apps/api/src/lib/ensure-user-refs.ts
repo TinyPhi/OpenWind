@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, isNull, or } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { entityFields, tenantUsers, withTenantContext } from "@platform/db";
 import { listOrgUsers } from "./zitadel-management.js";
@@ -134,6 +134,12 @@ export async function ensureUserRefsKnown(
       .from(entityFields)
       .where(
         and(
+          // Global fields have a null tenant_id; RLS already hides other tenants' fields, and the
+          // explicit filter keeps this query correct without it.
+          or(
+            isNull(entityFields.tenantId),
+            eq(entityFields.tenantId, tenantId),
+          ),
           eq(entityFields.entityTypeId, entityTypeId),
           eq(entityFields.fieldType, "user_ref"),
         ),

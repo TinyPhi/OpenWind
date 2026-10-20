@@ -7,6 +7,8 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
   and: vi.fn(),
   inArray: vi.fn(),
+  isNull: vi.fn(),
+  or: vi.fn(),
 }));
 
 const mockTenantTx = vi.hoisted(() => ({ current: undefined as unknown }));

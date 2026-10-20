@@ -13,3 +13,8 @@
   needs a larger restructure of those two routes. Tracked on #952.
 - **Verified.** Unit tests for pagination, 429 fallback, the read-then-Zitadel-then-write order, the mention
   bound and the lookup concurrency; mutation checks confirmed the pagination, 429 and concurrency tests bite.
+
+## Security review follow-up
+
+- `ensureUserRefsKnown` selects the `user_ref` field names with an explicit tenant filter (`tenant_id IS NULL OR tenant_id = tenantId`, since global fields have a null tenant) as well as RLS, matching the rule that every query filters on tenant_id. Before, only RLS kept another tenant's fields out.
+- Accepted and noted by the review, not changed: the tenant_users upsert commits before the entity transaction (only genuine members of the caller's own org get rows), and failed Zitadel lookups are not negatively cached (bounded by the per-tenant rate limit).
