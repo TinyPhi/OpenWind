@@ -276,71 +276,72 @@ export const updateTenantRetentionHandlers = factory.createHandlers(
   requireAuth(db),
   requireRole("superadmin"),
   requireIntrospection(),
+  async (c, next) => {
+    if (denyUnlessPlatformOperator(c.get("auth").tenantId, c.req.path)) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
+    await next();
+    return;
+  },
   zValidator("param", TenantIdParamSchema),
   zValidator("json", UpdateTenantRetentionSchema),
   async (c) => {
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    const { userId, tenantId: authTenantId } = c.get("auth");
+    const { userId } = c.get("auth");
 
-    if (denyUnlessPlatformOperator(authTenantId, c.req.path)) {
-      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
-    }
+    const result = await withTenantContext(id, async (tx) => {
+      const [existing] = await tx
+        .select({ id: tenants.id, config: tenants.config })
+        .from(tenants)
+        .where(eq(tenants.id, id))
+        .for("update");
 
-    const [existing] = await db
-      .select({ id: tenants.id, config: tenants.config })
-      .from(tenants)
-      .where(eq(tenants.id, id))
-      .limit(1);
+      if (!existing) {
+        return { notFound: true } as const;
+      }
 
-    if (!existing) {
-      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
-    }
+      const currentConfig =
+        (existing.config as Record<string, unknown> | null) ?? {};
+      const currentPolicy = resolveRetentionPolicy(currentConfig);
 
-    const currentConfig =
-      (existing.config as Record<string, unknown> | null) ?? {};
-    const currentPolicy = resolveRetentionPolicy(currentConfig);
+      const nextConfig = { ...currentConfig };
 
-    const isShortening =
-      (input.retention_days !== undefined &&
-        input.retention_days < currentPolicy.noiseDays) ||
-      (input.retention_comment_days !== undefined &&
-        input.retention_comment_days < currentPolicy.commentDays) ||
-      (input.retention_evidence_days !== undefined &&
-        input.retention_evidence_days < currentPolicy.evidenceDays);
+      if (input.retention_days === null) {
+        delete nextConfig.retention_days;
+      } else if (input.retention_days !== undefined) {
+        nextConfig.retention_days = input.retention_days;
+      }
 
-    if (isShortening && !input.confirmShorten) {
-      return c.json(
-        {
-          error: "CONFIRM_SHORTEN_REQUIRED",
-          message:
-            "Shortening retention window is irreversible and will permanently delete data during the next sweep. Set confirmShorten to true to confirm.",
-        },
-        400,
-      );
-    }
+      if (input.retention_comment_days === null) {
+        delete nextConfig.retention_comment_days;
+      } else if (input.retention_comment_days !== undefined) {
+        nextConfig.retention_comment_days = input.retention_comment_days;
+      }
 
-    const patchConfig: Record<string, unknown> = {};
-    if (input.retention_days !== undefined) {
-      patchConfig.retention_days = input.retention_days;
-    }
-    if (input.retention_comment_days !== undefined) {
-      patchConfig.retention_comment_days = input.retention_comment_days;
-    }
-    if (input.retention_evidence_days !== undefined) {
-      patchConfig.retention_evidence_days = input.retention_evidence_days;
-    }
-    if (input.retention_hold !== undefined) {
-      patchConfig.retention_hold = input.retention_hold;
-    }
+      if (input.retention_evidence_days === null) {
+        delete nextConfig.retention_evidence_days;
+      } else if (input.retention_evidence_days !== undefined) {
+        nextConfig.retention_evidence_days = input.retention_evidence_days;
+      }
 
-    const nextConfig = {
-      ...currentConfig,
-      ...patchConfig,
-    };
-    const nextPolicy = resolveRetentionPolicy(nextConfig);
+      if (input.retention_hold === null) {
+        delete nextConfig.retention_hold;
+      } else if (input.retention_hold !== undefined) {
+        nextConfig.retention_hold = input.retention_hold;
+      }
 
-    await withTenantContext(id, async (tx) => {
+      const nextPolicy = resolveRetentionPolicy(nextConfig);
+
+      const isShortening =
+        nextPolicy.noiseDays < currentPolicy.noiseDays ||
+        nextPolicy.commentDays < currentPolicy.commentDays ||
+        nextPolicy.evidenceDays < currentPolicy.evidenceDays;
+
+      if (isShortening && !input.confirmShorten) {
+        return { confirmShortenRequired: true } as const;
+      }
+
       await tx
         .update(tenants)
         .set({
@@ -373,15 +374,32 @@ export const updateTenantRetentionHandlers = factory.createHandlers(
           confirmShorten: Boolean(input.confirmShorten),
         },
       });
+
+      return { success: true, nextPolicy } as const;
     });
+
+    if ("notFound" in result) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
+
+    if ("confirmShortenRequired" in result) {
+      return c.json(
+        {
+          error: "CONFIRM_SHORTEN_REQUIRED",
+          message:
+            "Shortening retention window is irreversible and will permanently delete data during the next sweep. Set confirmShorten to true to confirm.",
+        },
+        400,
+      );
+    }
 
     return c.json({
       data: {
         tenantId: id,
-        retention_days: nextPolicy.noiseDays,
-        retention_comment_days: nextPolicy.commentDays,
-        retention_evidence_days: nextPolicy.evidenceDays,
-        retention_hold: nextPolicy.hold,
+        retention_days: result.nextPolicy.noiseDays,
+        retention_comment_days: result.nextPolicy.commentDays,
+        retention_evidence_days: result.nextPolicy.evidenceDays,
+        retention_hold: result.nextPolicy.hold,
       },
     });
   },

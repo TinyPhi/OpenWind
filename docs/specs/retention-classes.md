@@ -53,18 +53,41 @@ deleted case history by age alone.
    `schedule_executions` is append-only; sweeping it needs a `GRANT DELETE` migration and a human
    ADR-017 amendment, so it is not touched.
 
+8. **Retention policy management endpoint (issue #637).** Platform operators can configure
+   per-tenant retention windows and holds via `PATCH /admin/tenants/:id/retention`:
+   - **Access control:** Protected by `requireAuth`, `requireRole("superadmin")`, `requireIntrospection()`
+     (live token introspection to protect against stolen tokens), and platform-operator fence
+     (`denyUnlessPlatformOperator`, answering with 404 for callers outside `PLATFORM_ORG_ID` or
+     nonexistent tenants before body validation).
+   - **Bounds:** Validated against `RETENTION_BOUNDS` (`noiseDays` 7–3650, `commentDays` 30–3650,
+     `evidenceDays` 365–7300, matching sweep bounds).
+   - **Clearing overrides:** Passing `null` for any retention parameter deletes the override from
+     `tenants.config`, reverting the tenant to platform defaults (`RETENTION_DEFAULT_DAYS`,
+     `RETENTION_COMMENT_DAYS`, `RETENTION_EVIDENCE_DAYS`).
+   - **Shortening guard:** Shortening any retention window below the current active policy (whether
+     via explicit days or by clearing an override back to a default that is shorter than the active
+     override) requires explicit confirmation (`confirmShorten: true`). Requests without confirmation
+     fail with 400 `CONFIRM_SHORTEN_REQUIRED` to protect against immediate permanent data loss on the
+     subsequent daily sweep.
+   - **Atomicity & Auditing:** The update runs inside `withTenantContext` with `SELECT ... FOR UPDATE`
+     row locking on `tenants`, non-destructively updating `tenants.config` (preserving other keys
+     such as `rate_limit_per_min`) and recording an immutable audit entry in `admin_audit_log`
+     containing before and after policy snapshots without PII.
+
 ## Structure
 
 `retention-archival.ts` orchestrates (lock, tenant list, trial and hold checks).
-`retention-policy.ts` resolves a tenant's policy. `retention-sweep.ts` owns the SQL, so a later
-change to how the event log is maintained swaps one module.
+`retention-policy.ts` resolves a tenant's policy (re-exporting canonical resolver from `@platform/config`).
+`retention-sweep.ts` owns the SQL, so a later change to how the event log is maintained swaps one module.
 
 ## Tests
 
-- `retention-policy.test.ts`, `retention-archival.test.ts`, config tests — unit.
+- `retention-policy.test.ts`, `retention-archival.test.ts`, config tests (`packages/config/src/retention.test.ts`) — unit.
+- `apps/api/src/routes/admin/tenants.test.ts` — unit: platform operator fence before validation, shortening safety, null clears, audit logging.
 - `tests/isolation/retention-sweep.isolation.test.ts` — real Postgres as `app_user`: deletion by
   class, open and recently-active evidence kept, hold honoured, another tenant untouched, default
   windows keep old evidence. Also covers the item 7 tables: old rows deleted, recent rows kept,
   held and other tenants untouched.
+- `tests/isolation/tenant-retention.isolation.test.ts` — real Postgres as `app_user`: token introspection, role gates, cross-tenant isolation, null clearing, config persistence, and audit logging.
 - `apps/worker/src/retention-sweep.test.ts` — unit: delete order (recipients before notifications),
   tenant filter and window on every new statement, hold is a no-op.

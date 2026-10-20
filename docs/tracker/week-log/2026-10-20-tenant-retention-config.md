@@ -1,18 +1,21 @@
 # 2026-10-20 — configurable per-tenant retention policy updates (#637)
 
 - Added per-tenant retention policy update endpoint: `PATCH /admin/tenants/:id/retention`.
-- Centralized retention bounds and validation in `@platform/config`:
-  - `RETENTION_BOUNDS`: `noiseDays` (7–3650, default 90), `commentDays` (30–3650, default 90), `evidenceDays` (365–7300, default 2555).
-  - `TenantRetentionConfigSchema` and `UpdateTenantRetentionSchema` ensuring at least one retention field is provided.
-  - `resolveRetentionPolicy` to safely extract and fallback retention parameters from tenant JSONB config.
-- Refactored `apps/api/src/lib/tenant-lifecycle.ts` and `apps/worker/src/retention-policy.ts` to consume centralized bounds from `@platform/config`.
-- Security & Guards:
-  - Route guarded by `requireAuth(db)`, `requireRole("superadmin")`, `requireIntrospection()` (live Zitadel introspection preventing stolen-JWT attacks), and `denyUnlessPlatformOperator` (returns 404 for non-platform tenants to prevent existence discovery).
-  - Accidental data loss protection: shortening any retention window (`retention_days`, `retention_comment_days`, `retention_evidence_days`) below the current resolved policy requires `confirmShorten: true`, otherwise rejecting with 400 `CONFIRM_SHORTEN_REQUIRED`.
-  - Updates merged into `tenants.config` JSONB non-destructively, preserving other config keys such as `rate_limit_per_min`.
-  - Executed inside `withTenantContext` so `writeAuditEntry` satisfies PostgreSQL RLS on `admin_audit_log` with before and after snapshots.
+- Centralized retention bounds and policy resolution in `@platform/config`:
+  - `RETENTION_BOUNDS`: `noiseDays` (7–3650), `commentDays` (30–3650), `evidenceDays` (365–7300). Platform defaults are defined via validated environment variables (`RETENTION_DEFAULT_DAYS`, `RETENTION_COMMENT_DAYS`, `RETENTION_EVIDENCE_DAYS`).
+  - `TenantRetentionConfigSchema` and `UpdateTenantRetentionSchema` supporting both numeric overrides and `null` to clear overrides back to platform defaults.
+  - `resolveRetentionPolicy` provides canonical extraction with fail-closed hold handling (unparseable or non-object configs fail to hold: true).
+- Provisioning & Worker refactoring:
+  - `apps/api/src/lib/tenant-lifecycle.ts`: updated `TenantConfigSchema` bounds to match sweep floors and ceilings (preventing out-of-bounds configurations at provision time instead of silent fallback) and included `rate_limit_per_min`.
+  - `apps/worker/src/retention-policy.ts`: re-exports `resolveRetentionPolicy` and `RetentionPolicy` from `@platform/config`, eliminating duplicate resolution logic.
+- Security & Atomicity:
+  - Route guarded by `requireAuth(db)`, `requireRole("superadmin")`, `requireIntrospection()` (live Zitadel introspection preventing stolen-JWT attacks), and platform operator fence (`denyUnlessPlatformOperator`, returning 404 before parameter and body validation).
+  - Atomic read-modify-write: executed inside `withTenantContext` under `SELECT ... FOR UPDATE` row lock, preventing race conditions with concurrent configuration updates (such as rate limit adjustments) or concurrent shortening requests.
+  - Accidental data loss protection: shortening any retention window (`retention_days`, `retention_comment_days`, `retention_evidence_days`) below the active policy (including when clearing an override back to a default that is shorter than the active override) requires `confirmShorten: true`, otherwise rejecting with 400 `CONFIRM_SHORTEN_REQUIRED`.
+  - Updates merged into `tenants.config` JSONB non-destructively, preserving other keys (such as `rate_limit_per_min`), and removing keys when cleared with `null`.
+  - In-transaction audit trail: writes immutable audit entry in `admin_audit_log` with before and after policy snapshots without PII.
 - Tests:
-  - `@platform/config`: 7 unit tests in `retention.test.ts`.
-  - `@platform/worker`: verified 6 unit tests in `retention-policy.test.ts`.
-  - `@platform/api`: comprehensive unit tests in `src/routes/admin/tenants.test.ts` (25 tests) covering platform operator fence, schema bounds, shortening confirmation guard, widening, legal hold toggling, non-retention config preservation, and audit log entries.
-  - `@platform/api`: added isolation test suite `tests/isolation/tenant-retention.isolation.test.ts` covering role gates, platform fence, database persistence, and audit logging under real PostgreSQL.
+  - `@platform/config`: 10 unit tests in `retention.test.ts` verifying bounds, `null` clearing, and policy fallback.
+  - `@platform/worker`: 6 unit tests in `retention-policy.test.ts`.
+  - `@platform/api`: 29 unit tests in `src/routes/admin/tenants.test.ts` covering platform operator fence before validation, schema bounds, shortening confirmation guard, widening, `null` clearing, legal hold toggling, non-retention config preservation, and audit log entries.
+  - `@platform/api`: isolation test suite `tests/isolation/tenant-retention.isolation.test.ts` covering token introspection, role gates, multi-tenant cross-isolation (tenant A cannot modify tenant B's config and B's row is untouched), `null` clearing persistence, ordered audit log assertions with snapshot verification, and `try/finally` cleanup.

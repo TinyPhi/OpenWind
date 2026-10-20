@@ -3,6 +3,7 @@ import {
   RETENTION_BOUNDS,
   TenantRetentionConfigSchema,
   UpdateTenantRetentionSchema,
+  resolveRetentionPolicy,
 } from "./retention.js";
 
 describe("TenantRetentionConfigSchema", () => {
@@ -29,6 +30,16 @@ describe("TenantRetentionConfigSchema", () => {
       retention_evidence_days: RETENTION_BOUNDS.evidenceDays.max,
     };
     expect(TenantRetentionConfigSchema.parse(maxBounds)).toEqual(maxBounds);
+  });
+
+  it("accepts null to clear overrides", () => {
+    const cleared = {
+      retention_days: null,
+      retention_comment_days: null,
+      retention_evidence_days: null,
+      retention_hold: null,
+    };
+    expect(TenantRetentionConfigSchema.parse(cleared)).toEqual(cleared);
   });
 
   it("rejects values below the minimum floors", () => {
@@ -71,6 +82,13 @@ describe("UpdateTenantRetentionSchema", () => {
     expect(UpdateTenantRetentionSchema.parse(update)).toEqual(update);
   });
 
+  it("accepts null to clear an override", () => {
+    const update = {
+      retention_days: null,
+    };
+    expect(UpdateTenantRetentionSchema.parse(update)).toEqual(update);
+  });
+
   it("rejects empty update payloads", () => {
     expect(() => UpdateTenantRetentionSchema.parse({})).toThrow(
       "At least one retention field must be provided to update",
@@ -86,5 +104,20 @@ describe("UpdateTenantRetentionSchema", () => {
         retention_hold: true,
       },
     );
+  });
+});
+
+describe("resolveRetentionPolicy", () => {
+  it("falls back to env defaults when config values are null or undefined", () => {
+    const policy = resolveRetentionPolicy({
+      retention_days: null,
+      retention_comment_days: null,
+      retention_evidence_days: null,
+      retention_hold: null,
+    });
+    expect(policy.hold).toBe(false);
+    expect(policy.noiseDays).toBeGreaterThan(0);
+    expect(policy.commentDays).toBeGreaterThan(0);
+    expect(policy.evidenceDays).toBeGreaterThan(0);
   });
 });

@@ -78,6 +78,7 @@ function makeQueryChain() {
   q.orderBy = () => q;
   q.limit = () => q;
   q.offset = () => Promise.resolve(currentDbRows);
+  q.for = () => q;
   q.update = () => q;
   q.set = (val: Record<string, unknown>) => {
     lastDbUpdateSet = val;
@@ -128,6 +129,7 @@ vi.mock("../../lib/tenant-lifecycle.js", () => ({
     code: string;
     constructor(code: string) {
       super(code);
+      this.code = code;
     }
   },
   provisionTenant: vi.fn(),
@@ -516,5 +518,77 @@ describe("PATCH /admin/tenants/:id/retention (#637)", () => {
     const auditArg = mockWriteAuditEntry.mock.calls[0][1];
     expect(auditArg.beforeSnapshot.retention_hold).toBe(true);
     expect(auditArg.afterSnapshot.retention_hold).toBe(false);
+  });
+
+  it("returns 404 before validation when non-platform caller sends an invalid body", async () => {
+    mockEnv.PLATFORM_ORG_ID = "t-platform";
+    mockAuth.tenantId = "t-customer";
+    const res = await makeApp().request(`/${TENANT_ID}/retention`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invalidField: "bad" }),
+    });
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("NOT_FOUND");
+  });
+
+  it("succeeds when clearing an override with null (widening without confirmShorten)", async () => {
+    fakeTenant.config = {
+      retention_days: 30, // currently shorter than platform default (90)
+      retention_comment_days: 90,
+      retention_evidence_days: 2555,
+      retention_hold: false,
+    };
+    const res = await makeApp().request(`/${TENANT_ID}/retention`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retention_days: null }),
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: Record<string, unknown> };
+    // Returns platform default (90)
+    expect(json.data.retention_days).toBe(90);
+    // Key should be deleted from config
+    expect(lastDbUpdateSet?.config).not.toHaveProperty("retention_days");
+  });
+
+  it("requires confirmShorten when clearing an override with null results in shortening", async () => {
+    fakeTenant.config = {
+      retention_days: 180, // longer than platform default (90)
+      retention_comment_days: 90,
+      retention_evidence_days: 2555,
+      retention_hold: false,
+    };
+    const res = await makeApp().request(`/${TENANT_ID}/retention`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retention_days: null }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("CONFIRM_SHORTEN_REQUIRED");
+  });
+
+  it("succeeds when clearing an override with null when confirmShorten: true is provided", async () => {
+    fakeTenant.config = {
+      retention_days: 180,
+      retention_comment_days: 90,
+      retention_evidence_days: 2555,
+      retention_hold: false,
+    };
+    const res = await makeApp().request(`/${TENANT_ID}/retention`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retention_days: null, confirmShorten: true }),
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: Record<string, unknown> };
+    expect(json.data.retention_days).toBe(90);
+    expect(lastDbUpdateSet?.config).not.toHaveProperty("retention_days");
+    expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+    const auditArg = mockWriteAuditEntry.mock.calls[0][1];
+    expect(auditArg.beforeSnapshot.retention_days).toBe(180);
+    expect(auditArg.afterSnapshot.retention_days).toBe(90);
   });
 });

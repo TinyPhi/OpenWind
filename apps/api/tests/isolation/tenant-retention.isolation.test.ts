@@ -2,20 +2,22 @@
  * Isolation tests for PATCH /admin/tenants/:id/retention
  * (Issue #637: Configurable per-tenant retention policy updates).
  *
- * Confirms role gate, platform operator fence, shortening safety guard,
- * real DB persistence into tenants.config, and admin_audit_log entry.
+ * Confirms role gate, platform operator fence, multi-tenant cross-isolation,
+ * shortening safety guard, null clearing back to defaults, real DB persistence
+ * into tenants.config, and admin_audit_log entry.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray, eq } from "drizzle-orm";
+import { inArray, eq, desc } from "drizzle-orm";
 import { db, tenants, adminAuditLog, withTenantContext } from "@platform/db";
 import type { AuthContext } from "@platform/auth";
 import { updateTenantRetentionHandlers } from "../../src/routes/admin/tenants.js";
 import { env } from "@platform/config";
 
 const TENANT = "aaaaaaaa-3333-4000-a000-000000000f03";
+const TENANT_B = "aaaaaaaa-3333-4000-a000-000000000f04";
 const PLATFORM_ORG = "aaaaaaaa-0000-4000-a000-000000000060";
 
 let originalPlatformOrgId: string | undefined;
@@ -23,23 +25,49 @@ let originalPlatformOrgId: string | undefined;
 beforeAll(async () => {
   originalPlatformOrgId = env.PLATFORM_ORG_ID;
   env.PLATFORM_ORG_ID = PLATFORM_ORG;
-  await db.insert(tenants).values({
-    id: TENANT,
-    name: "Retention Config Tenant",
-    slug: `retention-config-${TENANT}`,
-    config: {
-      rate_limit_per_min: 500,
-      retention_days: 90,
-      retention_comment_days: 90,
-      retention_evidence_days: 2555,
-      retention_hold: false,
+
+  await db.insert(tenants).values([
+    {
+      id: TENANT,
+      name: "Retention Config Tenant A",
+      slug: `retention-config-${TENANT}`,
+      config: {
+        rate_limit_per_min: 500,
+        retention_days: 90,
+        retention_comment_days: 90,
+        retention_evidence_days: 2555,
+        retention_hold: false,
+      },
     },
-  });
+    {
+      id: TENANT_B,
+      name: "Retention Config Tenant B",
+      slug: `retention-config-${TENANT_B}`,
+      config: {
+        rate_limit_per_min: 300,
+        retention_days: 60,
+        retention_comment_days: 60,
+        retention_evidence_days: 1000,
+        retention_hold: false,
+      },
+    },
+  ]);
 });
 
 afterAll(async () => {
-  env.PLATFORM_ORG_ID = originalPlatformOrgId;
-  await db.delete(tenants).where(inArray(tenants.id, [TENANT]));
+  try {
+    await withTenantContext(TENANT, async (tx) => {
+      await tx.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, TENANT));
+    });
+    await withTenantContext(TENANT_B, async (tx) => {
+      await tx
+        .delete(adminAuditLog)
+        .where(eq(adminAuditLog.tenantId, TENANT_B));
+    });
+    await db.delete(tenants).where(inArray(tenants.id, [TENANT, TENANT_B]));
+  } finally {
+    env.PLATFORM_ORG_ID = originalPlatformOrgId;
+  }
 });
 
 function makeApp(roles: string[], callerTenantId: string = PLATFORM_ORG) {
@@ -130,7 +158,35 @@ describe("PATCH /admin/tenants/:id/retention — platform operator & nonexistent
   });
 });
 
-describe("PATCH /admin/tenants/:id/retention — updates and audit trail", () => {
+describe("PATCH /admin/tenants/:id/retention — multi-tenant isolation", () => {
+  it("tenant A superadmin cannot change tenant B retention and tenant B DB row is untouched", async () => {
+    const [beforeB] = await db
+      .select({ config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, TENANT_B))
+      .limit(1);
+
+    const res = await makeApp(["superadmin"], TENANT).request(
+      `/${TENANT_B}/retention`,
+      {
+        method: "PATCH",
+        headers: skHeaders(),
+        body: JSON.stringify({ retention_days: 120 }),
+      },
+    );
+    expect(res.status).toBe(404);
+
+    const [afterB] = await db
+      .select({ config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, TENANT_B))
+      .limit(1);
+
+    expect(afterB?.config).toEqual(beforeB?.config);
+  });
+});
+
+describe("PATCH /admin/tenants/:id/retention — updates, null clears, and audit trail", () => {
   it("requires confirmShorten when reducing retention window", async () => {
     const res = await makeApp(["superadmin"]).request(`/${TENANT}/retention`, {
       method: "PATCH",
@@ -167,12 +223,77 @@ describe("PATCH /admin/tenants/:id/retention — updates and audit trail", () =>
       tx
         .select()
         .from(adminAuditLog)
-        .where(eq(adminAuditLog.resourceId, TENANT)),
+        .where(eq(adminAuditLog.resourceId, TENANT))
+        .orderBy(desc(adminAuditLog.id)),
     );
 
     expect(auditRows.length).toBeGreaterThanOrEqual(1);
-    const latest = auditRows[auditRows.length - 1];
+    const latest = auditRows[0];
     expect(latest.action).toBe("updated");
     expect(latest.resourceType).toBe("tenant");
+    expect(latest.resourceId).toBe(TENANT);
+    expect(latest.beforeSnapshot).toMatchObject({ retention_days: 90 });
+    expect(latest.afterSnapshot).toMatchObject({ retention_days: 30 });
+    expect(latest.metadata).toEqual({
+      type: "retention_policy_update",
+      confirmShorten: true,
+    });
+  });
+
+  it("successfully clears retention override with null and deletes key from config", async () => {
+    // First, set retention_days to 180 (widening, no confirmShorten required)
+    const widenRes = await makeApp(["superadmin"]).request(
+      `/${TENANT}/retention`,
+      {
+        method: "PATCH",
+        headers: skHeaders(),
+        body: JSON.stringify({ retention_days: 180 }),
+      },
+    );
+    expect(widenRes.status).toBe(200);
+
+    // Verify DB has 180
+    const [widenRow] = await db
+      .select({ config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, TENANT))
+      .limit(1);
+    expect(
+      (widenRow?.config as Record<string, unknown>)?.["retention_days"],
+    ).toBe(180);
+
+    // Clearing back to platform default (90) shortens window (180 -> 90), so requires confirmShorten: true
+    const clearNoConfirm = await makeApp(["superadmin"]).request(
+      `/${TENANT}/retention`,
+      {
+        method: "PATCH",
+        headers: skHeaders(),
+        body: JSON.stringify({ retention_days: null }),
+      },
+    );
+    expect(clearNoConfirm.status).toBe(400);
+
+    // Now clear with confirmShorten: true
+    const clearRes = await makeApp(["superadmin"]).request(
+      `/${TENANT}/retention`,
+      {
+        method: "PATCH",
+        headers: skHeaders(),
+        body: JSON.stringify({ retention_days: null, confirmShorten: true }),
+      },
+    );
+    expect(clearRes.status).toBe(200);
+    const body = (await clearRes.json()) as { data: Record<string, unknown> };
+    expect(body.data.retention_days).toBe(env.RETENTION_DEFAULT_DAYS);
+
+    // Verify DB config has removed retention_days completely while preserving rate_limit_per_min
+    const [finalRow] = await db
+      .select({ config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, TENANT))
+      .limit(1);
+    const finalCfg = (finalRow?.config as Record<string, unknown>) ?? {};
+    expect(finalCfg).not.toHaveProperty("retention_days");
+    expect(finalCfg["rate_limit_per_min"]).toBe(500);
   });
 });

@@ -2,9 +2,9 @@ import { z } from "zod";
 import { env } from "./env.js";
 
 export const RETENTION_BOUNDS = {
-  noiseDays: { min: 7, max: 3650, default: 90 },
-  commentDays: { min: 30, max: 3650, default: 90 },
-  evidenceDays: { min: 365, max: 7300, default: 2555 },
+  noiseDays: { min: 7, max: 3650 },
+  commentDays: { min: 30, max: 3650 },
+  evidenceDays: { min: 365, max: 7300 },
 } as const;
 
 export const retentionDays = (min: number, max: number): z.ZodNumber =>
@@ -14,16 +14,22 @@ export const TenantRetentionConfigSchema = z.object({
   retention_days: retentionDays(
     RETENTION_BOUNDS.noiseDays.min,
     RETENTION_BOUNDS.noiseDays.max,
-  ).optional(),
+  )
+    .nullable()
+    .optional(),
   retention_comment_days: retentionDays(
     RETENTION_BOUNDS.commentDays.min,
     RETENTION_BOUNDS.commentDays.max,
-  ).optional(),
+  )
+    .nullable()
+    .optional(),
   retention_evidence_days: retentionDays(
     RETENTION_BOUNDS.evidenceDays.min,
     RETENTION_BOUNDS.evidenceDays.max,
-  ).optional(),
-  retention_hold: z.boolean().optional(),
+  )
+    .nullable()
+    .optional(),
+  retention_hold: z.boolean().nullable().optional(),
 });
 
 export type TenantRetentionConfig = z.infer<typeof TenantRetentionConfigSchema>;
@@ -57,21 +63,24 @@ const SafeTenantRetentionConfigSchema = z.object({
     RETENTION_BOUNDS.noiseDays.min,
     RETENTION_BOUNDS.noiseDays.max,
   )
+    .nullable()
     .optional()
     .catch(undefined),
   retention_comment_days: retentionDays(
     RETENTION_BOUNDS.commentDays.min,
     RETENTION_BOUNDS.commentDays.max,
   )
+    .nullable()
     .optional()
     .catch(undefined),
   retention_evidence_days: retentionDays(
     RETENTION_BOUNDS.evidenceDays.min,
     RETENTION_BOUNDS.evidenceDays.max,
   )
+    .nullable()
     .optional()
     .catch(undefined),
-  retention_hold: z.boolean().optional().catch(undefined),
+  retention_hold: z.boolean().nullable().optional().catch(undefined),
 });
 
 // A malformed override falls back to the platform default for that field only;
