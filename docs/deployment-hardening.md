@@ -94,6 +94,21 @@ Confirm the first response redirects to HTTPS, HTTPS responses include
 `Strict-Transport-Security`, certificates are valid, and infrastructure ports
 are not externally reachable.
 
+## Client addresses, rate limits and request size
+
+- **`TRUST_PROXY`** decides whether the API believes `X-Real-IP` / `X-Forwarded-For` when it picks the
+  address a rate limit is keyed on. It defaults to `false`, so behind a reverse proxy every client
+  shares the proxy's address and one bucket. Set it to the proxy's address or CIDR list (for example
+  `10.0.0.0/8`), or `true` only when the proxy is the sole way in and overwrites the headers. The API
+  logs a warning at startup in production when it is `false`.
+- **`PLATFORM_ORG_ID`** is the Zitadel org of the platform operators. In production the
+  `/admin/tenants` and `/admin/platform-settings` routes refuse every caller while it is unset (fail
+  closed); set it to the operator org's UUID.
+- **`API_BODY_LIMIT_BYTES`** (default 2 MiB) caps every request body except file uploads, which are
+  capped at 105 MiB (`multipart/form-data` or `application/octet-stream` sent to `POST /files` or
+  `PUT /api/v1/attachments/:id/upload`). Over the limit the API answers `413 PAYLOAD_TOO_LARGE`.
+  Also set a matching limit at the proxy.
+
 ## Encryption at rest
 
 Use host-, volume-, or cloud-disk encryption for every persistent path. Common
@@ -269,6 +284,7 @@ To check on demand, restart `ow-worker`.
 - [ ] TLS 1.2/1.3 certificates renew automatically and expiry is monitored.
 - [ ] HSTS is returned on HTTPS responses; domain-wide options were reviewed.
 - [ ] Forwarding headers are overwritten by the single trusted proxy.
+- [ ] `TRUST_PROXY` names that proxy, and `PLATFORM_ORG_ID` is set to the operator org.
 - [ ] Database, cache, secrets, worker and scanning ports are not public.
 - [ ] PostgreSQL, uploads, Zitadel and production OpenBao storage are encrypted.
 - [ ] Backup output is encrypted, access-controlled and copied off-host.

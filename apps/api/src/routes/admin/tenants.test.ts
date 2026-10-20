@@ -12,7 +12,10 @@ const { mockAuth, mockEnv } = vi.hoisted(() => ({
     roles: ["superadmin"] as string[],
     email: "sa@example.com",
   },
-  mockEnv: { PLATFORM_ORG_ID: undefined as string | undefined },
+  mockEnv: {
+    PLATFORM_ORG_ID: undefined as string | undefined,
+    NODE_ENV: "test" as string,
+  },
 }));
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -134,6 +137,7 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
     mockAuth.tenantId = "t-platform";
     mockAuth.roles = ["superadmin"];
     mockEnv.PLATFORM_ORG_ID = undefined;
+    mockEnv.NODE_ENV = "test";
     mockSuspendTenant.mockResolvedValue(undefined as void);
     mockReactivateTenant.mockResolvedValue(undefined as void);
     mockScheduleTenantDeletion.mockResolvedValue({
@@ -142,6 +146,39 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
   });
 
   it("GET /:id passes when PLATFORM_ORG_ID is unset (dev/test)", async () => {
+    const res = await makeApp().request(`/${TENANT_ID}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses every tenant-management route in production when PLATFORM_ORG_ID is unset (#1015)", async () => {
+    mockEnv.NODE_ENV = "production";
+    const app = makeApp();
+    const calls: Array<[string, string]> = [
+      ["GET", "/"],
+      ["GET", `/${TENANT_ID}`],
+      ["PATCH", `/${TENANT_ID}/suspend`],
+      ["PATCH", `/${TENANT_ID}/reactivate`],
+      ["DELETE", `/${TENANT_ID}`],
+    ];
+    for (const [method, path] of calls) {
+      const res = await app.request(path, {
+        method,
+        ...(method === "GET"
+          ? {}
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            }),
+      });
+      expect(`${method} ${path} ${res.status}`).toBe(`${method} ${path} 404`);
+    }
+    expect(mockSuspendTenant).not.toHaveBeenCalled();
+    expect(mockScheduleTenantDeletion).not.toHaveBeenCalled();
+  });
+
+  it("still serves them in production when the caller is in PLATFORM_ORG_ID", async () => {
+    mockEnv.NODE_ENV = "production";
+    mockEnv.PLATFORM_ORG_ID = "t-platform";
     const res = await makeApp().request(`/${TENANT_ID}`);
     expect(res.status).toBe(200);
   });

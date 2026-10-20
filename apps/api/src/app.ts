@@ -10,6 +10,7 @@ import { telemetry } from "./middleware/telemetry.js";
 import { getSerializedMetrics } from "@platform/telemetry";
 import { handleError } from "./middleware/error-handler.js";
 import { rateLimit } from "./middleware/rate-limit.js";
+import { requestBodyLimit } from "./middleware/body-limit.js";
 import { httpsEnforcement } from "./middleware/https-enforcement.js";
 import { entityTypesRouter } from "./routes/entity-types/index.js";
 import { entitiesRouter } from "./routes/entities/index.js";
@@ -128,6 +129,8 @@ export function createApp(): Hono<AppVars> {
   app.use("*", honoLogger());
   // 5. Rate limiter — before auth so unauthenticated flood is blocked cheaply
   app.use("*", rateLimit());
+  // 5b. Body-size cap — after the rate limiter so a flood is refused first, before auth reads a body
+  app.use("*", requestBodyLimit());
   // 6. Error handler — app.onError is the correct Hono v4 API for route errors
   app.onError(handleError);
 

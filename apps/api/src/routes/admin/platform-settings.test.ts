@@ -34,6 +34,12 @@ vi.mock("@platform/auth", () => ({
     },
 }));
 
+let mockIsOperator = true;
+vi.mock("../../lib/platform-operator.js", () => ({
+  isPlatformOperatorTenant: () => mockIsOperator,
+  denyUnlessPlatformOperator: () => !mockIsOperator,
+}));
+
 const mockRow = { id: 1, outboundNotificationsEnabled: true };
 
 vi.mock("@platform/db", () => ({
@@ -83,6 +89,13 @@ function makeApp() {
 describe("GET /admin/platform-settings — superadmin required (#231)", () => {
   beforeEach(() => {
     mockAuth.roles = ["superadmin"];
+    mockIsOperator = true;
+  });
+
+  it("returns 404 to a superadmin outside the platform operator org (#1015)", async () => {
+    mockIsOperator = false;
+    const res = await makeApp().request("/admin/platform-settings");
+    expect(res.status).toBe(404);
   });
 
   it("returns 200 for superadmin role", async () => {
@@ -106,6 +119,17 @@ describe("GET /admin/platform-settings — superadmin required (#231)", () => {
 describe("PATCH /admin/platform-settings — superadmin required (#231)", () => {
   beforeEach(() => {
     mockAuth.roles = ["superadmin"];
+    mockIsOperator = true;
+  });
+
+  it("returns 404 to a superadmin outside the platform operator org and changes nothing (#1015)", async () => {
+    mockIsOperator = false;
+    const res = await makeApp().request("/admin/platform-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outboundNotificationsEnabled: false }),
+    });
+    expect(res.status).toBe(404);
   });
 
   it("returns 200 for superadmin role", async () => {
