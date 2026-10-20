@@ -56,14 +56,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    await withTenantContext(TENANT, async (tx) => {
-      await tx.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, TENANT));
-    });
-    await withTenantContext(TENANT_B, async (tx) => {
-      await tx
-        .delete(adminAuditLog)
-        .where(eq(adminAuditLog.tenantId, TENANT_B));
-    });
+    await db
+      .delete(adminAuditLog)
+      .where(inArray(adminAuditLog.tenantId, [TENANT, TENANT_B]));
     await db.delete(tenants).where(inArray(tenants.id, [TENANT, TENANT_B]));
   } finally {
     env.PLATFORM_ORG_ID = originalPlatformOrgId;
