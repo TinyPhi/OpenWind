@@ -172,6 +172,7 @@ class NullPoolGuard(unittest.TestCase):
             'if nullpool:\n            engine_kwargs["poolclass"] = NullPool',
             'if nullpool: engine_kwargs["poolclass"] = NullPool',
         )
+        self.assertNotEqual(core, GOOD_CORE, "the replace did not match, so this tests nothing")
         self.assertIn("if nullpool: engine_kwargs", core)
         load_config(make_tree(self, core))
 
@@ -181,8 +182,22 @@ class NullPoolGuard(unittest.TestCase):
             'if nullpool:\n            # keep NullPool: one connection per query\n'
             '            engine_kwargs["poolclass"] = NullPool',
         )
+        self.assertNotEqual(core, GOOD_CORE, "the replace did not match, so this tests nothing")
         self.assertIn("# keep NullPool", core)
         load_config(make_tree(self, core))
+
+    def test_accepts_the_qualified_forms_of_NullPool(self):
+        for form in ("pool.NullPool", "sqlalchemy.pool.NullPool", "sa.NullPool"):
+            with self.subTest(form=form):
+                core = GOOD_CORE.replace('["poolclass"] = NullPool', f'["poolclass"] = {form}')
+                self.assertNotEqual(core, GOOD_CORE, "the replace did not match, so this tests nothing")
+                load_config(make_tree(self, core))
+
+    def test_still_refuses_a_qualified_name_that_is_not_NullPool(self):
+        core = GOOD_CORE.replace('["poolclass"] = NullPool', '["poolclass"] = pool.QueuePool')
+        self.assertNotEqual(core, GOOD_CORE, "the replace did not match, so this tests nothing")
+        with self.assertRaisesRegex(RuntimeError, "poolclass = NullPool"):
+            load_config(make_tree(self, core))
 
     def test_refuses_when_the_if_nullpool_block_is_removed_entirely(self):
         core = GOOD_CORE.replace(
