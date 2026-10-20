@@ -7,14 +7,19 @@ const mockRedisIncr = vi.fn();
 const mockRedisExpire = vi.fn();
 const mockRedisTtl = vi.fn();
 
-// Deliberately not the defaults (300 / 30): a window or cooldown hardcoded in the module
-// would fail these tests, so they prove the values come from config.
-vi.mock("@platform/config", () => ({
-  env: {
+const { mockEnv } = vi.hoisted(() => ({
+  mockEnv: {
     PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS: 120,
     PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS: 7,
+    PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: 43200,
+    PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: 600,
+    PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS: 5,
   },
 }));
+
+// Deliberately not the defaults (300 / 30): a window or cooldown hardcoded in the module
+// would fail these tests, so they prove the values come from config.
+vi.mock("@platform/config", () => ({ env: mockEnv }));
 
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
@@ -65,7 +70,10 @@ const tok = (c: string): string => c.repeat(43);
 const TOK_A = tok("a");
 const TOK_B = tok("b");
 
+const ENV_DEFAULTS = { ...mockEnv };
+
 beforeEach(() => {
+  Object.assign(mockEnv, ENV_DEFAULTS);
   mockRedisGet.mockReset();
   mockRedisSet.mockReset();
   mockRedisDel.mockReset();
@@ -75,6 +83,82 @@ beforeEach(() => {
   mockSendDirectNotification.mockReset();
   mockSendDirectNotification.mockResolvedValue(undefined);
   mockLoggerInfo.mockReset();
+});
+
+describe("configurable MFA timings (#929)", () => {
+  function arrangeAttempt(code: string, attempt: number): void {
+    mockRedisGet
+      .mockResolvedValueOnce(null) // lockedOutFor: failed counter
+      .mockResolvedValueOnce(sha(code)); // stored code
+    mockRedisIncr.mockResolvedValueOnce(attempt).mockResolvedValueOnce(1);
+  }
+
+  it("stores the code and its attempts counter with the configured code lifetime", async () => {
+    mockEnv.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS = 1200;
+    await requestMfaCode("pa-1", "pa@example.com");
+    expect(mockRedisSet).toHaveBeenCalledWith(
+      "platform-admin:mfa:otp:pa-1",
+      expect.any(String),
+      "EX",
+      1200,
+    );
+    arrangeAttempt("111111", 1);
+    await verifyMfaCode("pa-1", "000000");
+    expect(mockRedisExpire).toHaveBeenCalledWith(
+      "platform-admin:mfa:attempts:pa-1",
+      1200,
+      "NX",
+    );
+  });
+
+  it.each([
+    [600, 10],
+    [601, 11],
+    [90, 2],
+    [1800, 30],
+  ])(
+    "emails a lifetime of %i seconds as %i minutes (rounded up)",
+    async (seconds, minutes) => {
+      mockEnv.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS = seconds;
+      await requestMfaCode("pa-1", "pa@example.com");
+      const body = mockSendDirectNotification.mock.calls[0]?.[0].body as string;
+      expect(body).toContain(`expires in ${minutes} minutes`);
+    },
+  );
+
+  it("sets the verified marker TTL from the configured verified lifetime", async () => {
+    mockEnv.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS = 7200;
+    arrangeAttempt("654321", 1);
+    const result = await verifyMfaCode("pa-1", "654321");
+    const token = (result as { sessionToken: string }).sessionToken;
+    expect(mockRedisSet).toHaveBeenCalledWith(
+      `platform-admin:mfa:verified:pa-1:${sha(token)}`,
+      "1",
+      "EX",
+      7200,
+    );
+  });
+
+  it("locks the code after the configured number of wrong guesses", async () => {
+    mockEnv.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS = 2;
+    arrangeAttempt("654321", 1);
+    expect(await verifyMfaCode("pa-1", "000000")).toEqual({
+      ok: false,
+      reason: "invalid",
+      attemptsRemaining: 1,
+    });
+    arrangeAttempt("654321", 2);
+    expect(await verifyMfaCode("pa-1", "000000")).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+    expect(mockRedisDel).toHaveBeenCalledWith("platform-admin:mfa:otp:pa-1");
+    arrangeAttempt("654321", 3);
+    expect(await verifyMfaCode("pa-1", "654321")).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+  });
 });
 
 describe("requestMfaCode", () => {
