@@ -15,6 +15,11 @@ export interface RetentionSweepResult {
   workflowEventsEvidence: number;
   outboxEvents: number;
   tenantUsageDaily: number;
+  notificationRecipients: number;
+  notifications: number;
+  connectorDeliveryAttempts: number;
+  deadLetterEvents: number;
+  idempotencyKeys: number;
 }
 
 type Tx = Parameters<Parameters<typeof withTenantContext>[1]>[0];
@@ -101,6 +106,11 @@ export async function sweepTenant(
     workflowEventsEvidence: 0,
     outboxEvents: 0,
     tenantUsageDaily: 0,
+    notificationRecipients: 0,
+    notifications: 0,
+    connectorDeliveryAttempts: 0,
+    deadLetterEvents: 0,
+    idempotencyKeys: 0,
   };
   if (policy.hold) return result;
 
@@ -153,6 +163,66 @@ export async function sweepTenant(
       LIMIT ${limit}
     ) AND tenant_id = ${tenantId} RETURNING 1`,
     { table: "tenant_usage_daily", class: "noise" },
+  );
+  // Children before parents: recipients of aged notifications go first, then the notifications.
+  // Recipients are matched through their parent's created_at so a late-added recipient never
+  // outlives (or is cascade-deleted with) its notification inconsistently.
+  result.notificationRecipients = await drain(
+    tenantId,
+    withTenantContext,
+    (limit) => sql`DELETE FROM notification_recipients WHERE id IN (
+      SELECT r.id FROM notification_recipients r
+      JOIN notifications n ON n.id = r.notification_id AND n.tenant_id = r.tenant_id
+      WHERE r.tenant_id = ${tenantId}
+        AND n.created_at < now() - make_interval(days => ${policy.noiseDays})
+      LIMIT ${limit}
+    ) AND tenant_id = ${tenantId} RETURNING 1`,
+    { table: "notification_recipients", class: "noise" },
+  );
+  result.notifications = await drain(
+    tenantId,
+    withTenantContext,
+    (limit) => sql`DELETE FROM notifications WHERE id IN (
+      SELECT id FROM notifications
+      WHERE tenant_id = ${tenantId}
+        AND created_at < now() - make_interval(days => ${policy.noiseDays})
+      LIMIT ${limit}
+    ) AND tenant_id = ${tenantId} RETURNING 1`,
+    { table: "notifications", class: "noise" },
+  );
+  result.connectorDeliveryAttempts = await drain(
+    tenantId,
+    withTenantContext,
+    (limit) => sql`DELETE FROM connector_delivery_attempts WHERE id IN (
+      SELECT id FROM connector_delivery_attempts
+      WHERE tenant_id = ${tenantId}
+        AND created_at < now() - make_interval(days => ${policy.noiseDays})
+      LIMIT ${limit}
+    ) AND tenant_id = ${tenantId} RETURNING 1`,
+    { table: "connector_delivery_attempts", class: "noise" },
+  );
+  result.deadLetterEvents = await drain(
+    tenantId,
+    withTenantContext,
+    (limit) => sql`DELETE FROM dead_letter_events WHERE id IN (
+      SELECT id FROM dead_letter_events
+      WHERE tenant_id = ${tenantId}
+        AND created_at < now() - make_interval(days => ${policy.noiseDays})
+      LIMIT ${limit}
+    ) AND tenant_id = ${tenantId} RETURNING 1`,
+    { table: "dead_letter_events", class: "noise" },
+  );
+  // A key is dead once expires_at passes (24h TTL); the noise window then runs from expiry.
+  result.idempotencyKeys = await drain(
+    tenantId,
+    withTenantContext,
+    (limit) => sql`DELETE FROM idempotency_keys WHERE id IN (
+      SELECT id FROM idempotency_keys
+      WHERE tenant_id = ${tenantId}
+        AND expires_at < now() - make_interval(days => ${policy.noiseDays})
+      LIMIT ${limit}
+    ) AND tenant_id = ${tenantId} RETURNING 1`,
+    { table: "idempotency_keys", class: "noise" },
   );
   return result;
 }
