@@ -26,6 +26,9 @@ OpenBao Transit protects the credential values passed through
 uploaded files, logs, or backup archives. Likewise, PostgreSQL RLS separates
 tenant access but is not disk encryption.
 
+For a suspected personal-data breach (GDPR Article 33), follow the
+[breach notification runbook](runbooks/breach-notification.md).
+
 ## TLS termination and HSTS
 
 Terminate TLS at a reverse proxy or load balancer. Do not expose the backend,

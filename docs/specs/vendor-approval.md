@@ -27,7 +27,7 @@ clicks by the same admin.
 | approval shape   | sequential only; parallel/quorum approval (ADR-002, #65) out of scope and off-limits                                                                                                                                                                                                                                                           |
 | roles            | three new Zitadel **project** roles: `it_security`, `legal`, `finance_approver`. Roles flow unfiltered from the JWT claim (`packages/auth/src/jwks.ts:291`) into `allowed_roles` (free `text[]`) — no engine/auth change needed. Zitadel project roles are platform-wide, not per-tenant: every tenant's role picker will list them. Accepted. |
 | base role        | entity routes require `admin`/`agent`/`user` (`execute-transition.ts:20`, `create.ts:97`), and admin-ui treats non-`admin`/`agent` users as customers — so department approvers hold `agent` **plus** their department role. A department role alone is not sufficient and is not a supported configuration.                                   |
-| admin override   | every review transition's `allowed_roles` also includes `admin` (operational escape hatch; same as every other module)                                                                                                                                                                                                                         |
+| admin override   | review transitions do **not** include `admin` (#776): the requester cannot decide their own vendor and nobody decides two stages (`actor_not_creator`, `actor_not_prior_actor`). An admin unsticks a vendor with the recorded state override (`docs/specs/state-override.md`), which the seeded workflow ships switched on                     |
 | SLA              | 48h on each of the three review states; no SLA on Draft or terminal states                                                                                                                                                                                                                                                                     |
 | notify recipient | `NotifyConfig` needs a fixed `recipientId` (`packages/automation-engine/src/actions/notify.ts:127`) — no role- or assignee-based recipient exists. See §D1.                                                                                                                                                                                    |
 | external source  | synthetic payload only (critical-path-decisions 1a = A, 2 = A: bypass webhook gateway). Real source is #634 — out of scope                                                                                                                                                                                                                     |
@@ -74,13 +74,17 @@ copies `apps/api/` but not `scripts/`, and `apps/api`'s typecheck/lint only cove
 
 ```
 draft                  → it_security_review      [agent, admin]             requires_fields per table
-it_security_review     → legal_review            [it_security, admin]
-it_security_review     → rejected*               [it_security, admin]       requires_comment
-legal_review           → pending_final_approval  [legal, admin]             requires contract_draft
-legal_review           → rejected*               [legal, admin]             requires_comment
-pending_final_approval → approved*               [finance_approver, admin]
-pending_final_approval → rejected*               [finance_approver, admin]  requires_comment
+it_security_review     → legal_review            [it_security]  SoD
+it_security_review     → rejected*               [it_security]  SoD         requires_comment
+legal_review           → pending_final_approval  [legal]        SoD         requires contract_draft
+legal_review           → rejected*               [legal]        SoD         requires_comment
+pending_final_approval → approved*               [finance_approver]  SoD
+pending_final_approval → rejected*               [finance_approver]  SoD    requires_comment
 ```
+
+SoD = `actor_not_creator` and `actor_not_prior_actor`. Re-installing the module on a tenant that already
+has the workflow replaces the transitions but leaves the tenant's override switch as it is, so a tenant
+that turned it off has no way to unstick a vendor until it is turned back on.
 
 SLA 48h on `it_security_review`, `legal_review`, `pending_final_approval`.
 
@@ -114,8 +118,10 @@ Legal, Source.
 - R1: `vendor-approval` registered in `seedRegistry()` as `optional`; installing it on a tenant
   creates the entity type, fields, workflow, states, transitions, rules, view config; re-install
   is a no-op (idempotent); never auto-installed by `provisionTenant`.
-- R2: Each review transition is executable only by its department role or `admin`; an `agent`
-  without the department role gets `TRANSITION_FORBIDDEN`; `getAvailableTransitions` hides it.
+- R2: Each review transition is executable only by its department role, by someone other than the
+  requester who has not already acted on the vendor; an `agent` without the department role, and an
+  `admin` without it, get `TRANSITION_FORBIDDEN`; `getAvailableTransitions` hides it. Admins use the
+  state override instead (switched on in the seed; a reason is required and recorded).
 - R3: Required fields / comments enforced per §I.
 - R4: Three notify rules exist per install (disabled, per D1); when enabled with a recipient, a
   notification is created on entry to each review state.

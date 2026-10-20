@@ -61,13 +61,18 @@ is evaluated by the same engine path that checks roles and conditions, under the
 
 ## §K Known limits
 
-- **Scope.** These rules guard transitions executed through the workflow engine. Other ways of changing
-  a record's state are covered by the guarded-override follow-up (hardening PR 2), and the seed workflow that
-  relies on these rules (T7) deliberately waits for it.
-- **Direct state writes bypass these rules until the override lands.** `PATCH /entities/:id` with
-  `currentState` (open to the record's creator) and the child-status route write a state without running
-  transition guards, so a creator can move their own record past an `actor_not_creator` step. Do not enable
-  these rules on a real workflow until the guarded override (#941) has merged.
+- **Scope.** These rules guard transitions executed through the workflow engine. Direct state writes
+  (`PATCH /entities/:id` with `currentState`, `POST /entities/:id/state`, `POST /entities/bulk/state`, and a create
+  in a later step) skip transition guards, so they are refused on any workflow that carries an actor rule
+  (`STATE_CHANGE_NOT_ALLOWED`, docs/specs/state-override.md T6). The child-status route only moves child tickets,
+  which keep their own fixed states. A workflow with no actor rule and no override is unchanged.
+- **Only a person admin changes a rule (#1008).** Creating a transition with an `actor_*` condition, changing or
+  clearing one, deleting a transition that carries one, and a canvas save that drops one are refused with 403 unless
+  the caller holds `admin` and is not an API key. Re-sending the stored condition is not a change, and a workflow admin
+  can still edit a transition that has no rule. Deleting a whole workflow and moving a ruled transition to other steps on
+  the canvas are gated the same way. Not covered: a concurrent edit (the check reads the stored rule without a row lock, so an
+  admin adding a rule in the same instant can be overwritten), and module and plugin install and seed paths, which write
+  transitions without going through these routes.
 - A record with no user creator (created by the scheduler or an automation) has no conflict for
   `actor_not_creator`: any identified actor passes. Pinned by a unit test in `condition-evaluator.test.ts`.
 - A transition that does not change state (a self-loop) never counts as acting, so a workflow that uses
@@ -107,4 +112,4 @@ is evaluated by the same engine path that checks roles and conditions, under the
 | T4  | Real-Postgres isolation test (creator, distinct approver, states, fail closed, tenant)    | R1–R6  | done   |
 | T5  | Security-review fixes: structural event classification, non-user actors, `not` guard      | R8–R9  | done   |
 | T6  | Audit action `workflow.transition_conditions_updated` + migration 0145 + four write paths | R10    | done   |
-| T7  | `vendor-approval` seed uses the rules and drops blanket `admin` (needs the override)      | —      | later  |
+| T7  | `vendor-approval` seed uses the rules and drops blanket `admin` (needs the override)      | —      | done   |

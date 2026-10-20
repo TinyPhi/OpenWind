@@ -7,6 +7,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
+import {
+  assertMaySetActorRules,
+  SodRuleForbiddenError,
+} from "../../lib/sod-rule-gate.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 import {
@@ -137,6 +141,22 @@ export const canvasSaveHandler = factory.createHandlers(
               deletedStateNames.has(t.toState),
           )
           .map((t) => t.id);
+
+        for (const t of current.transitions) {
+          if (deletedTransitionIds.includes(t.id)) {
+            assertMaySetActorRules(auth, t.conditions, null);
+          }
+        }
+        // Moving a ruled transition to other steps strands the rule on the wrong edge.
+        for (const t of existingTransitions) {
+          const prior = current.transitions.find((p) => p.id === t.id);
+          if (
+            prior &&
+            (prior.fromState !== t.fromState || prior.toState !== t.toState)
+          ) {
+            assertMaySetActorRules(auth, prior.conditions, null);
+          }
+        }
 
         if (deletedTransitionIds.length > 0) {
           await tx
@@ -328,6 +348,9 @@ export const canvasSaveHandler = factory.createHandlers(
 
       return c.json({ data: updated });
     } catch (err) {
+      if (err instanceof SodRuleForbiddenError) {
+        return c.json({ error: "FORBIDDEN", message: err.message }, 403);
+      }
       if (
         err instanceof Error &&
         (err as Error & { code?: string }).code === "INITIAL_STATE_DELETE"

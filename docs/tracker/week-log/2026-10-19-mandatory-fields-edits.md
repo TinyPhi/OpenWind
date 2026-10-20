@@ -22,7 +22,7 @@
   quick-assign and sub-task form. The records list sends the "Unassigned" filter to the server.
 - **On-call (B8).** The two seeded `resolve_oncall` rules were scoped to the entity type
   named `ticket`, so team assignment on other workflows never reached a person. The seed is
-  unscoped and migration 0151 widens existing rules (renumbered after #1004's 0151 on rebase).
+  unscoped and migration 0152 widens existing rules (0151 went to #1006; whichever of this and #1004 merges second renumbers on rebase).
 - **Tests.** Engine (four values, update check), isolation (fields edit keeps grants and team,
   due-date edit rules, unassign under enforce), routes (null due date, unassigned create and
   sub-task, `unassigned=true`), automations (unassigned instead of failure), admin-ui (create

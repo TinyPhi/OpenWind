@@ -45,7 +45,7 @@ WHERE NOT EXISTS (
 -- person on every workflow, not only helpdesk tickets (docs/specs/
 -- mandatory-ticket-fields.md, owner decision 2026-10-19). The action returns
 -- early when the record has no team, so other records are unaffected.
--- Migration 0151 widens existing tenants' rows.
+-- Migration 0152 widens existing tenants' rows.
 INSERT INTO automation_rules (id, tenant_id, name, is_enabled, trigger_type, trigger_config, conditions, actions, priority)
 SELECT
   gen_random_uuid(),

@@ -59,8 +59,17 @@ attributable, and subject to the same rules as any other change of state where t
 
 ## §K Known limits
 
-- Overriding applies to records attached to a workflow. Other ways of changing a record's state are covered by the
-  follow-up work in this hardening series.
+- Overriding applies to records attached to a workflow.
+- **Direct state writes are refused on a workflow that uses the override or an actor rule.** `PATCH /entities/:id`,
+  `POST /entities/:id/state`, `POST /entities/bulk/state` and `POST /entities` with a non-initial `currentState` answer
+  `409 STATE_CHANGE_NOT_ALLOWED` (a per-item error in the bulk call) when the record's workflow has `allow_state_override`
+  on or a transition whose `conditions` name an actor rule (`packages/entity-engine/src/state-write-lock.ts`). Writing the
+  state the record already has is allowed. Child tickets keep their fixed open/in-progress/closed states, except that a
+  child write is refused on a locked workflow when the target is also a step of the record's own workflow (a record can
+  be moved under a parent, and a workflow can have a step named "closed").
+  Workflows with neither keep the older direct-write path (a deliberate #127-class bypass for admin/agent); removing it
+  everywhere is a separate decision, because the generic entity-type instance page still uses `POST /entities/:id/state`.
+  Seeds and engine callers that create in another step leave `enforceInitialState` off and are unaffected.
 - The override does not run the target step's requirements (required fields, comment): it exists to bypass the
   transition rules, and the reason is the compensating record.
 - A reopened record's earlier SLA breaches are not undone.
@@ -76,4 +85,5 @@ attributable, and subject to the same rules as any other change of state where t
 | T2  | Shared write half (`lockInstance`, `commitStateChange`); `overrideWorkflowState`               | R1–R7  | done   |
 | T3  | `POST /entities/:id/override-state` with same-transaction audit; workflow switch and its audit | R8, R9 | done   |
 | T4  | Real-Postgres tests as `app_user`, mutation-checked; route and mapping tests                   | R1–R9  | done   |
-| T5  | Admin-ui: switch toggle and the override dialog                                                | —      | later  |
+| T5  | Admin-ui: switch toggle and the override dialog                                                | R1–R9  | done   |
+| T6  | Refuse direct state writes on a workflow that uses the override or an actor rule               | R1, R2 | done   |

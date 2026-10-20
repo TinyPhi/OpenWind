@@ -4,6 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { deleteWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
+import {
+  assertMaySetActorRules,
+  SodRuleForbiddenError,
+} from "../../../lib/sod-rule-gate.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 import {
   auditTransitionRoleChanges,
@@ -36,6 +40,7 @@ export const deleteTransitionHandler = factory.createHandlers(
             ),
           )
           .limit(1);
+        if (before) assertMaySetActorRules(auth, before.conditions, null);
         await deleteWorkflowTransition(
           tx,
           tenantId,
@@ -76,6 +81,9 @@ export const deleteTransitionHandler = factory.createHandlers(
       });
       return c.body(null, 204);
     } catch (err) {
+      if (err instanceof SodRuleForbiddenError) {
+        return c.json({ error: "FORBIDDEN", message: err.message }, 403);
+      }
       return handleWorkflowError(c, err);
     }
   },

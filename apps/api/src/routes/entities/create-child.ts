@@ -112,6 +112,7 @@ export const createChildHandler = factory.createHandlers(
       // Best-effort, after the create commits -- the same remark-as-first-comment behaviour
       // as a full ticket (routes/entities/create.ts).
       const child = result.instance;
+      const warnings: string[] = [];
       if (child.workflowId) {
         try {
           await withTenantContext(tenantId, (tx) =>
@@ -129,10 +130,14 @@ export const createChildHandler = factory.createHandlers(
             { remarkErr, tenantId, instanceId: child.id },
             "sub-task create: failed to post remark as first comment",
           );
+          warnings.push("remark_comment_failed");
         }
       }
 
-      return c.json({ data: result }, 201);
+      return c.json(
+        warnings.length > 0 ? { data: result, warnings } : { data: result },
+        201,
+      );
     } catch (err) {
       return handleEntityError(c, err);
     }
