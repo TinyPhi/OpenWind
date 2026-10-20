@@ -1,3 +1,5 @@
+import { auditResourceId } from "@platform/audit";
+import type * as Audit from "@platform/audit";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { AuthContext } from "@platform/auth";
@@ -31,9 +33,14 @@ vi.mock("../../services/user-erasure.js", () => ({
   eraseUserFromTenant: (...args: unknown[]) => mockEraseUserFromTenant(...args),
 }));
 
-vi.mock("@platform/audit", () => ({
-  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
-}));
+vi.mock("@platform/audit", async (importOriginal) => {
+  // The real id mapping is part of what this test proves; only the DB write is replaced.
+  const real = await importOriginal<typeof Audit>();
+  return {
+    ...real,
+    writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+  };
+});
 
 vi.mock("@platform/db", () => ({
   db: {},
@@ -227,8 +234,9 @@ describe("GET /users", () => {
         mockTx,
         expect.objectContaining({
           resourceType: "user",
-          resourceId: "target-user-123",
+          resourceId: auditResourceId("target-user-123"),
           action: "deleted",
+          metadata: { userId: "target-user-123" },
         }),
       );
       expect(mockInvalidateUserCache).toHaveBeenCalled();
@@ -243,6 +251,31 @@ describe("GET /users", () => {
       mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
       await makeApp().request("/users/target-user-123", { method: "DELETE" });
       expect(mockEnqueueFlush).not.toHaveBeenCalled();
+    });
+
+    it("writes the erasure audit entry with a uuid resource id for a numeric Zitadel user id, keeping the real id in metadata", async () => {
+      const mockTx = { marker: "tx" };
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) =>
+        cb(mockTx),
+      );
+
+      const res = await makeApp().request("/users/256000000000000001", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(200);
+      const deleted = mockWriteAuditEntry.mock.calls
+        .map((c) => c[1] as { action: string })
+        .find((e) => e.action === "deleted") as {
+        resourceId: string;
+        metadata: Record<string, unknown>;
+      };
+      // admin_audit_log.resource_id is a uuid column; a raw Zitadel id would make the insert throw
+      // and roll the whole erasure back.
+      expect(deleted.resourceId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
+      expect(deleted.metadata).toEqual({ userId: "256000000000000001" });
     });
 
     it("does not audit or touch Zitadel when the erasure fails", async () => {

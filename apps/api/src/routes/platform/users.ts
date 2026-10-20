@@ -9,7 +9,7 @@ import {
   deleteUser,
 } from "../../lib/zitadel-management.js";
 import type { AuthContext } from "@platform/auth";
-import { writeAuditEntry } from "@platform/audit";
+import { writeAuditEntry, auditResourceId } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { eraseUserFromTenant } from "../../services/user-erasure.js";
 import { enqueueSupersetCacheFlush } from "../../lib/superset-cache-flush-queue.js";
@@ -179,8 +179,11 @@ usersRouter.delete(
         actorId: adminUserId,
         actorType: "user",
         resourceType: "user",
-        resourceId: targetUserId,
+        // resource_id is a uuid column and a Zitadel user id is not one, so a raw id made this
+        // insert throw and rolled the whole erasure back.
+        resourceId: auditResourceId(targetUserId),
         action: "deleted",
+        metadata: { userId: targetUserId },
       });
     });
 
