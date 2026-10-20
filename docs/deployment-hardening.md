@@ -95,8 +95,9 @@ server {
 ```
 
 Apply equivalent settings to the Zitadel hostname. Set
-`ZITADEL_EXTERNALSECURE=true` before Zitadel's first boot, as described in the
-setup guide; Zitadel persists its issuer scheme during initialisation.
+`ZITADEL_EXTERNALSECURE=true` before Zitadel's first boot (see the warning at the start of
+[First-time setup](runbooks/openbao-secrets.md#first-time-setup)); Zitadel persists its issuer scheme
+during initialisation, and fixing it later means wiping its database.
 
 Do not enable HSTS preload casually. `includeSubDomains` and `preload` can make
 unrelated or future subdomains unreachable if they are not HTTPS-ready. Treat
@@ -376,6 +377,7 @@ image is safe (root can read and write uid 1000 files).
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.
 - [ ] TLS 1.2/1.3 certificates renew automatically and expiry is monitored.
 - [ ] HSTS is returned on HTTPS responses; domain-wide options were reviewed.
+- [ ] `ZITADEL_EXTERNALSECURE=true` was set before Zitadel's first boot (it cannot be changed later without wiping its database).
 - [ ] `NODE_ENV=production` is present in both the API and worker runtime environments.
 - [ ] Forwarding headers are overwritten by the single trusted proxy.
 - [ ] `TRUST_PROXY` names that proxy, and `PLATFORM_ORG_ID` is set to the operator org.
