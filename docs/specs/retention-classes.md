@@ -53,6 +53,31 @@ deleted case history by age alone.
    `schedule_executions` is append-only; sweeping it needs a `GRANT DELETE` migration and a human
    ADR-017 amendment, so it is not touched.
 
+8. **Changing retention after provisioning (#637).** `PATCH /admin/tenants/:id/retention`
+   (superadmin and platform operator only; any other caller gets 404) sets or clears
+   `retention_days`, `retention_comment_days`, `retention_evidence_days` and `retention_hold` in
+   `tenants.config`. At least one field is required, `null` clears a key, and other config keys
+   (such as `rate_limit_per_min`) are preserved through `jsonb_set` and key removal.
+   - **One schema.** `RetentionFieldsSchema` in `@platform/config` is used by provisioning, the
+     PATCH and the sweep's `retention-policy.ts`, so a value that is accepted is a value the sweep
+     honours. Provisioning previously accepted any `retention_days` from 1; it now refuses
+     anything outside the bounds. Rows that already hold an invalid value still fall back to the
+     default for that field, as before.
+   - **Floor and ceiling are config.** `RETENTION_DAYS_MIN/MAX` (7/3650),
+     `RETENTION_COMMENT_DAYS_MIN/MAX` (30/3650) and `RETENTION_EVIDENCE_DAYS_MIN/MAX` (365/7300);
+     the env defaults must lie inside them.
+   - **Shortening needs confirmation.** A window shorter than the current effective value (the
+     stored override, or the env default when unset; clearing an override counts as setting the
+     default) is refused with 422 `CONFIRM_SHORTEN_REQUIRED` unless the body has
+     `"confirmShorten": true`, because the next sweep deletes the older data for good. Set
+     `RETENTION_REQUIRE_SHORTEN_CONFIRM=false` to drop the requirement. Lengthening, and changing
+     the hold, never need it.
+   - **Audit.** One `updated` entry on resource type `tenant`, written in the same transaction,
+     with before and after values of the changed keys only (numbers and a boolean, no PII).
+   - **Effect.** `retention-archival.ts` selects every tenant's `config` at the start of each run
+     (no cache, nothing held between runs), so a change applies from the next sweep without a
+     restart. A sweep already in flight keeps the config it read at its start, for every tenant.
+
 ## Structure
 
 `retention-archival.ts` orchestrates (lock, tenant list, trial and hold checks).

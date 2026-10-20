@@ -117,6 +117,20 @@ const EnvSchema = z
       .min(365)
       .max(7300)
       .default(2555),
+    // Bounds a tenant retention value must fall in, whether set at provisioning, through
+    // PATCH /admin/tenants/:id/retention, or read by the sweep (packages/config/src/retention.ts).
+    RETENTION_DAYS_MIN: z.coerce.number().int().min(1).default(7),
+    RETENTION_DAYS_MAX: z.coerce.number().int().min(1).default(3650),
+    RETENTION_COMMENT_DAYS_MIN: z.coerce.number().int().min(1).default(30),
+    RETENTION_COMMENT_DAYS_MAX: z.coerce.number().int().min(1).default(3650),
+    RETENTION_EVIDENCE_DAYS_MIN: z.coerce.number().int().min(1).default(365),
+    RETENTION_EVIDENCE_DAYS_MAX: z.coerce.number().int().min(1).default(7300),
+    // A PATCH that shortens a window needs confirmShorten: true, because shortening is
+    // irreversible once a sweep runs. Only the literal "false" turns the guard off.
+    RETENTION_REQUIRE_SHORTEN_CONFIRM: z
+      .string()
+      .transform((v) => v !== "false")
+      .default("true"),
     RETENTION_BATCH_SIZE: z.coerce
       .number()
       .int()
@@ -429,6 +443,26 @@ const EnvSchema = z
     // SUPERSET_REPORTING_DB_NAME.
     SUPERSET_REPORTING_DB_NAME: z.string().default("OpenWind Platform"),
   })
+  .refine(
+    (v) =>
+      v.RETENTION_DAYS_MIN <= v.RETENTION_DAYS_MAX &&
+      v.RETENTION_COMMENT_DAYS_MIN <= v.RETENTION_COMMENT_DAYS_MAX &&
+      v.RETENTION_EVIDENCE_DAYS_MIN <= v.RETENTION_EVIDENCE_DAYS_MAX,
+    { message: "each RETENTION_*_DAYS_MIN must not exceed its _MAX" },
+  )
+  .refine(
+    (v) =>
+      v.RETENTION_DEFAULT_DAYS >= v.RETENTION_DAYS_MIN &&
+      v.RETENTION_DEFAULT_DAYS <= v.RETENTION_DAYS_MAX &&
+      v.RETENTION_COMMENT_DAYS >= v.RETENTION_COMMENT_DAYS_MIN &&
+      v.RETENTION_COMMENT_DAYS <= v.RETENTION_COMMENT_DAYS_MAX &&
+      v.RETENTION_EVIDENCE_DAYS >= v.RETENTION_EVIDENCE_DAYS_MIN &&
+      v.RETENTION_EVIDENCE_DAYS <= v.RETENTION_EVIDENCE_DAYS_MAX,
+    {
+      message:
+        "RETENTION_DEFAULT_DAYS, RETENTION_COMMENT_DAYS and RETENTION_EVIDENCE_DAYS must lie within their configured bounds",
+    },
+  )
   .refine(
     (v) => v.ERROR_TRACKING_PROVIDER === "none" || v.SENTRY_DSN !== undefined,
     {

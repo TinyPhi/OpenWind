@@ -16,7 +16,7 @@ import {
   requireIntrospection,
   setTenantRateLimitOverride,
 } from "@platform/auth";
-import { env } from "@platform/config";
+import { env, RetentionPatchSchema } from "@platform/config";
 import { db, tenants } from "@platform/db";
 import {
   ProvisionTenantSchema,
@@ -25,6 +25,7 @@ import {
   suspendTenant,
   reactivateTenant,
   scheduleTenantDeletion,
+  updateTenantRetention,
 } from "../../lib/tenant-lifecycle.js";
 import { factory } from "./factory.js";
 import {
@@ -258,6 +259,54 @@ export const updateTenantRateLimitHandlers = factory.createHandlers(
 
     await setTenantRateLimitOverride(db, id, ratePerMin);
     return c.json({ data: { tenantId: id, ratePerMin } });
+  },
+);
+
+// ── PATCH /admin/tenants/:id/retention ────────────────────────────────────────
+
+export const updateTenantRetentionHandlers = factory.createHandlers(
+  requireAuth(db),
+  requireRole("superadmin"),
+  requireIntrospection(),
+  // Before validation, so a non-operator learns nothing from a 400 versus a 404.
+  async (c, next) => {
+    if (denyUnlessPlatformOperator(c.get("auth").tenantId, c.req.path)) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
+    await next();
+  },
+  zValidator("param", TenantIdParamSchema),
+  zValidator("json", RetentionPatchSchema),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const patch = c.req.valid("json");
+    const { userId } = c.get("auth");
+
+    try {
+      const { before, after } = await updateTenantRetention(id, userId, patch);
+      return c.json({ data: { tenantId: id, before, after } });
+    } catch (err) {
+      if (err instanceof TenantLifecycleError) {
+        if (err.code === "TENANT_NOT_FOUND") {
+          return c.json(
+            { error: "NOT_FOUND", message: "Tenant not found" },
+            404,
+          );
+        }
+        if (err.code === "CONFIRM_SHORTEN_REQUIRED") {
+          return c.json(
+            {
+              error: "CONFIRM_SHORTEN_REQUIRED",
+              message:
+                "This shortens a retention window, which permanently deletes older data on the next sweep. Resend with confirmShorten: true to proceed.",
+              fields: err.meta?.["fields"],
+            },
+            422,
+          );
+        }
+      }
+      throw err;
+    }
   },
 );
 

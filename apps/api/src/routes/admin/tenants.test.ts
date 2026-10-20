@@ -35,11 +35,25 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
-vi.mock("@platform/config", () => ({
-  get env() {
-    return mockEnv;
-  },
-}));
+vi.mock("@platform/config", async () => {
+  const { z } = await import("zod");
+  return {
+    get env() {
+      return mockEnv;
+    },
+    RetentionPatchSchema: z
+      .object({
+        retention_days: z.number().int().min(7).max(3650).nullable().optional(),
+        retention_hold: z.boolean().nullable().optional(),
+        confirmShorten: z.boolean().optional(),
+      })
+      .strict()
+      .refine(
+        (v) => v.retention_days !== undefined || v.retention_hold !== undefined,
+        { message: "at least one retention field is required" },
+      ),
+  };
+});
 
 const fakeTenant = {
   id: "00000000-0000-0000-0000-000000000001",
@@ -85,12 +99,17 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
 
-const { mockSuspendTenant, mockReactivateTenant, mockScheduleTenantDeletion } =
-  vi.hoisted(() => ({
-    mockSuspendTenant: vi.fn(),
-    mockReactivateTenant: vi.fn(),
-    mockScheduleTenantDeletion: vi.fn(),
-  }));
+const {
+  mockSuspendTenant,
+  mockReactivateTenant,
+  mockScheduleTenantDeletion,
+  mockUpdateTenantRetention,
+} = vi.hoisted(() => ({
+  mockSuspendTenant: vi.fn(),
+  mockReactivateTenant: vi.fn(),
+  mockScheduleTenantDeletion: vi.fn(),
+  mockUpdateTenantRetention: vi.fn(),
+}));
 
 vi.mock("../../lib/tenant-lifecycle.js", () => ({
   ProvisionTenantSchema: {
@@ -98,15 +117,18 @@ vi.mock("../../lib/tenant-lifecycle.js", () => ({
   },
   TenantLifecycleError: class TenantLifecycleError extends Error {
     code: string;
-    constructor(code: string) {
+    meta?: Record<string, unknown>;
+    constructor(code: string, meta?: Record<string, unknown>) {
       super(code);
       this.code = code;
+      if (meta) this.meta = meta;
     }
   },
   provisionTenant: vi.fn(),
   suspendTenant: mockSuspendTenant,
   reactivateTenant: mockReactivateTenant,
   scheduleTenantDeletion: mockScheduleTenantDeletion,
+  updateTenantRetention: mockUpdateTenantRetention,
 }));
 
 const {
@@ -115,7 +137,11 @@ const {
   suspendTenantHandlers,
   reactivateTenantHandlers,
   deleteTenantHandlers,
+  updateTenantRetentionHandlers,
 } = await import("./tenants.js");
+
+const { TenantLifecycleError: TenantLifecycleErrorMock } =
+  await import("../../lib/tenant-lifecycle.js");
 
 const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -125,6 +151,7 @@ function makeApp() {
   app.get("/:id", ...getTenantHandlers);
   app.patch("/:id/suspend", ...suspendTenantHandlers);
   app.patch("/:id/reactivate", ...reactivateTenantHandlers);
+  app.patch("/:id/retention", ...updateTenantRetentionHandlers);
   app.delete("/:id", ...deleteTenantHandlers);
   return app;
 }
@@ -158,6 +185,7 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
       ["GET", `/${TENANT_ID}`],
       ["PATCH", `/${TENANT_ID}/suspend`],
       ["PATCH", `/${TENANT_ID}/reactivate`],
+      ["PATCH", `/${TENANT_ID}/retention`],
       ["DELETE", `/${TENANT_ID}`],
     ];
     for (const [method, path] of calls) {
@@ -174,6 +202,7 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
     }
     expect(mockSuspendTenant).not.toHaveBeenCalled();
     expect(mockScheduleTenantDeletion).not.toHaveBeenCalled();
+    expect(mockUpdateTenantRetention).not.toHaveBeenCalled();
   });
 
   it("still serves them in production when the caller is in PLATFORM_ORG_ID", async () => {
@@ -254,5 +283,83 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
     mockEnv.PLATFORM_ORG_ID = "t-platform";
     const res = await makeApp().request("/");
     expect(res.status).toBe(200);
+  });
+});
+
+describe("PATCH /admin/tenants/:id/retention (#637)", () => {
+  const patch = (body: unknown) =>
+    makeApp().request(`/${TENANT_ID}/retention`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.tenantId = "t-platform";
+    mockEnv.PLATFORM_ORG_ID = "t-platform";
+    mockEnv.NODE_ENV = "test";
+    mockUpdateTenantRetention.mockResolvedValue({
+      before: { retention_days: 90 },
+      after: { retention_days: 120 },
+    });
+  });
+
+  it("passes the patch and the caller to the lifecycle service and returns before and after", async () => {
+    const res = await patch({ retention_days: 120 });
+    expect(res.status).toBe(200);
+    expect(mockUpdateTenantRetention).toHaveBeenCalledWith(
+      TENANT_ID,
+      "u-superadmin",
+      { retention_days: 120 },
+    );
+    const json = (await res.json()) as { data: { after: unknown } };
+    expect(json.data.after).toEqual({ retention_days: 120 });
+  });
+
+  it("rejects an empty body, an out-of-bounds value and unknown keys with 422", async () => {
+    for (const body of [{}, { retention_days: 3 }, { rate_limit_per_min: 5 }]) {
+      const res = await patch(body);
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBeLessThan(500);
+    }
+    expect(mockUpdateTenantRetention).not.toHaveBeenCalled();
+  });
+
+  it("accepts null to clear a key", async () => {
+    const res = await patch({ retention_hold: null });
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 404 for a caller outside the platform org", async () => {
+    mockAuth.tenantId = "t-customer";
+    const res = await patch({ retention_days: 120 });
+    expect(res.status).toBe(404);
+    expect(mockUpdateTenantRetention).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the tenant does not exist", async () => {
+    mockUpdateTenantRetention.mockRejectedValue(
+      new TenantLifecycleErrorMock("TENANT_NOT_FOUND"),
+    );
+    expect((await patch({ retention_days: 120 })).status).toBe(404);
+  });
+
+  it("returns 422 naming the fields when a shortening is not confirmed", async () => {
+    mockUpdateTenantRetention.mockRejectedValue(
+      new TenantLifecycleErrorMock("CONFIRM_SHORTEN_REQUIRED", {
+        fields: ["retention_days"],
+      }),
+    );
+    const res = await patch({ retention_days: 8 });
+    expect(res.status).toBe(422);
+    const json = (await res.json()) as {
+      error: string;
+      message: string;
+      fields: string[];
+    };
+    expect(json.error).toBe("CONFIRM_SHORTEN_REQUIRED");
+    expect(json.message).toContain("confirmShorten");
+    expect(json.fields).toEqual(["retention_days"]);
   });
 });

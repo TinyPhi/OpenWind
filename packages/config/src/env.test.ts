@@ -573,3 +573,50 @@ describe("retention settings (docs/specs/retention-classes.md)", () => {
     ).toThrow();
   });
 });
+
+describe("retention bounds and shorten-confirm settings (#637)", () => {
+  it("default to the sweep's bounds and require confirmation", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect([parsed.RETENTION_DAYS_MIN, parsed.RETENTION_DAYS_MAX]).toEqual([
+      7, 3650,
+    ]);
+    expect([
+      parsed.RETENTION_COMMENT_DAYS_MIN,
+      parsed.RETENTION_COMMENT_DAYS_MAX,
+    ]).toEqual([30, 3650]);
+    expect([
+      parsed.RETENTION_EVIDENCE_DAYS_MIN,
+      parsed.RETENTION_EVIDENCE_DAYS_MAX,
+    ]).toEqual([365, 7300]);
+    expect(parsed.RETENTION_REQUIRE_SHORTEN_CONFIRM).toBe(true);
+  });
+
+  it("accept overrides and turn the confirmation off only on the literal false", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      RETENTION_DAYS_MIN: "30",
+      RETENTION_REQUIRE_SHORTEN_CONFIRM: "false",
+    });
+    expect(parsed.RETENTION_DAYS_MIN).toBe(30);
+    expect(parsed.RETENTION_REQUIRE_SHORTEN_CONFIRM).toBe(false);
+    expect(
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        RETENTION_REQUIRE_SHORTEN_CONFIRM: "0",
+      }).RETENTION_REQUIRE_SHORTEN_CONFIRM,
+    ).toBe(true);
+  });
+
+  it("reject min above max and a default outside the bounds", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        RETENTION_DAYS_MIN: "400",
+        RETENTION_DAYS_MAX: "100",
+      }),
+    ).toThrow(/must not exceed/);
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_DAYS_MIN: "120" }),
+    ).toThrow(/within their configured bounds/);
+  });
+});

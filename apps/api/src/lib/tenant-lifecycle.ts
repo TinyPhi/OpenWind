@@ -8,7 +8,8 @@
  */
 
 import { Queue } from "@platform/telemetry";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -18,6 +19,12 @@ import {
 } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
+import {
+  env,
+  RETENTION_DAY_FIELDS,
+  RetentionFieldsSchema,
+} from "@platform/config";
+import type { RetentionDayField, RetentionPatch } from "@platform/config";
 import { connection } from "./redis.js";
 import { invalidateTenantStatusCache } from "@platform/auth";
 import { ModuleService } from "../services/module-service.js";
@@ -27,16 +34,7 @@ const tenantPurgeQueue = new Queue("tenant-purge", { connection });
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
-const TenantConfigSchema = z
-  .object({
-    retention_days: z.number().int().min(1).optional(),
-    // Same bounds as the sweep policy (apps/worker/src/retention-policy.ts), so a value the
-    // sweep would reject is refused at provisioning instead of silently falling back.
-    retention_comment_days: z.number().int().min(30).max(3650).optional(),
-    retention_evidence_days: z.number().int().min(365).max(7300).optional(),
-    retention_hold: z.boolean().optional(),
-  })
-  .catchall(z.unknown());
+const TenantConfigSchema = RetentionFieldsSchema.catchall(z.unknown());
 
 export const ProvisionTenantSchema = z.object({
   name: z.string().min(1).max(255),
@@ -58,6 +56,7 @@ export class TenantLifecycleError extends Error {
     public readonly code:
       | "TENANT_NOT_FOUND"
       | "INVALID_TRANSITION"
+      | "CONFIRM_SHORTEN_REQUIRED"
       | "SLUG_TAKEN",
     public readonly meta?: Record<string, unknown>,
   ) {
@@ -371,4 +370,124 @@ export async function scheduleTenantDeletion(
   );
 
   return { deletionScheduledAt };
+}
+
+// ── Retention config ──────────────────────────────────────────────────────────
+
+const RETENTION_DEFAULTS: Record<RetentionDayField, () => number> = {
+  retention_days: () => env.RETENTION_DEFAULT_DAYS,
+  retention_comment_days: () => env.RETENTION_COMMENT_DAYS,
+  retention_evidence_days: () => env.RETENTION_EVIDENCE_DAYS,
+};
+
+function storedValue(
+  config: Record<string, unknown>,
+  key: string,
+): number | boolean | null {
+  const v = config[key];
+  return typeof v === "number" || typeof v === "boolean" ? v : null;
+}
+
+// The window the sweep would use now: a valid stored override, else the platform default.
+function effectiveDays(
+  config: Record<string, unknown>,
+  field: RetentionDayField,
+): number {
+  const parsed = RetentionFieldsSchema.shape[field].safeParse(config[field]);
+  return parsed.success && parsed.data !== undefined
+    ? parsed.data
+    : RETENTION_DEFAULTS[field]();
+}
+
+/**
+ * Change a tenant's retention overrides after provisioning (#637).
+ *
+ * null clears a key. Other tenants.config keys are preserved (jsonb_set / key removal on the
+ * existing value, never a whole-object replace). A window shorter than the current effective
+ * one needs confirmShorten unless RETENTION_REQUIRE_SHORTEN_CONFIRM is off. The sweep reads
+ * tenants.config on every run, so the change applies from the next sweep.
+ */
+export async function updateTenantRetention(
+  tenantId: string,
+  actorId: string,
+  patch: RetentionPatch,
+): Promise<{
+  before: Record<string, number | boolean | null>;
+  after: Record<string, number | boolean | null>;
+}> {
+  const result = await withTenantContext(tenantId, async (tx) => {
+    const [row] = await tx
+      .select({ config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .for("update")
+      .limit(1);
+    if (!row) throw new TenantLifecycleError("TENANT_NOT_FOUND");
+
+    const current =
+      typeof row.config === "object" &&
+      row.config !== null &&
+      !Array.isArray(row.config)
+        ? (row.config as Record<string, unknown>) // jsonb column: narrowed to an object just above
+        : {};
+
+    const before: Record<string, number | boolean | null> = {};
+    const after: Record<string, number | boolean | null> = {};
+    const shortened: string[] = [];
+    let expr: SQL = sql`COALESCE(config, '{}'::jsonb)`;
+
+    for (const key of [...RETENTION_DAY_FIELDS, "retention_hold"] as const) {
+      const next = patch[key];
+      if (next === undefined) continue;
+      before[key] = storedValue(current, key);
+      after[key] = next;
+      if (key !== "retention_hold") {
+        const newEffective = next ?? RETENTION_DEFAULTS[key]();
+        if (newEffective < effectiveDays(current, key)) shortened.push(key);
+      }
+      expr =
+        next === null
+          ? sql`(${expr}) - ${key}::text`
+          : sql`jsonb_set(${expr}, ARRAY[${key}::text], ${JSON.stringify(next)}::jsonb, true)`;
+    }
+
+    if (
+      shortened.length > 0 &&
+      env.RETENTION_REQUIRE_SHORTEN_CONFIRM &&
+      patch.confirmShorten !== true
+    ) {
+      throw new TenantLifecycleError("CONFIRM_SHORTEN_REQUIRED", {
+        fields: shortened,
+      });
+    }
+
+    await tx
+      .update(tenants)
+      .set({ config: expr, updatedAt: new Date() })
+      .where(eq(tenants.id, tenantId));
+
+    await writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "updated",
+      beforeSnapshot: before,
+      afterSnapshot: after,
+      metadata: {
+        change: "retention_config",
+        confirmShorten:
+          shortened.length > 0 ? patch.confirmShorten === true : false,
+      },
+    });
+
+    return { before, after, shortened };
+  });
+
+  logger.info(
+    { tenantId, actorId, fields: Object.keys(result.after) },
+    "tenant: retention config updated",
+  );
+  return { before: result.before, after: result.after };
 }

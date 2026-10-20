@@ -54,3 +54,31 @@ describe("resolveRetentionPolicy", () => {
     expect(resolveRetentionPolicy({ retention_hold: false }).hold).toBe(false);
   });
 });
+
+describe("resolveRetentionPolicy bounds come from the shared schema", () => {
+  it("falls back per field for a value outside the configured bounds", () => {
+    expect(
+      resolveRetentionPolicy({
+        retention_days: 6,
+        retention_comment_days: 29,
+        retention_evidence_days: 7301,
+      }),
+    ).toEqual({
+      hold: false,
+      noiseDays: 90,
+      commentDays: 365,
+      evidenceDays: 2555,
+    });
+  });
+
+  it("treats a null cleared key as unset, not as a hold", () => {
+    expect(
+      resolveRetentionPolicy({ retention_days: null, retention_hold: null }),
+    ).toEqual({
+      hold: false,
+      noiseDays: 90,
+      commentDays: 365,
+      evidenceDays: 2555,
+    });
+  });
+});

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { env } from "@platform/config";
+import { env, RetentionFieldsSchema } from "@platform/config";
 
 export interface RetentionPolicy {
   hold: boolean;
@@ -8,14 +8,13 @@ export interface RetentionPolicy {
   evidenceDays: number;
 }
 
-const days = (min: number, max: number): z.ZodNumber =>
-  z.number().int().min(min).max(max);
+const FIELDS = RetentionFieldsSchema.shape;
 
 const TenantRetentionConfigSchema = z.object({
-  retention_days: days(7, 3650).optional().catch(undefined),
-  retention_comment_days: days(30, 3650).optional().catch(undefined),
-  retention_evidence_days: days(365, 7300).optional().catch(undefined),
-  retention_hold: z.boolean().optional().catch(undefined),
+  retention_days: FIELDS.retention_days.catch(undefined),
+  retention_comment_days: FIELDS.retention_comment_days.catch(undefined),
+  retention_evidence_days: FIELDS.retention_evidence_days.catch(undefined),
+  retention_hold: FIELDS.retention_hold.catch(undefined),
 });
 
 // A malformed override falls back to the platform default for that field only;
