@@ -246,6 +246,7 @@ describe("tenant-purge audit writes", () => {
     ];
     expect(conn.kind).toBe("purge-tx");
     expect(tenantId).toBe(TENANT_ID);
+    expect(mockWithTenantPurgeContext).toHaveBeenCalledTimes(1);
     expect(mockWithTenantPurgeContext).toHaveBeenCalledWith(
       TENANT_ID,
       expect.any(Function),
@@ -266,6 +267,29 @@ describe("tenant-purge audit writes", () => {
     ]);
     // app_user cannot delete workflow events (migration 0147): only the maintenance context does.
     expect(writes.eventLog).toEqual(["delete:workflowEvents"]);
+    expect(writes.plain).toEqual([]);
+    expect(mockWithTenantPurgeContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts purge and bubbles error when audit anonymization fails (#931)", async () => {
+    mockAnonymize.mockRejectedValueOnce(
+      new Error("simulated anonymization failure"),
+    );
+
+    await expect(
+      captured.processor?.({
+        id: "job-fail-anonymize",
+        attemptsMade: 0,
+        data: { tenantId: TENANT_ID },
+      }),
+    ).rejects.toThrow("simulated anonymization failure");
+
+    // The privileged pre-steps transaction ran and failed
+    expect(mockWithTenantPurgeContext).toHaveBeenCalledTimes(1);
+    // Downstream main delete transaction and completion audit entry must NOT have executed
+    // (withTenantContext only called once for the preceding plugin definitions lookup)
+    expect(mockWithTenantContext).toHaveBeenCalledTimes(1);
+    expect(auditCall("purge.completed")).toBeUndefined();
     expect(writes.plain).toEqual([]);
   });
 

@@ -140,6 +140,70 @@ describe("getSandboxHandoverCredentials", () => {
       expect(result).toBeNull();
     },
   );
+
+  it("returns null when some accounts have passwords and others do not (and defaultPassword is absent) (#930)", async () => {
+    mockRedisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        seededAccounts: [
+          {
+            username: "admin.user",
+            email: "admin@example.com",
+            role: "admin",
+            password: "Ow-admin-9!",
+          },
+          {
+            username: "olivia.smith",
+            email: "olivia@example.com",
+            role: "user",
+          },
+        ],
+      }),
+    );
+
+    const result = await getSandboxHandoverCredentials("tenant-1");
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to defaultPassword for accounts lacking a per-account password when defaultPassword is present", async () => {
+    mockRedisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        seededAccounts: [
+          {
+            username: "admin.user",
+            email: "admin@example.com",
+            role: "admin",
+            password: "Ow-admin-9!",
+          },
+          {
+            username: "olivia.smith",
+            email: "olivia@example.com",
+            role: "user",
+          },
+        ],
+        defaultPassword: "Ow-default-9!",
+      }),
+    );
+
+    const result = await getSandboxHandoverCredentials("tenant-1");
+
+    expect(result).toEqual({
+      seededAccounts: [
+        {
+          username: "admin.user",
+          email: "admin@example.com",
+          role: "admin",
+          password: "Ow-admin-9!",
+        },
+        {
+          username: "olivia.smith",
+          email: "olivia@example.com",
+          role: "user",
+          password: "Ow-default-9!",
+        },
+      ],
+    });
+  });
 });
 
 describe("deleteSandboxHandoverCredentials", () => {

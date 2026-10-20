@@ -248,6 +248,15 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, tenantId)),
     );
 
+    // Privileged pre-steps + audit anonymization (#635, #860, #931) — executed in a
+    // single atomic withTenantPurgeContext transaction so schedule/view pre-purge and
+    // audit log anonymization commit together or roll back on transient failure.
+    //
+    // 1. Archive schedule rules first: tick only fires active rules (RESTRICT FK).
+    // 2. Delete schedule executions and saved views (app_user cannot delete these).
+    // 3. ADR-012 Phase G, spec R9: anonymize admin_audit_log rows in place before
+    //    tenant_users is deleted below (#860), preserving operational history while
+    //    redacting person identifiers.
     await withTenantPurgeContext(tenantId, async (tx) => {
       await tx
         .update(scheduleRules)
@@ -257,25 +266,9 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         .delete(scheduleExecutions)
         .where(eq(scheduleExecutions.tenantId, tenantId));
       await tx.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
-    });
 
-    // ADR-012 Phase G, spec R9 -- admin_audit_log rows are anonymized in
-    // place (person-identifying fields replaced with a placeholder), never
-    // deleted: aggregate operational history (action/resourceType/outcome/
-    // timestamp) must survive a purge the same way it survives the R8 age-
-    // based sweep. app_user may not UPDATE admin_audit_log, so this runs in
-    // withTenantPurgeContext (0144) -- see anonymizeAuditLogForTenant's doc.
-    //
-    // Runs BEFORE the delete transaction (#860): it finds the person ids held
-    // in the audit rows' JSON by value, and needs the tenant's members
-    // (tenant_users, deleted below) to know them. Doing it here also means a
-    // retry after a partial failure still has every id. It is idempotent. The
-    // G5 audit INSERTs further down are different: app_user may insert, but
-    // only under the tenant's RLS context, so those go through
-    // withTenantContext.
-    await withTenantPurgeContext(tenantId, (tx) =>
-      anonymizeAuditLogForTenant(tx, tenantId),
-    );
+      await anonymizeAuditLogForTenant(tx, tenantId);
+    });
 
     await withTenantContext(tenantId, async (tx) => {
       // Notifications (recipients cascade, but are deleted explicitly so the
