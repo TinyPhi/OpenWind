@@ -39,6 +39,11 @@ vi.mock("../../lib/ensure-user-refs.js", () => ({
   ensureUserRefsKnown: (...args: unknown[]) => mockEnsureUserRefsKnown(...args),
 }));
 
+const mockPostRemarkComment = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../lib/post-remark-comment.js", () => ({
+  postRemarkComment: (...args: unknown[]) => mockPostRemarkComment(...args),
+}));
+
 const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
 const mockUpdateSet = vi.fn(() => ({ where: mockUpdateWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockUpdateSet }));
@@ -551,5 +556,46 @@ describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap f
       "org-ccc",
     );
     expect(order).toEqual(["ensureUserRefsKnown", "createEntity"]);
+  });
+});
+
+describe("POST /entities — remark-as-first-comment warning contract (#1022)", () => {
+  const fakeWorkflowInstance = {
+    ...fakeInstance,
+    workflowId: "wf-1",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
+    mockCreateEntity.mockResolvedValue(fakeWorkflowInstance);
+    mockPostRemarkComment.mockResolvedValue(undefined);
+    mockSelectLimitResult = [];
+  });
+
+  it("still returns 201 but flags remark_comment_failed when posting the remark comment fails", async () => {
+    mockPostRemarkComment.mockRejectedValue(new Error("comment store down"));
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ remark: "Initial remark on create" }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: unknown; warnings?: string[] };
+    expect(body.warnings).toEqual(["remark_comment_failed"]);
+  });
+
+  it("returns no warnings when the remark comment posts successfully", async () => {
+    mockPostRemarkComment.mockResolvedValue(undefined);
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ remark: "Initial remark on create" }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("warnings");
   });
 });

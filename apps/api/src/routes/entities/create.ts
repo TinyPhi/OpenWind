@@ -323,6 +323,7 @@ export const createEntityHandler = factory.createHandlers(
       // Best-effort, outside the create transaction (already committed by
       // this point) -- a failure here must never surface as a failed ticket
       // creation. See post-remark-comment.ts.
+      const warnings: string[] = [];
       if (instance.workflowId) {
         try {
           await withTenantContext(tenantId, (tx) =>
@@ -341,10 +342,14 @@ export const createEntityHandler = factory.createHandlers(
             { remarkErr, tenantId, instanceId: instance.id },
             "entity create: failed to post remark as first comment",
           );
+          warnings.push("remark_comment_failed");
         }
       }
 
-      return c.json({ data: instance }, 201);
+      return c.json(
+        warnings.length > 0 ? { data: instance, warnings } : { data: instance },
+        201,
+      );
     } catch (err) {
       return handleEntityError(c, err);
     }

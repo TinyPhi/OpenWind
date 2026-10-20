@@ -9,10 +9,11 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   db,
   withTenantContext,
+  withEventLogMaintenanceContext,
   entityInstances,
   entityTypes,
   workflows,
@@ -92,7 +93,30 @@ async function conditionNotMet(p: Promise<unknown>): Promise<boolean> {
   }
 }
 
+async function cleanTenantData(tenantId: string): Promise<void> {
+  try {
+    await withEventLogMaintenanceContext(tenantId, (tx) =>
+      tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, tenantId)),
+    );
+  } catch {
+    await db
+      .delete(workflowEvents)
+      .where(eq(workflowEvents.tenantId, tenantId));
+  }
+  await db
+    .delete(entityInstances)
+    .where(eq(entityInstances.tenantId, tenantId));
+  await db
+    .delete(workflowTransitions)
+    .where(eq(workflowTransitions.tenantId, tenantId));
+  await db.delete(workflowStates).where(eq(workflowStates.tenantId, tenantId));
+  await db.delete(workflows).where(eq(workflows.tenantId, tenantId));
+}
+
 beforeAll(async () => {
+  for (const tenantId of [TENANT, OTHER_TENANT]) {
+    await cleanTenantData(tenantId);
+  }
   const ts = Date.now();
   const [et] = await db
     .insert(entityTypes)
@@ -212,24 +236,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (instanceIds.length > 0) {
-    await db
-      .delete(workflowEvents)
-      .where(inArray(workflowEvents.instanceId, instanceIds));
-    await db
-      .delete(entityInstances)
-      .where(inArray(entityInstances.id, instanceIds));
-  }
   for (const tenantId of [TENANT, OTHER_TENANT]) {
-    await db
-      .delete(workflowTransitions)
-      .where(eq(workflowTransitions.tenantId, tenantId));
-    await db
-      .delete(workflowStates)
-      .where(eq(workflowStates.tenantId, tenantId));
-    await db.delete(workflows).where(eq(workflows.tenantId, tenantId));
+    await cleanTenantData(tenantId);
   }
-  await db.delete(entityTypes).where(eq(entityTypes.id, entityTypeId));
+  if (entityTypeId) {
+    await db.delete(entityTypes).where(eq(entityTypes.id, entityTypeId));
+  }
 });
 
 describe("actor_not_creator", () => {
