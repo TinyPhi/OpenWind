@@ -130,6 +130,15 @@ export type MfaVerifyResult =
   | { ok: false; reason: "expired" | "locked" }
   | { ok: false; reason: "locked_out"; retryAfterSeconds: number };
 
+// Rounded down, so the email never promises a longer life than the code has.
+function codeLifetimeText(): string {
+  const minutes = Math.max(
+    1,
+    Math.floor(env.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS / 60),
+  );
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
 function generateCode(): string {
   // 6-digit, zero-padded -- randomInt's upper bound is exclusive.
   return randomInt(0, 1_000_000).toString().padStart(6, "0");
@@ -178,7 +187,7 @@ export async function requestMfaCode(
     await sendDirectNotification({
       notificationId: `platform-admin-mfa:${userId}:${Date.now()}`,
       title: "Your OpenWind platform admin verification code",
-      body: `Your verification code is ${code}. It expires in ${Math.ceil(env.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS / 60)} minutes. If you did not request this, contact your OpenWind administrator.`,
+      body: `Your verification code is ${code}. It expires in ${codeLifetimeText()}. If you did not request this, contact your OpenWind administrator.`,
       recipients: [{ userId, email }],
     });
   } catch (err) {

@@ -112,17 +112,18 @@ describe("configurable MFA timings (#929)", () => {
   });
 
   it.each([
-    [600, 10],
-    [601, 11],
-    [90, 2],
-    [1800, 30],
+    [600, "10 minutes"],
+    [601, "10 minutes"],
+    [90, "1 minute"],
+    [60, "1 minute"],
+    [1800, "30 minutes"],
   ])(
-    "emails a lifetime of %i seconds as %i minutes (rounded up)",
-    async (seconds, minutes) => {
+    "emails a lifetime of %i seconds as %s (rounded down, never longer than real)",
+    async (seconds, text) => {
       mockEnv.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS = seconds;
       await requestMfaCode("pa-1", "pa@example.com");
       const body = mockSendDirectNotification.mock.calls[0]?.[0].body as string;
-      expect(body).toContain(`expires in ${minutes} minutes`);
+      expect(body).toContain(`expires in ${text}.`);
     },
   );
 

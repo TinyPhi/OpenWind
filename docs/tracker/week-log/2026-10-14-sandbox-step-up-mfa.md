@@ -10,3 +10,10 @@
 - admin-ui: `fetchWithAuth` errors now carry the server `code`; reset and delete open a code dialog on `MFA_REAUTH_REQUIRED` and retry once verified. A second `MFA_REAUTH_REQUIRED` straight after verifying is shown as an alert instead of looping.
 - Still hardcoded (unchanged): the 12-hour verified window, the 10-minute code lifetime and the 5-attempt cap. Moving them to config is a possible follow-up.
 - Not in this change: the ADR-022 text itself (Decision 9 line 188, Decision 10 control 1, and a new paragraph for #801), which a human edits.
+
+## Security review follow-up
+
+- The attempts cap is limited to 5 (was 1-10): the per-admin limit across codes (MAX_FAILED_VERIFIES, 5 per 30 minutes) locks an admin out at the fifth wrong code whatever the per-code cap is, so a higher value did nothing.
+- The verification email states the lifetime rounded down and singular ("1 minute"), so it never promises more than the code has.
+- A second refine requires the fresh window not to exceed the verified TTL (it held only because the bounds both met at 900).
+- Still for a human: ADR-022 Decision 10 describes 12h as fixed; the verified TTL can now be set up to 24h.

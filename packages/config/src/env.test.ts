@@ -151,11 +151,21 @@ describe("platform_admin MFA timings (#929)", () => {
     ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS", "59"],
     ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS", "1801"],
     ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "0"],
-    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "11"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "6"],
     ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "2.5"],
   ])("reject %s=%s", (key, value) => {
     expect(() =>
       EnvSchema.parse({ ...MINIMAL_VALID_ENV, [key]: value }),
+    ).toThrow();
+  });
+
+  it("rejects a fresh window longer than the verified session", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "900",
+        PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS: "901",
+      }),
     ).toThrow();
   });
 
