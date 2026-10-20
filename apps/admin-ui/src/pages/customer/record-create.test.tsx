@@ -246,7 +246,7 @@ describe("CustomerRecordCreate — Mandate/Other tabs", () => {
         fieldType: "text",
         isRequired: false,
         isSystem: false,
-        config: {},
+        config: { virtual: true },
       },
     ];
     renderAt({ entityTypeId: "et-1", workflowId: "wf-1" }, FIELDS_WITH_TEAM_ID);

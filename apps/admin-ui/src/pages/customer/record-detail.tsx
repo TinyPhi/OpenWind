@@ -1581,9 +1581,6 @@ export function CustomerRecordDetail(): React.ReactElement {
       ? fields.filter((f) => /^(due_?date|due|description|desc)$/i.test(f.name))
       : fields
   ).filter((f) => !f.config.virtual);
-  // team_id shows as the resolved team name; it changes through assignment, never as a
-  // free-text input (blanking it would leave a team ticket with nobody).
-  const editFormFields = editableFields.filter((f) => f.name !== "team_id");
 
   // Child tickets use a fixed 3-state machine regardless of parent workflow
   const CHILD_TICKET_STATES: WorkflowState[] = [
@@ -4407,7 +4404,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         ))}
                       </select>
                     </div>
-                    {editFormFields.map((f) => (
+                    {editableFields.map((f) => (
                       <div
                         key={f.id}
                         className={`portal-field-group ${f.fieldType === "longtext" ? "portal-field-full" : ""}`}
@@ -4471,15 +4468,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <div className="rcd-field-lbl">{f.label}</div>
                         <div className="rcd-field-val">
                           <FieldValue
-                            // team_id is a plain generic field on every
-                            // entity type (no dedicated field type) -- the
-                            // server-resolved live team name (get.ts) is
-                            // shown instead of the raw id whenever present.
-                            value={
-                              f.name === "team_id" && record.teamName
-                                ? record.teamName
-                                : record.fields[f.name]
-                            }
+                            value={record.fields[f.name]}
                             fieldType={f.fieldType}
                             field={f}
                             attachments={attachments}

@@ -579,12 +579,8 @@ export function CustomerRecordCreate(): React.ReactElement {
   const { stagedFiles, addFiles, removeFile, pendingCount, cleanFileIds } =
     useFileUpload({ moduleSlug: typeSlug ?? "unknown" });
   const mandateFields = fields.filter((f) => f.isRequired);
-  // team_id is excluded here (docs/specs/team-assign-oncall-fallback.md R2)
-  // -- it is exclusively set through the User/Team toggle below, never
-  // independently editable as a normal Other-tab custom field.
-  const otherFields = fields.filter(
-    (f) => !f.isRequired && f.name !== "team_id",
-  );
+  // Virtual fields (team_id, set through the User/Team toggle below) never reach `fields`.
+  const otherFields = fields.filter((f) => !f.isRequired);
 
   const currentWorkflowName = workflows.find((w) => w.id === workflowId)?.name;
 
