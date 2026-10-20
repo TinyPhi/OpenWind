@@ -19,6 +19,7 @@ import {
   reactivateTenantHandlers,
   deleteTenantHandlers,
   updateTenantRateLimitHandlers,
+  updateTenantRetentionHandlers,
 } from "./tenants.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -38,6 +39,7 @@ router.get("/tenants/:id", ...getTenantHandlers);
 router.patch("/tenants/:id/suspend", ...suspendTenantHandlers);
 router.patch("/tenants/:id/reactivate", ...reactivateTenantHandlers);
 router.patch("/tenants/:id/rate-limit", ...updateTenantRateLimitHandlers);
+router.patch("/tenants/:id/retention", ...updateTenantRetentionHandlers);
 router.delete("/tenants/:id", ...deleteTenantHandlers);
 
 export { router as adminRouter };

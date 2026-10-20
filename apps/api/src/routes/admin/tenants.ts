@@ -16,8 +16,13 @@ import {
   requireIntrospection,
   setTenantRateLimitOverride,
 } from "@platform/auth";
-import { env } from "@platform/config";
-import { db, tenants } from "@platform/db";
+import {
+  env,
+  UpdateTenantRetentionSchema,
+  resolveRetentionPolicy,
+} from "@platform/config";
+import { db, tenants, withTenantContext } from "@platform/db";
+import { writeAuditEntry } from "@platform/audit";
 import {
   ProvisionTenantSchema,
   TenantLifecycleError,
@@ -258,6 +263,127 @@ export const updateTenantRateLimitHandlers = factory.createHandlers(
 
     await setTenantRateLimitOverride(db, id, ratePerMin);
     return c.json({ data: { tenantId: id, ratePerMin } });
+  },
+);
+
+// ── PATCH /admin/tenants/:id/retention ──────────────────────────────────────
+// Issue #637: Configurable per-tenant retention policy updates.
+// Allows superadmins in the platform organization to configure noise, comment,
+// and evidence retention windows, or set/clear legal holds for a tenant.
+// Guarded by confirmShorten to prevent accidental immediate data purging.
+
+export const updateTenantRetentionHandlers = factory.createHandlers(
+  requireAuth(db),
+  requireRole("superadmin"),
+  requireIntrospection(),
+  zValidator("param", TenantIdParamSchema),
+  zValidator("json", UpdateTenantRetentionSchema),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const { userId, tenantId: authTenantId } = c.get("auth");
+
+    if (denyUnlessPlatformOperator(authTenantId, c.req.path)) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
+
+    const [existing] = await db
+      .select({ id: tenants.id, config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
+
+    const currentConfig =
+      (existing.config as Record<string, unknown> | null) ?? {};
+    const currentPolicy = resolveRetentionPolicy(currentConfig);
+
+    const isShortening =
+      (input.retention_days !== undefined &&
+        input.retention_days < currentPolicy.noiseDays) ||
+      (input.retention_comment_days !== undefined &&
+        input.retention_comment_days < currentPolicy.commentDays) ||
+      (input.retention_evidence_days !== undefined &&
+        input.retention_evidence_days < currentPolicy.evidenceDays);
+
+    if (isShortening && !input.confirmShorten) {
+      return c.json(
+        {
+          error: "CONFIRM_SHORTEN_REQUIRED",
+          message:
+            "Shortening retention window is irreversible and will permanently delete data during the next sweep. Set confirmShorten to true to confirm.",
+        },
+        400,
+      );
+    }
+
+    const patchConfig: Record<string, unknown> = {};
+    if (input.retention_days !== undefined) {
+      patchConfig.retention_days = input.retention_days;
+    }
+    if (input.retention_comment_days !== undefined) {
+      patchConfig.retention_comment_days = input.retention_comment_days;
+    }
+    if (input.retention_evidence_days !== undefined) {
+      patchConfig.retention_evidence_days = input.retention_evidence_days;
+    }
+    if (input.retention_hold !== undefined) {
+      patchConfig.retention_hold = input.retention_hold;
+    }
+
+    const nextConfig = {
+      ...currentConfig,
+      ...patchConfig,
+    };
+    const nextPolicy = resolveRetentionPolicy(nextConfig);
+
+    await withTenantContext(id, async (tx) => {
+      await tx
+        .update(tenants)
+        .set({
+          config: nextConfig,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, id));
+
+      await writeAuditEntry(tx, {
+        tenantId: id,
+        actorId: userId,
+        actorType: "user",
+        resourceType: "tenant",
+        resourceId: id,
+        action: "updated",
+        beforeSnapshot: {
+          retention_days: currentPolicy.noiseDays,
+          retention_comment_days: currentPolicy.commentDays,
+          retention_evidence_days: currentPolicy.evidenceDays,
+          retention_hold: currentPolicy.hold,
+        },
+        afterSnapshot: {
+          retention_days: nextPolicy.noiseDays,
+          retention_comment_days: nextPolicy.commentDays,
+          retention_evidence_days: nextPolicy.evidenceDays,
+          retention_hold: nextPolicy.hold,
+        },
+        metadata: {
+          type: "retention_policy_update",
+          confirmShorten: Boolean(input.confirmShorten),
+        },
+      });
+    });
+
+    return c.json({
+      data: {
+        tenantId: id,
+        retention_days: nextPolicy.noiseDays,
+        retention_comment_days: nextPolicy.commentDays,
+        retention_evidence_days: nextPolicy.evidenceDays,
+        retention_hold: nextPolicy.hold,
+      },
+    });
   },
 );
 

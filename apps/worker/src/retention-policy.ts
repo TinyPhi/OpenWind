@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { env } from "@platform/config";
+import { env, RETENTION_BOUNDS, retentionDays } from "@platform/config";
 
 export interface RetentionPolicy {
   hold: boolean;
@@ -8,13 +8,25 @@ export interface RetentionPolicy {
   evidenceDays: number;
 }
 
-const days = (min: number, max: number): z.ZodNumber =>
-  z.number().int().min(min).max(max);
-
 const TenantRetentionConfigSchema = z.object({
-  retention_days: days(7, 3650).optional().catch(undefined),
-  retention_comment_days: days(30, 3650).optional().catch(undefined),
-  retention_evidence_days: days(365, 7300).optional().catch(undefined),
+  retention_days: retentionDays(
+    RETENTION_BOUNDS.noiseDays.min,
+    RETENTION_BOUNDS.noiseDays.max,
+  )
+    .optional()
+    .catch(undefined),
+  retention_comment_days: retentionDays(
+    RETENTION_BOUNDS.commentDays.min,
+    RETENTION_BOUNDS.commentDays.max,
+  )
+    .optional()
+    .catch(undefined),
+  retention_evidence_days: retentionDays(
+    RETENTION_BOUNDS.evidenceDays.min,
+    RETENTION_BOUNDS.evidenceDays.max,
+  )
+    .optional()
+    .catch(undefined),
   retention_hold: z.boolean().optional().catch(undefined),
 });
 

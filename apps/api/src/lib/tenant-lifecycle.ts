@@ -20,6 +20,7 @@ import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { connection } from "./redis.js";
 import { invalidateTenantStatusCache } from "@platform/auth";
+import { RETENTION_BOUNDS } from "@platform/config";
 import { ModuleService } from "../services/module-service.js";
 
 // One Queue instance per process for enqueuing — the worker holds the Worker.
@@ -29,12 +30,28 @@ const tenantPurgeQueue = new Queue("tenant-purge", { connection });
 
 const TenantConfigSchema = z
   .object({
-    retention_days: z.number().int().min(1).optional(),
     // Same bounds as the sweep policy (apps/worker/src/retention-policy.ts), so a value the
     // sweep would reject is refused at provisioning instead of silently falling back.
-    retention_comment_days: z.number().int().min(30).max(3650).optional(),
-    retention_evidence_days: z.number().int().min(365).max(7300).optional(),
+    retention_days: z
+      .number()
+      .int()
+      .min(RETENTION_BOUNDS.noiseDays.min)
+      .max(RETENTION_BOUNDS.noiseDays.max)
+      .optional(),
+    retention_comment_days: z
+      .number()
+      .int()
+      .min(RETENTION_BOUNDS.commentDays.min)
+      .max(RETENTION_BOUNDS.commentDays.max)
+      .optional(),
+    retention_evidence_days: z
+      .number()
+      .int()
+      .min(RETENTION_BOUNDS.evidenceDays.min)
+      .max(RETENTION_BOUNDS.evidenceDays.max)
+      .optional(),
     retention_hold: z.boolean().optional(),
+    rate_limit_per_min: z.number().int().positive().optional(),
   })
   .catchall(z.unknown());
 
