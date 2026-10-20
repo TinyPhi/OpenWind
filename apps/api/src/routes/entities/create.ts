@@ -262,19 +262,20 @@ export const createEntityHandler = factory.createHandlers(
             ? dbUser.email
             : null;
 
+      // Upsert tenant_users for any user_ref field referencing a genuine
+      // org member who hasn't logged into this app yet - otherwise
+      // createEntity's own validateUserRefs (tenant_users-only) wrongly
+      // rejects them. Runs before the create transaction opens so the
+      // Zitadel lookup never holds a database connection, and commits
+      // first so createEntity's validation sees the inserted rows.
+      await ensureUserRefsKnown(
+        tenantId,
+        input.entityTypeId,
+        input.fields,
+        orgId,
+      );
+
       const instance = await withTenantContext(tenantId, async (tx) => {
-        // Upsert tenant_users for any user_ref field referencing a genuine
-        // org member who hasn't logged into this app yet - otherwise
-        // createEntity's own validateUserRefs (tenant_users-only) wrongly
-        // rejects them. Must run inside this same transaction, before
-        // createEntity, so its validation sees the freshly-inserted rows.
-        await ensureUserRefsKnown(
-          tx,
-          tenantId,
-          input.entityTypeId,
-          input.fields,
-          orgId,
-        );
         // createEntity stores teamId in fields.team_id (docs/specs/team-assign-oncall-fallback.md
         // R1/§I), the slot resolve_oncall reads, even when the type defines no team_id field.
         const { appClientId, ...createInput } = input;

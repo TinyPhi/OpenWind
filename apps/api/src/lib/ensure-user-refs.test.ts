@@ -10,11 +10,19 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 const mockTenantTx = vi.hoisted(() => ({ current: undefined as unknown }));
+const ctxDepth = vi.hoisted(() => ({ current: 0 }));
 vi.mock("@platform/db", () => ({
-  withTenantContext: (
+  withTenantContext: async (
     _tenantId: string,
     fn: (tx: unknown) => Promise<unknown>,
-  ) => fn(mockTenantTx.current),
+  ) => {
+    ctxDepth.current++;
+    try {
+      return await fn(mockTenantTx.current);
+    } finally {
+      ctxDepth.current--;
+    }
+  },
   entityFields: {
     name: "entity_fields.name",
     entityTypeId: "entity_fields.entity_type_id",
@@ -77,6 +85,7 @@ describe("ensureUserRefsKnown", () => {
       [{ name: "reviewer" }], // entity_fields (user_ref field names)
       [], // tenant_users (none already known)
     ]);
+    mockTenantTx.current = tx;
     mockListOrgUsers.mockResolvedValue([
       {
         userId: "u-new",
@@ -87,7 +96,6 @@ describe("ensureUserRefsKnown", () => {
     ]);
 
     await ensureUserRefsKnown(
-      tx,
       TENANT_ID,
       ENTITY_TYPE_ID,
       { reviewer: "u-new" },
@@ -107,10 +115,10 @@ describe("ensureUserRefsKnown", () => {
 
   it("does not insert for a value that isn't a real org member - leaves entity-engine's own check to reject it", async () => {
     const { tx, insertedValues } = makeMockTx([[{ name: "reviewer" }], []]);
+    mockTenantTx.current = tx;
     mockListOrgUsers.mockResolvedValue([]); // not an org member
 
     await ensureUserRefsKnown(
-      tx,
       TENANT_ID,
       ENTITY_TYPE_ID,
       { reviewer: "u-not-a-member" },
@@ -125,9 +133,9 @@ describe("ensureUserRefsKnown", () => {
       [{ name: "reviewer" }],
       [{ userId: "u-known" }], // already known locally
     ]);
+    mockTenantTx.current = tx;
 
     await ensureUserRefsKnown(
-      tx,
       TENANT_ID,
       ENTITY_TYPE_ID,
       { reviewer: "u-known" },
@@ -136,13 +144,14 @@ describe("ensureUserRefsKnown", () => {
 
     expect(mockListOrgUsers).not.toHaveBeenCalled();
     expect(insertedValues).toEqual([]);
+    mockTenantTx.current = tx;
   });
 
   it("skips entirely when the entity type has no user_ref fields", async () => {
     const { tx, insertedValues } = makeMockTx([[]]);
+    mockTenantTx.current = tx;
 
     await ensureUserRefsKnown(
-      tx,
       TENANT_ID,
       ENTITY_TYPE_ID,
       { reviewer: "u-anything" },
@@ -155,9 +164,9 @@ describe("ensureUserRefsKnown", () => {
 
   it("skips entirely when orgId is undefined (fail closed, no Zitadel call)", async () => {
     const { tx, insertedValues } = makeMockTx([[{ name: "reviewer" }], []]);
+    mockTenantTx.current = tx;
 
     await ensureUserRefsKnown(
-      tx,
       TENANT_ID,
       ENTITY_TYPE_ID,
       { reviewer: "u-anything" },
@@ -166,6 +175,28 @@ describe("ensureUserRefsKnown", () => {
 
     expect(mockListOrgUsers).not.toHaveBeenCalled();
     expect(insertedValues).toEqual([]);
+  });
+
+  it("calls Zitadel outside any tenant context and upserts in a later one", async () => {
+    const { tx } = makeMockTx([[{ name: "reviewer" }], []]);
+    mockTenantTx.current = tx;
+    let depthAtZitadel = -1;
+    mockListOrgUsers.mockImplementation(() => {
+      depthAtZitadel = ctxDepth.current;
+      return Promise.resolve([
+        { userId: "u-new", email: "", displayName: "", loginName: "u-new" },
+      ]);
+    });
+
+    await ensureUserRefsKnown(
+      TENANT_ID,
+      ENTITY_TYPE_ID,
+      { reviewer: "u-new" },
+      ORG_ID,
+    );
+
+    expect(depthAtZitadel).toBe(0);
+    expect(tx.insert).toHaveBeenCalledTimes(1);
   });
 });
 

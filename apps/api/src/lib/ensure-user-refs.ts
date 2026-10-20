@@ -115,9 +115,12 @@ async function registerOrgMembers(
  * Mirrors the already-fixed assignedTo pattern (see create.ts) without adding a Zitadel
  * dependency inside packages/entity-engine - it stays db-only per the platform's dependency
  * rule; this all happens at the apps/api route layer, before createEntity/updateEntity.
+ *
+ * Takes no transaction: callers run it BEFORE opening the entity transaction, so the Zitadel
+ * lookup never holds a database connection. The tenant_users upsert commits in its own short
+ * context; a later createEntity/updateEntity failure leaves only rows for genuine org members.
  */
 export async function ensureUserRefsKnown(
-  tx: DbOrTx,
   tenantId: string,
   entityTypeId: string,
   fields: Record<string, unknown>,
@@ -125,20 +128,22 @@ export async function ensureUserRefsKnown(
 ): Promise<void> {
   if (!orgId) return;
 
-  const userRefFieldRows = await tx
-    .select({ name: entityFields.name })
-    .from(entityFields)
-    .where(
-      and(
-        eq(entityFields.entityTypeId, entityTypeId),
-        eq(entityFields.fieldType, "user_ref"),
+  const userRefFieldRows = await withTenantContext(tenantId, (tx) =>
+    tx
+      .select({ name: entityFields.name })
+      .from(entityFields)
+      .where(
+        and(
+          eq(entityFields.entityTypeId, entityTypeId),
+          eq(entityFields.fieldType, "user_ref"),
+        ),
       ),
-    );
+  );
   if (userRefFieldRows.length === 0) return;
 
   const candidateIds = userRefFieldRows
     .map((f) => fields[f.name])
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 
-  await ensureTenantMembers(tx, tenantId, candidateIds, orgId);
+  await resolveTenantMembers(tenantId, candidateIds, orgId);
 }
