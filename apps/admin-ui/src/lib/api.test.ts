@@ -13,10 +13,12 @@ vi.mock("../authProvider.js", () => ({
 
 // Real 401 classification, spied redirect (the redirect itself is covered in session-expiry.test.ts).
 const mockEndSession = vi.fn((_reason?: string): void => {});
+const mockAccessDenied = vi.fn((_reason: string): void => {});
 vi.mock("./session-expiry.js", async (importOriginal) => ({
   ...(await importOriginal<typeof SessionExpiry>()),
   endSessionAndRedirectToLogin: (reason?: string): void =>
     mockEndSession(reason),
+  redirectToAccessDenied: (reason: string): void => mockAccessDenied(reason),
 }));
 
 const { fetchRawWithAuth, fetchWithAuth } = await import("./api.js");
@@ -218,7 +220,8 @@ describe("cross-origin URL rejection (CodeQL: server-side request forgery)", () 
   });
 });
 
-describe("tenant closed (trial ended / suspended)", () => {
+// docs/specs/tenant-access-gate.md R5: a refused login goes to the access-denied screen.
+describe("access refused (no tenant, blocked, no role)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -233,21 +236,24 @@ describe("tenant closed (trial ended / suspended)", () => {
   });
 
   it.each([
-    ["TENANT_TRIAL_EXPIRED", "trial_ended"],
-    ["TENANT_SUSPENDED", "suspended"],
+    [403, "TENANT_TRIAL_EXPIRED"],
+    [403, "TENANT_SUSPENDED"],
+    [403, "NO_ROLE"],
+    [404, "TENANT_NOT_FOUND"],
   ])(
-    "fetchWithAuth: a 403 %s signs the user out with reason %s",
-    async (code, reason) => {
-      fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: code }));
+    "fetchWithAuth: a %i %s goes to the access-denied screen",
+    async (status, code) => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(status, { error: code }));
 
       await expect(fetchWithAuth("/api/modules")).rejects.toThrow();
 
-      expect(mockEndSession).toHaveBeenCalledWith(reason);
+      expect(mockAccessDenied).toHaveBeenCalledWith(code);
+      expect(mockEndSession).not.toHaveBeenCalled();
       expect(mockSilentRefresh).not.toHaveBeenCalled();
     },
   );
 
-  it("fetchRawWithAuth: a 403 TENANT_TRIAL_EXPIRED signs the user out too", async () => {
+  it("fetchRawWithAuth: a 403 TENANT_TRIAL_EXPIRED goes there too", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(403, { error: "TENANT_TRIAL_EXPIRED" }),
     );
@@ -255,7 +261,7 @@ describe("tenant closed (trial ended / suspended)", () => {
     const res = await fetchRawWithAuth("/api/export/1");
 
     expect(res.status).toBe(403);
-    expect(mockEndSession).toHaveBeenCalledWith("trial_ended");
+    expect(mockAccessDenied).toHaveBeenCalledWith("TENANT_TRIAL_EXPIRED");
   });
 
   it("an ordinary 403 (a forbidden action) does not sign anyone out", async () => {

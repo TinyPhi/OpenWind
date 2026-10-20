@@ -18,6 +18,9 @@ import { RequireAdmin } from "./components/require-admin.js";
 import { RequirePlatformAdmin } from "./components/require-platform-admin.js";
 import { RejectPlatformAdmin } from "./components/reject-platform-admin.js";
 import { RequirePlatformAdminMfa } from "./components/require-platform-admin-mfa.js";
+import { AccessGate } from "./components/access-gate.js";
+import { AccessDenied } from "./pages/access-denied.js";
+import { ACCESS_DENIED_PATH } from "./lib/session-expiry.js";
 import {
   Login,
   AuthCallback,
@@ -155,6 +158,7 @@ export function App(): React.ReactElement {
             {/* Auth routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path={ACCESS_DENIED_PATH} element={<AccessDenied />} />
 
             {/* Platform Admin (docs/specs/multi-org-sandbox.md T17) — its own route
               tree, entirely outside <Authenticated>/Layout/EntityTypeProvider: a
@@ -186,13 +190,17 @@ export function App(): React.ReactElement {
                   fallback={<Navigate to="/login" />}
                 >
                   <RejectPlatformAdmin>
-                    <AuthenticatedShell>
-                      <EntityTypeProvider>
-                        <Layout>
-                          <ShellOutlet />
-                        </Layout>
-                      </EntityTypeProvider>
-                    </AuthenticatedShell>
+                    {/* docs/specs/tenant-access-gate.md R3: nothing below renders, or loads
+                        tenant data, until this login is known to be allowed here. */}
+                    <AccessGate>
+                      <AuthenticatedShell>
+                        <EntityTypeProvider>
+                          <Layout>
+                            <ShellOutlet />
+                          </Layout>
+                        </EntityTypeProvider>
+                      </AuthenticatedShell>
+                    </AccessGate>
                   </RejectPlatformAdmin>
                 </Authenticated>
               }

@@ -31,5 +31,23 @@
     "backOnline": "Back online",
     "planDegraded": "Plan degraded: {{metrics}} limit exceeded. Please check usage.",
     "viewUsage": "View usage"
+  },
+  "accessDenied": {
+    "checking": "Checking your access…",
+    "checkFailed": "We couldn't check your access just now.",
+    "retry": "Try again",
+    "title": "You can't use OpenWind here",
+    "reasons": {
+      "TENANT_NOT_FOUND": "Your organisation isn't set up on this server.",
+      "TENANT_SUSPENDED": "This organisation's access has ended or is blocked.",
+      "TENANT_TRIAL_EXPIRED": "This organisation's access has ended or is blocked.",
+      "NO_ROLE": "Your account hasn't been given access to OpenWind. Ask your organisation's admin."
+    },
+    "countdown_one": "Signing you out in {{count}} second…",
+    "countdown_other": "Signing you out in {{count}} seconds…",
+    "signingOut": "Signing you out…",
+    "signOutNow": "Sign out now",
+    "contact": "Think this is a mistake? Contact us",
+    "contactSubject": "OpenWind access issue"
   }
 }

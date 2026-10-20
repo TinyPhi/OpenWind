@@ -1109,8 +1109,14 @@ export async function resolveTenantIdForAuth(
     : null;
   if (mapped) return mapped;
   if (env.NODE_ENV === "production") return null;
-  return auth.tenantId;
+  // Only a real tenant id (DEV_TENANT_ID) may stand in for the mapping. Without it the token's
+  // tenantId is the raw Zitadel org id, which would reach tenant queries and fail with a 500
+  // (docs/specs/tenant-access-gate.md R1).
+  return TENANT_ID_RE.test(auth.tenantId) ? auth.tenantId : null;
 }
+
+const TENANT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function lookupTenantIdByOrgId(
   orgId: string,
