@@ -72,6 +72,10 @@ const EnvSchema = z
     DATABASE_DIRECT_URL: z.string().url().optional(),
     DATABASE_LOCK_POOL_MAX: z.coerce.number().int().min(1).default(5),
     REDIS_URL: z.string().url(),
+    // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
+    // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
+    // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).
+    REDIS_CACHE_URL: z.string().url().optional(),
     // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
     // enforces this per verified auth.tenantId, independent of the pre-auth
     // IP-based flood guard in apps/api's rate-limit middleware. Raised from

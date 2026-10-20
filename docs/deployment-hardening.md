@@ -202,6 +202,36 @@ are in the [OpenBao secrets runbook](runbooks/openbao-secrets.md). In short:
   [the backup runbook](specs/backup-dr-runbook.md)).
 - Changing a secret means restarting the service that reads it.
 
+## Redis: queue/state and cache instances
+
+OpenWind uses two Redis roles, and they need opposite eviction policies (#1013).
+
+| Instance    | Env var           | Holds                                                                                                                                        | Policy                                                       |
+| ----------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Queue/state | `REDIS_URL`       | BullMQ jobs and locks, rate-limit counters, platform-admin MFA markers, sandbox handover tokens, usage metering, idempotency and sweep locks | `noeviction`, AOF (`appendonly yes`, `appendfsync everysec`) |
+| Cache       | `REDIS_CACHE_URL` | Disposable keys that can be rebuilt (the entity schema cache, once it is repointed to `getCacheRedis()`)                                     | `allkeys-lru`, no persistence                                |
+
+Why: under `allkeys-lru` a single Redis silently drops whatever is least recently used, which can be
+a queued job, a lock or a security marker. `noeviction` turns memory pressure into a loud write
+error instead. AOF means a restart keeps delayed SLA, due-date and automation jobs, which exist
+only in Redis; at most about a second of writes is at risk.
+
+- **Compose:** `redis` is the queue/state instance (1 GB, `noeviction`, AOF) and `redis-cache` is
+  the cache (256 MB, LRU, no persistence, no host port). Both are healthchecked, and the backend
+  and worker wait for both. Existing installs: the first start after upgrading re-creates `redis`
+  with the new flags and reads its existing data.
+- **Managed Redis (hosted/SaaS):** provision two instances. Set the eviction policy per instance
+  (a parameter group on most providers) and enable AOF or equivalent durability on the queue/state
+  one. Point `REDIS_URL` and `REDIS_CACHE_URL` at them. A single instance with two logical
+  databases does not help, because eviction policy is per instance.
+- **One instance only:** leave `REDIS_CACHE_URL` unset. Everything then shares `REDIS_URL`, which
+  must still be `noeviction`. Production logs a startup warning when no cache instance is set.
+- **Monitor:** alert on `used_memory` against `maxmemory` for the queue/state instance (writes fail
+  at the limit) and on `evicted_keys` for the cache.
+- **Not moved yet:** the Superset result cache (`redis://redis:6379/2`, reporting profile) and
+  Novu still use the queue/state instance. Superset's result cache is a cache and belongs on
+  `redis-cache`; that change is left to the reporting work (#728).
+
 ## Zitadel machine-key rotation
 
 OpenWind talks to Zitadel with three machine-user private keys. Each one is exchanged for a
@@ -321,6 +351,7 @@ image is safe (root can read and write uid 1000 files).
 - [ ] Forwarding headers are overwritten by the single trusted proxy.
 - [ ] `TRUST_PROXY` names that proxy, and `PLATFORM_ORG_ID` is set to the operator org.
 - [ ] Database, cache, secrets, worker and scanning ports are not public.
+- [ ] `REDIS_URL` points at a `noeviction` instance with persistence, and `REDIS_CACHE_URL` at a separate LRU instance (or is deliberately unset).
 - [ ] PostgreSQL, uploads, Zitadel and production OpenBao storage are encrypted.
 - [ ] Backup output is encrypted, access-controlled and copied off-host.
 - [ ] Encryption and backup keys are stored separately from protected data.

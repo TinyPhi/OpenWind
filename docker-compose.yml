@@ -174,14 +174,40 @@ services:
     # fail to start ow-cache — set REDIS_HOST_PORT to a free port to resolve
     # that, same as POSTGRES_HOST_PORT (issue #450) — see
     # .env.example's own note on that var for the override caveat.
+    # Queue/state instance (REDIS_URL): BullMQ jobs and locks, rate-limit counters, MFA markers.
+    # noeviction, so memory pressure fails a write loudly instead of silently dropping a job or
+    # a security marker. AOF so a restart keeps delayed jobs. Disposable cache keys live on
+    # redis-cache below (#1013).
     command: >
       redis-server
-        --maxmemory 512mb
-        --maxmemory-policy allkeys-lru
+        --maxmemory 1gb
+        --maxmemory-policy noeviction
+        --appendonly yes
+        --appendfsync everysec
         --save 60 1000
         --loglevel notice
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Redis cache ────────────────────────────────────────────────────────────
+  # Disposable cache instance (REDIS_CACHE_URL): LRU, no persistence. Nothing a job or a security
+  # decision depends on may live here. No host port: only the app containers reach it.
+  redis-cache:
+    container_name: ow-redis-cache
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+        --loglevel notice
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -379,6 +405,7 @@ services:
       # backend; PgBouncer transaction pooling cannot, so locks go straight to Postgres (#752).
       DATABASE_DIRECT_URL: postgres://app_user:app_user_dev_password@postgres:5432/platform
       REDIS_URL: redis://redis:6379
+      REDIS_CACHE_URL: redis://redis-cache:6379
       # Zitadel connection — if ZITADEL_URL is set in .env.local (production / custom deploy)
       # the backend uses that public URL for JWKS and introspection.
       # Without ZITADEL_URL the default falls back to the shared Docker network name
@@ -429,6 +456,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redis-cache:
+        condition: service_healthy
       openbao:
         condition: service_healthy
     volumes:
@@ -461,6 +490,7 @@ services:
       DATABASE_DIRECT_URL: postgres://app_user:app_user_dev_password@postgres:5432/platform
       MIGRATION_DATABASE_URL: postgresql://migration_user:migration_user_dev_password@postgres:5432/platform
       REDIS_URL: redis://redis:6379
+      REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
       OPENBAO_ADDR: http://openbao:8200
@@ -482,6 +512,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-cache:
         condition: service_healthy
       openbao:
         condition: service_healthy
