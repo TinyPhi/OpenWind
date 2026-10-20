@@ -15,7 +15,7 @@ about that user. The file is fetched once through an admin-only route and delete
 ## Flow
 
 1. `POST /users/:userId/export` (admin only, rate limited like entity exports). The user must have a
-   `tenant_users` row in the caller's tenant, else 404, so another tenant's user id is
+   `tenant_users` row in the caller's tenant, else `422 USER_NOT_IN_WORKSPACE`, so another tenant's user id is
    indistinguishable from a missing one. Writes `export.requested`
    (`resource_type = user_data_export`, `resource_id` = the export's uuid, metadata: job id, subject
    id, format) then enqueues a `kind: "user_data"` job on the existing `export` queue. Returns 202
@@ -62,8 +62,9 @@ idempotency `response_body`/`content_hash`). Tickets whose custom user-reference
 subject are not included unless the subject created or is assigned to them.
 
 Known limits: `workflow_events.event_type` is not in the Drizzle schema, so the bundle does not carry
-it (comments are identifiable by `comment`). A user with no `tenant_users` row (never signed in) gets
-404 even if other rows reference them.
+it (comments are identifiable by `comment`). A user with no `tenant_users` row (never signed in) gets a
+422 with an actionable message even if other rows reference them, so a person who exists only as a
+reference in other rows cannot be exported yet.
 
 ## Configuration (validated env, `@platform/config`)
 
@@ -93,13 +94,21 @@ therefore sit on disk up to one sweep interval past the TTL but cannot be downlo
 - `tests/isolation/user-data-export-coverage-guard.isolation.test.ts`: every column in the erasure
   inventory (handled and exempt) is collected or excluded with a reason, and still exists.
 - `tests/isolation/user-data-export.isolation.test.ts`: real Postgres as `app_user`; collector scope,
-  no other-tenant rows, no secret values, GUC restored; another tenant's admin gets 404; an agent
+  no other-tenant rows, no secret values, GUC restored; another tenant's user gets the same 422 as a missing one; an agent
   cannot download (entity-export route 404 + audited, admin route 403).
+
+## Responses an admin can act on
+
+- A user id with no row in this tenant (never signed in, erased, or from another tenant): `422
+USER_NOT_IN_WORKSPACE`, "No user with this id has signed in to this workspace ... check the Zitadel user id
+  and that they have signed in at least once". Another tenant's user gets the same answer as a missing one.
+- Downloading an export whose subject has since been erased or removed: `410 EXPORT_NO_LONGER_AVAILABLE`.
+- A job id that does not exist, belongs to another tenant, or is not a user-data export stays `404`.
 
 ## Known limits
 
 - **Erasure.** After a user is erased (their `tenant_users` row is deleted), the admin download route
-  returns 404 for any bundle generated earlier, so it is unreachable at once. The file itself stays on
+  returns 410 for any bundle generated earlier, so it is unreachable at once. The file itself stays on
   disk until the daily sweep removes it, at most `USER_EXPORT_TTL_DAYS` plus a day. Erasure does not
   delete the file or the job record.
 - **Third-party data (Art. 15(4)).** The bundle includes the subject's own records, comments and events,
