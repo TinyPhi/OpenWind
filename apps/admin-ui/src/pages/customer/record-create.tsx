@@ -15,6 +15,7 @@ import {
   DEFAULT_SEVERITY,
   type Severity,
 } from "../../components/severity-tag.js";
+import { showAlert } from "../../components/global-alert-dialog.js";
 
 type UserOption = {
   userId: string;
@@ -730,10 +731,10 @@ export function CustomerRecordCreate(): React.ReactElement {
           : undefined;
 
       if (routeState.returnTo) {
-        navigate(
-          routeState.returnTo,
-          notice ? { state: { notice } } : undefined,
-        );
+        // Only the record page renders a navigation notice, and returnTo can be any page, so
+        // the warning goes through the global alert there instead of being lost.
+        if (notice) showAlert(notice);
+        navigate(routeState.returnTo);
       } else {
         navigate(
           `/records/${typeSlug}/${created.id}`,

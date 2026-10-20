@@ -1,3 +1,4 @@
+import type React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   render,
@@ -6,7 +7,7 @@ import {
   cleanup,
   fireEvent,
 } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import "../../i18n.js";
 
 const fetchWithAuth =
@@ -561,5 +562,135 @@ describe("CustomerRecordCreate — severity field", () => {
       };
       expect(body.severity).toBe("critical");
     });
+  });
+});
+
+// The warning from POST /entities (#1022, #1040): shown on the record page, or in the global alert
+// when a returnTo page is used, and never when nothing went wrong.
+describe("CustomerRecordCreate — remark warning after create", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  function Landing({ label }: { label: string }): React.ReactElement {
+    const state = useLocation().state as { notice?: string } | null;
+    return (
+      <div>
+        <span>{label}</span>
+        <span data-testid="notice">{state?.notice ?? "none"}</span>
+      </div>
+    );
+  }
+
+  async function createTicket(
+    state: Record<string, unknown>,
+    postResponse: Record<string, unknown>,
+  ): Promise<void> {
+    fetchWithAuth.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes("/fields")) return Promise.resolve({ data: FIELDS });
+      if (url.includes("/workflows")) return Promise.resolve({ data: [] });
+      if (url.includes("/admin/teams"))
+        return Promise.resolve({ data: [TEST_TEAM] });
+      if (url.includes("/users")) return Promise.resolve({ data: [TEST_USER] });
+      if (url === "/api/entities" && opts?.method === "POST") {
+        return Promise.resolve(postResponse);
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: "/records/tickets/new", state }]}
+      >
+        <Routes>
+          <Route
+            path="/records/:typeSlug/new"
+            element={<CustomerRecordCreate />}
+          />
+          <Route
+            path="/records/:typeSlug/:id"
+            element={<Landing label="record page" />}
+          />
+          <Route
+            path="/handoff-done"
+            element={<Landing label="return page" />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Title")).toBeDefined();
+    });
+    fireEvent.change(titleInput(), { target: { value: "Some ticket" } });
+    fireEvent.click(screen.getByText("Team"));
+    fireEvent.click(screen.getByText("Select a team…"));
+    fireEvent.click(await screen.findByText(TEST_TEAM.name));
+    const dueDate = screen
+      .getByText("Due Date")
+      .closest(".portal-field-group")
+      ?.querySelector("input");
+    const remark = screen
+      .getByText("Remark")
+      .closest(".portal-field-group")
+      ?.querySelector("textarea");
+    if (!dueDate || !remark) throw new Error("form fields not found");
+    fireEvent.change(dueDate, { target: { value: "2026-01-01T09:00" } });
+    fireEvent.change(remark, { target: { value: "a remark" } });
+    fireEvent.click(screen.getByText("Create Ticket"));
+  }
+
+  const WARNED = {
+    data: { id: "new-ticket-1" },
+    warnings: ["remark_comment_failed"],
+  };
+
+  it("hands the notice to the record page when the first comment failed", async () => {
+    await createTicket({ entityTypeId: "et-1", workflowId: "wf-1" }, WARNED);
+    await waitFor(() => {
+      expect(screen.getByText("record page")).toBeDefined();
+    });
+    expect(screen.getByTestId("notice").textContent).toMatch(
+      /remark could not be added as the first comment/,
+    );
+  });
+
+  it("passes no notice when there is no warning", async () => {
+    await createTicket(
+      { entityTypeId: "et-1", workflowId: "wf-1" },
+      { data: { id: "new-ticket-1" } },
+    );
+    await waitFor(() => {
+      expect(screen.getByText("record page")).toBeDefined();
+    });
+    expect(screen.getByTestId("notice").textContent).toBe("none");
+  });
+
+  it("uses the global alert, not navigation state, when returnTo is set", async () => {
+    const alerts: string[] = [];
+    const onAlert = (e: Event): void => {
+      alerts.push((e as CustomEvent<{ message: string }>).detail.message);
+    };
+    window.addEventListener("ui:alert-dialog", onAlert);
+    try {
+      await createTicket(
+        {
+          entityTypeId: "et-1",
+          workflowId: "wf-1",
+          returnTo: "/handoff-done",
+        },
+        WARNED,
+      );
+      await waitFor(() => {
+        expect(screen.getByText("return page")).toBeDefined();
+      });
+      expect(screen.getByTestId("notice").textContent).toBe("none");
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toMatch(/remark could not be added/);
+    } finally {
+      window.removeEventListener("ui:alert-dialog", onAlert);
+    }
   });
 });
