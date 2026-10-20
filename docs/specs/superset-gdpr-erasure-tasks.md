@@ -227,3 +227,14 @@ Rules: no edits under apps/, packages/, modules/ in Phases A and B; never edit .
 docs/decisions/; no personal data in payloads, logs or responses; write BLOCKERS.md on any ambiguity
 in the classification table or when a test shows a real tenant leak.
 ```
+
+## Slice 1 deviation (2026-10-20, #728)
+
+The cache flush shipped ahead of the rest as a worker job that scans and unlinks the `superset_` and
+`superset_data_` prefixes directly in Superset's Redis db (`SUPERSET_REDIS_URL`), instead of calling a
+`POST /openwind/erasure/cache` endpoint (T18, T23). It needs no Python, no CSRF login and no service-account
+credential on the worker, and it is tested against real Redis. Queued after `DELETE /users/:userId` commits and
+after a tenant purge (T24, T25 for the cache only), coalesced per 10 s window, never throwing into the
+caller. Not part of this slice: the Superset DB erasure and its endpoints (T13-T17, T19, T20), the
+`superset_erasure.*` audit actions and migration (T21), `SUPERSET_OAUTH_CLIENT_ID` and D8 (T22). When the
+erase endpoint exists, the cache flush can move behind it or stay; either way the DB erasure still needs it.

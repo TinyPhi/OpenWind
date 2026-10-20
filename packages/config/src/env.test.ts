@@ -20,6 +20,26 @@ const MINIMAL_VALID_ENV = {
   OPENBAO_TOKEN: "dev-root-token",
 };
 
+describe("SUPERSET_REDIS_URL (#728)", () => {
+  it("is optional, so the cache flush is off unless configured", () => {
+    expect(
+      EnvSchema.parse(MINIMAL_VALID_ENV).SUPERSET_REDIS_URL,
+    ).toBeUndefined();
+  });
+
+  it("accepts a url and rejects anything else", () => {
+    const ok = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      SUPERSET_REDIS_URL: "redis://redis:6379/2",
+    });
+    expect(ok.SUPERSET_REDIS_URL).toBe("redis://redis:6379/2");
+    expect(
+      EnvSchema.safeParse({ ...MINIMAL_VALID_ENV, SUPERSET_REDIS_URL: "nope" })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   it("defaults to 600 when absent from the environment", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);

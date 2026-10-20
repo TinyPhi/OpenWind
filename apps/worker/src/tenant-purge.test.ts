@@ -180,6 +180,10 @@ vi.mock("@platform/auth", () => ({
   deleteSandboxHandoverCredentials: vi.fn(),
 }));
 vi.mock("./queues.js", () => ({ connection: {} }));
+const { mockEnqueueFlush } = vi.hoisted(() => ({ mockEnqueueFlush: vi.fn() }));
+vi.mock("./superset-cache-flush.js", () => ({
+  enqueueSupersetCacheFlush: mockEnqueueFlush,
+}));
 
 await import("./tenant-purge.js");
 
@@ -197,6 +201,18 @@ beforeEach(() => {
   writes.plain.length = 0;
   writes.purge.length = 0;
   writes.eventLog.length = 0;
+});
+
+describe("tenant-purge Superset cache flush (#728)", () => {
+  it("queues one flush for the purged tenant after the purge", async () => {
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 0,
+      data: { tenantId: TENANT_ID },
+    });
+    expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueFlush).toHaveBeenCalledWith(TENANT_ID, "tenant_purged");
+  });
 });
 
 describe("tenant-purge audit writes", () => {

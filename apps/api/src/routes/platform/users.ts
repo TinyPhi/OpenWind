@@ -12,6 +12,7 @@ import type { AuthContext } from "@platform/auth";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { eraseUserFromTenant } from "../../services/user-erasure.js";
+import { enqueueSupersetCacheFlush } from "../../lib/superset-cache-flush-queue.js";
 
 type AppVars = { Variables: { auth: AuthContext } };
 
@@ -187,6 +188,10 @@ usersRouter.delete(
     });
 
     invalidateUserCache();
+
+    // #728: Superset's cached query results can hold this user's data and are not keyed by user,
+    // so they are flushed once the erasure has committed. Never throws.
+    await enqueueSupersetCacheFlush(tenantId, "user_erased");
 
     return c.json({ success: true });
   },

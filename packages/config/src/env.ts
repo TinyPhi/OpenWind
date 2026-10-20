@@ -72,6 +72,10 @@ const EnvSchema = z
     DATABASE_DIRECT_URL: z.string().url().optional(),
     DATABASE_LOCK_POOL_MAX: z.coerce.number().int().min(1).default(5),
     REDIS_URL: z.string().url(),
+    // The Redis db Superset keeps its result cache in (db 2 of the compose Redis). When set, a user
+    // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
+    // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
+    SUPERSET_REDIS_URL: z.string().url().optional(),
     // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
     // enforces this per verified auth.tenantId, independent of the pre-auth
     // IP-based flood guard in apps/api's rate-limit middleware. Raised from
