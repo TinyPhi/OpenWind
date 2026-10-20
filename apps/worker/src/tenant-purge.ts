@@ -182,6 +182,46 @@ export const ERASURE_EXEMPT_TABLES: Readonly<Record<string, string>> = {
 
 type PurgeJobData = { tenantId: string };
 
+// Everything that lives outside the database and runs after the purge commits. Each step is
+// best-effort and idempotent, so a retried job can safely run it again: a crash after the status
+// flip to 'purged' would otherwise leave the files and the Redis handover key behind, because a
+// retry returns early on a purged tenant.
+async function cleanUpOutsideDatabase(tenantId: string): Promise<void> {
+  // M3: delete on-disk files after DB transaction commits (best-effort). Wrapped so a
+  // transient failure here (review finding, PR #828) doesn't fail the job and leave the
+  // already-committed DB purge + audit entry above looking like a failed run -- the
+  // on-disk bytes are genuinely best-effort, not part of the transactional guarantee.
+  try {
+    await deleteTenantFiles(tenantId);
+  } catch (err) {
+    logger.error(
+      { tenantId, err },
+      "tenant-purge: file deletion failed (best-effort, continuing)",
+    );
+  }
+
+  // T14 (docs/specs/multi-org-sandbox.md) -- the sandbox handover artifact (seeded admin
+  // password) lives in Redis with its own 7-day TTL (packages/auth/src/
+  // sandbox-handover-store.ts), outside this function's DB transaction entirely. Without
+  // this, a purged sandbox's credentials would stay retrievable from Redis for up to 7
+  // more days, relying solely on the TTL -- R8's "delete this org's data" means now. A
+  // no-op for a real (non-sandbox) tenant, which never had a handover key in the first
+  // place. Wrapped for the same reason as deleteTenantFiles above (review finding, PR
+  // #828) -- a Redis blip here must not fail a purge whose DB work already succeeded.
+  try {
+    await deleteSandboxHandoverCredentials(tenantId);
+  } catch (err) {
+    logger.error(
+      { tenantId, err },
+      "tenant-purge: handover credentials deletion failed (best-effort, continuing)",
+    );
+  }
+
+  // #728: Superset caches query results (including this tenant's) under keys that are not
+  // namespaced by tenant, so the cache is flushed once after the purge. Never throws.
+  await enqueueSupersetCacheFlush(tenantId, "tenant_purged");
+}
+
 export const tenantPurgeWorker = new Worker<PurgeJobData>(
   QUEUE_NAME,
   async (job) => {
@@ -200,6 +240,15 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         { tenantId },
         "tenant-purge: tenant row not found — already purged",
       );
+      return;
+    }
+    if (tenant.status === "purged") {
+      // The DB purge already committed; a retry only finishes what runs after it.
+      logger.warn(
+        { tenantId },
+        "tenant-purge: tenant already purged — retrying file, handover and cache cleanup",
+      );
+      await cleanUpOutsideDatabase(tenantId);
       return;
     }
     if (tenant.status !== "deleted") {
@@ -450,39 +499,7 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       "tenant-purge: DB purge complete — tenant marked purged",
     );
 
-    // M3: delete on-disk files after DB transaction commits (best-effort). Wrapped so a
-    // transient failure here (review finding, PR #828) doesn't fail the job and leave the
-    // already-committed DB purge + audit entry above looking like a failed run -- the
-    // on-disk bytes are genuinely best-effort, not part of the transactional guarantee.
-    try {
-      await deleteTenantFiles(tenantId);
-    } catch (err) {
-      logger.error(
-        { tenantId, err },
-        "tenant-purge: file deletion failed (best-effort, continuing)",
-      );
-    }
-
-    // T14 (docs/specs/multi-org-sandbox.md) -- the sandbox handover artifact (seeded admin
-    // password) lives in Redis with its own 7-day TTL (packages/auth/src/
-    // sandbox-handover-store.ts), outside this function's DB transaction entirely. Without
-    // this, a purged sandbox's credentials would stay retrievable from Redis for up to 7
-    // more days, relying solely on the TTL -- R8's "delete this org's data" means now. A
-    // no-op for a real (non-sandbox) tenant, which never had a handover key in the first
-    // place. Wrapped for the same reason as deleteTenantFiles above (review finding, PR
-    // #828) -- a Redis blip here must not fail a purge whose DB work already succeeded.
-    try {
-      await deleteSandboxHandoverCredentials(tenantId);
-    } catch (err) {
-      logger.error(
-        { tenantId, err },
-        "tenant-purge: handover credentials deletion failed (best-effort, continuing)",
-      );
-    }
-
-    // #728: Superset caches query results (including this tenant's) under keys that are not
-    // namespaced by tenant, so the cache is flushed once after the purge. Never throws.
-    await enqueueSupersetCacheFlush(tenantId, "tenant_purged");
+    await cleanUpOutsideDatabase(tenantId);
 
     logger.info({ tenantId }, "tenant-purge: complete");
   },
