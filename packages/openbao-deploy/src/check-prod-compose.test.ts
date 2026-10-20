@@ -6,6 +6,7 @@ import {
   checkComposeConfig,
   ALLOWED_ENV,
   type ComposeConfig,
+  parseComposeProfiles,
 } from "./check-prod-compose.js";
 
 const LOADER = ["node", "/app/packages/openbao-deploy/src/bao-env-loader.mjs"];
@@ -273,6 +274,27 @@ describe.skipIf(!hasCompose)("docker-compose.prod.yml", () => {
   });
 });
 
+describe("parseComposeProfiles (#981)", () => {
+  it("splits a plain list and ignores blanks", () => {
+    expect(parseComposeProfiles("reporting, notifications,,")).toEqual([
+      "reporting",
+      "notifications",
+    ]);
+    expect(parseComposeProfiles(undefined)).toEqual([]);
+  });
+
+  it("strips the quotes around a quoted .env value", () => {
+    expect(parseComposeProfiles('"reporting,notifications"')).toEqual([
+      "reporting",
+      "notifications",
+    ]);
+    expect(parseComposeProfiles("'reporting,notifications'")).toEqual([
+      "reporting",
+      "notifications",
+    ]);
+  });
+});
+
 describe("checkComposeConfig — rollback mode (#943)", () => {
   function rollbackService(overrides: Record<string, unknown> = {}) {
     return {
@@ -285,6 +307,16 @@ describe("checkComposeConfig — rollback mode (#943)", () => {
       ...overrides,
     };
   }
+
+  it("accepts a rollback file whose service name contains a digit (#982)", () => {
+    const cfg = valid();
+    cfg.services!["ow-backend"] = rollbackService({
+      env_file: [{ path: "/srv/secrets/rollback-novu2.env" }],
+    });
+    expect(
+      checkComposeConfig(cfg, [], { ...FILES_OK, mode: "rollback" }).join("\n"),
+    ).not.toMatch(/reads no rollback/);
+  });
 
   it("accepts a service with the loader off that reads its rollback file", () => {
     const cfg = valid();

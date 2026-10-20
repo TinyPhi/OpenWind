@@ -87,7 +87,21 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def call(ctx, addr, method, path, body=None, token=None):
+def make_opener(ctx):
+    # A followed redirect would resend the AppRole login or the token to a host the
+    # OPENBAO_NETWORK_CIDR check never saw. OpenBao doesn't redirect, so a 3xx comes back
+    # as an HTTPError and is refused in call_with_wait.
+    # An empty ProxyHandler also stops urllib reading HTTPS_PROXY/ALL_PROXY from the environment:
+    # the login and the token go straight to the address the CIDR check validated, as they do
+    # in the Node loader.
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _NoRedirect(),
+        urllib.request.HTTPSHandler(context=ctx),
+    )
+
+
+def call(opener, addr, method, path, body=None, token=None):
     headers = {"content-type": "application/json"}
     if token:
         headers["x-vault-token"] = token
@@ -96,17 +110,6 @@ def call(ctx, addr, method, path, body=None, token=None):
         method=method,
         headers=headers,
         data=json.dumps(body).encode() if body is not None else None,
-    )
-    # A followed redirect would resend the AppRole login or the token to a host the
-    # OPENBAO_NETWORK_CIDR check never saw. OpenBao doesn't redirect, so a 3xx comes back
-    # as an HTTPError and is refused in call_with_wait.
-    # An empty ProxyHandler also stops urllib reading HTTPS_PROXY/ALL_PROXY from the environment:
-    # the login and the token go straight to the address the CIDR check validated, as they do
-    # in the Node loader.
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),
-        _NoRedirect(),
-        urllib.request.HTTPSHandler(context=ctx),
     )
     try:
         with opener.open(req, timeout=REQUEST_TIMEOUT_S) as res:
@@ -124,12 +127,12 @@ def call(ctx, addr, method, path, body=None, token=None):
             return err.code, {}
 
 
-def call_with_wait(ctx, addr, method, path, body, token, deadline):
+def call_with_wait(opener, addr, method, path, body, token, deadline):
     delay = 1.0
     while True:
         error = None
         try:
-            status, payload = call(ctx, addr, method, path, body, token)
+            status, payload = call(opener, addr, method, path, body, token)
             if 300 <= status < 400:
                 fail(EXIT_REFUSED, f"OpenBao answered HTTP {status} (a redirect) at {addr}; refusing to follow it")
             if not is_transient(status):
@@ -189,10 +192,11 @@ def main():
         check_server_address(addr, cidr)
 
     ctx = ssl.create_default_context(cafile=os.environ.get("BAO_CACERT") or None)
+    opener = make_opener(ctx)
     deadline = time.monotonic() + WAIT_S
 
     status, login = call_with_wait(
-        ctx, addr, "POST", "auth/approle/login",
+        opener, addr, "POST", "auth/approle/login",
         {"role_id": role_id, "secret_id": secret_id}, None, deadline,
     )
     token = (login.get("auth") or {}).get("client_token")
@@ -200,12 +204,12 @@ def main():
         fail(EXIT_REFUSED, f"AppRole login refused (HTTP {status})")
 
     try:
-        status, kv = call_with_wait(ctx, addr, "GET", f"secret/data/{kv_path}", None, token, deadline)
+        status, kv = call_with_wait(opener, addr, "GET", f"secret/data/{kv_path}", None, token, deadline)
     finally:
         # The token was only needed for this one read. Revoke it even when the read fails or
         # gives up, so a restart loop doesn't leave live tokens behind; best effort.
         try:
-            call(ctx, addr, "POST", "auth/token/revoke-self", {}, token)
+            call(opener, addr, "POST", "auth/token/revoke-self", {}, token)
         except Exception:  # best effort: whatever went wrong here must not replace the exit code
             pass
 
