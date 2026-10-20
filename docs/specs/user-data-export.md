@@ -96,6 +96,18 @@ therefore sit on disk up to one sweep interval past the TTL but cannot be downlo
   no other-tenant rows, no secret values, GUC restored; another tenant's admin gets 404; an agent
   cannot download (entity-export route 404 + audited, admin route 403).
 
+## Known limits
+
+- **Erasure.** After a user is erased (their `tenant_users` row is deleted), the admin download route
+  returns 404 for any bundle generated earlier, so it is unreachable at once. The file itself stays on
+  disk until the daily sweep removes it, at most `USER_EXPORT_TTL_DAYS` plus a day. Erasure does not
+  delete the file or the job record.
+- **Third-party data (Art. 15(4)).** The bundle includes the subject's own records, comments and events,
+  which can mention other people (ticket fields, comment text, notification bodies). Records authored by
+  others are left out, but text inside the subject's own records is not redacted. An admin can already
+  read all of it; counsel should confirm this is acceptable before the export is offered to data subjects.
+- **Rate limit.** The POST uses the existing export tier, which fails open if Redis errors, like every tier.
+
 ## Not done
 
 Zipping attachment bytes, CSV/other formats, the live Zitadel profile, an admin-ui button, a

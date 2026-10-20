@@ -20,3 +20,5 @@
 - `/security-review` is still pending (run by the orchestrator).
 - Spec: `docs/specs/user-data-export.md`. Tests: collector, routes, worker, files, config, retention,
   plus two isolation files (coverage guard; tenant scoping and agent refusal).
+
+- Security review follow-up: the admin download route now returns 404 once the subject has been erased (no tenant_users row), so a bundle generated before an erasure stops being downloadable at once; the spec records the remaining limits.

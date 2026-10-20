@@ -115,7 +115,12 @@ const audits = (): Array<Record<string, unknown>> =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockWithTenantContext.mockImplementation(
-    (_t: string, fn: (tx: unknown) => unknown) => fn({}),
+    (_t: string, fn: (tx: unknown) => unknown) =>
+      fn({
+        select: () => ({
+          from: () => ({ where: () => ({ limit: mockMemberRows }) }),
+        }),
+      }),
   );
   mockWriteAuditEntry.mockResolvedValue(undefined);
   mockRateLimit.mockResolvedValue({ allowed: true, resetAt: 0 });
@@ -262,6 +267,14 @@ describe("GET /users/:userId/export/:jobId/download", () => {
     expect(res.status).toBe(404);
     expect(mockGetExportStream).not.toHaveBeenCalled();
     expect(audits()[0]).toMatchObject({ action: "export.download_denied" });
+  });
+
+  it("returns 404 once the subject has been erased, even for a finished bundle", async () => {
+    mockGetJob.mockResolvedValue(job("completed"));
+    mockMemberRows.mockResolvedValue([]);
+    const res = await makeApp().request(url("?file=1"));
+    expect(res.status).toBe(404);
+    expect(mockGetExportStream).not.toHaveBeenCalled();
   });
 
   it("reports pending with 202", async () => {

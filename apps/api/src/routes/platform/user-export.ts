@@ -185,6 +185,22 @@ userExportRouter.get(
       return notFound();
     }
 
+    // An erased user has no tenant_users row, so a bundle generated before the erasure stops
+    // being downloadable at once; the file itself goes with the TTL sweep.
+    const [member] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select({ id: tenantUsers.id })
+        .from(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, tenantId),
+            eq(tenantUsers.userId, subjectUserId),
+          ),
+        )
+        .limit(1),
+    );
+    if (!member) return notFound();
+
     const state = await job.getState();
     if (state === "failed") {
       return c.json(
