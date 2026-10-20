@@ -3,6 +3,25 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — configurable per-tenant retention policy updates (#637)]
+
+### Added
+
+- **Per-tenant retention policy management endpoint.** Added `PATCH /admin/tenants/:id/retention`
+  allowing superadmins in the platform organization to configure noise, comment, and evidence
+  retention windows or toggle legal holds on a per-tenant basis.
+- **Accidental data loss protection.** Shortening any retention window below the active policy
+  (whether via explicit days or by clearing an override back to a default that is shorter than
+  the active override) requires explicit confirmation (`confirmShorten: true`), rejecting with
+  400 `CONFIRM_SHORTEN_REQUIRED` to safeguard against immediate permanent data loss during sweeps.
+- **Override clearance to platform defaults.** Supports passing `null` for retention parameters
+  to remove overrides from `tenants.config` and revert to platform defaults.
+- **Atomic read-modify-write and audit trail.** Executes inside `withTenantContext` with
+  `SELECT ... FOR UPDATE` row locking on `tenants` and writes an immutable audit entry in
+  `admin_audit_log` with before and after policy snapshots.
+- **Defense-in-depth platform fence.** Unauthorized callers outside `PLATFORM_ORG_ID` receive
+  404 before parameter and body validation, preventing tenant existence discovery.
+
 ---
 
 ## [Unreleased — GDPR data-subject export (#642)]
