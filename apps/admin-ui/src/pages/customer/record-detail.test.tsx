@@ -150,9 +150,13 @@ function mockRoutesForAccessRequests(
   });
 }
 
-function renderRecordDetail(): void {
+function renderRecordDetail(
+  initialEntries: Array<string | { pathname: string; state?: unknown }> = [
+    `/records/ticket/${RECORD_ID}`,
+  ],
+): void {
   render(
-    <MemoryRouter initialEntries={[`/records/ticket/${RECORD_ID}`]}>
+    <MemoryRouter initialEntries={initialEntries}>
       <Routes>
         <Route
           path="/records/:typeSlug/:id"
@@ -1748,6 +1752,24 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     expect(notice.textContent).toContain(
       "could not be added as the first comment",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("displays the forwarded record notice from navigation and allows dismissing it (#1022)", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    const noticeText =
+      "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket.";
+    renderRecordDetail([
+      {
+        pathname: `/records/ticket/${RECORD_ID}`,
+        state: { notice: noticeText },
+      },
+    ]);
+
+    const notice = await screen.findByRole("status", {}, { timeout: 3000 });
+    expect(notice.textContent).toContain(noticeText);
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
     expect(screen.queryByRole("status")).toBeNull();

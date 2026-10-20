@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared } from "../../lib/use-users.js";
 import { CoverageGapBadge } from "../../components/coverage-gap-badge.js";
@@ -1210,6 +1210,10 @@ function AccessUserRow({
 export function CustomerRecordDetail(): React.ReactElement {
   const { typeSlug, id } = useParams<{ typeSlug: string; id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [recordNotice, setRecordNotice] = useState<string | null>(
+    (location.state as { notice?: string } | null)?.notice ?? null,
+  );
   const { getTypeBySlug, getTypeById } = useEntityTypes();
   const entityType = typeSlug ? getTypeBySlug(typeSlug) : undefined;
   const entityTypeId = entityType?.id;
@@ -3911,6 +3915,29 @@ export function CustomerRecordDetail(): React.ReactElement {
           ⚠ {transError}
           <button
             onClick={() => setTransError(null)}
+            className="rcd-error-close"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {recordNotice && (
+        <div
+          className="portal-alert-error rcd-trans-error"
+          role="status"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            alignItems: "center",
+          }}
+        >
+          <span>{recordNotice}</span>
+          <button
+            type="button"
+            aria-label="Dismiss notice"
+            onClick={() => setRecordNotice(null)}
             className="rcd-error-close"
           >
             ×
