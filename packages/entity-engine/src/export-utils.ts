@@ -23,6 +23,34 @@ export type ExportJobResult = {
   error?: string;
 };
 
+/**
+ * GDPR data-subject export (docs/specs/user-data-export.md). Rides the same
+ * queue as entity exports but is a distinct payload: it has no entity type and
+ * must never be served by the agent-reachable entity-export download route.
+ */
+export type UserDataExportJobPayload = {
+  kind: "user_data";
+  tenantId: string;
+  subjectUserId: string;
+  requestedBy: string;
+};
+
+export type UserDataExportJobResult = {
+  storageKey?: string;
+  format: "json";
+  rowCount: number;
+  error?: string;
+};
+
+export type ExportQueuePayload = ExportJobPayload | UserDataExportJobPayload;
+export type ExportQueueResult = ExportJobResult | UserDataExportJobResult;
+
+export function isUserDataExportPayload(
+  data: ExportQueuePayload,
+): data is UserDataExportJobPayload {
+  return "kind" in data;
+}
+
 // ── Row serialisation ─────────────────────────────────────────────────────────
 
 export function buildExportRow(

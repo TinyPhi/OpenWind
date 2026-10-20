@@ -573,3 +573,34 @@ describe("retention settings (docs/specs/retention-classes.md)", () => {
     ).toThrow();
   });
 });
+
+describe("user data export settings (docs/specs/user-data-export.md)", () => {
+  it("default to a 7-day TTL, 10000 rows per table and audit included", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.USER_EXPORT_TTL_DAYS).toBe(7);
+    expect(parsed.USER_EXPORT_ROW_LIMIT).toBe(10000);
+    expect(parsed.USER_EXPORT_INCLUDE_AUDIT).toBe(true);
+  });
+
+  it("accept overrides", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      USER_EXPORT_TTL_DAYS: "2",
+      USER_EXPORT_ROW_LIMIT: "500",
+      USER_EXPORT_INCLUDE_AUDIT: "false",
+    });
+    expect(parsed.USER_EXPORT_TTL_DAYS).toBe(2);
+    expect(parsed.USER_EXPORT_ROW_LIMIT).toBe(500);
+    expect(parsed.USER_EXPORT_INCLUDE_AUDIT).toBe(false);
+  });
+
+  it("reject a zero TTL, a tiny row limit and a non-boolean audit flag", () => {
+    for (const bad of [
+      { USER_EXPORT_TTL_DAYS: "0" },
+      { USER_EXPORT_ROW_LIMIT: "5" },
+      { USER_EXPORT_INCLUDE_AUDIT: "flase" },
+    ]) {
+      expect(() => EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...bad })).toThrow();
+    }
+  });
+});

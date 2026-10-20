@@ -104,5 +104,19 @@ export {
   buildExportRow,
   type ExportJobPayload,
   type ExportJobResult,
+  type UserDataExportJobPayload,
+  type UserDataExportJobResult,
+  type ExportQueuePayload,
+  type ExportQueueResult,
+  isUserDataExportPayload,
   PII_EXPORT_ROLES,
 } from "./export-utils.js";
+export {
+  collectUserDataBundle,
+  serializeUserDataBundle,
+  userDataExportSectionColumns,
+  userDataExportCollectedColumns,
+  USER_DATA_EXPORT_EXCLUDED_COLUMNS,
+  type UserDataBundle,
+  type CollectUserDataOptions,
+} from "./user-data-export.js";

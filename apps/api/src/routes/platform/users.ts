@@ -13,6 +13,7 @@ import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { eraseUserFromTenant } from "../../services/user-erasure.js";
 import { enqueueSupersetCacheFlush } from "../../lib/superset-cache-flush-queue.js";
+import { userExportRouter } from "./user-export.js";
 
 type AppVars = { Variables: { auth: AuthContext } };
 
@@ -128,6 +129,10 @@ usersRouter.get(
     return c.json({ data: merged });
   },
 );
+
+// POST /users/:userId/export and its download — GDPR Art. 15/20 export, admin-only
+// (handlers in user-export.ts, beside the erasure route below).
+usersRouter.route("/", userExportRouter);
 
 // DELETE /users/:userId — GDPR per-user erasure endpoint, admin-only
 usersRouter.delete(

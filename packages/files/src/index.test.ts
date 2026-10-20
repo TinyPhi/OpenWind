@@ -68,6 +68,8 @@ const {
   deleteTenantFiles,
   resolveStoragePath,
   saveExport,
+  deleteExpiredUserDataExports,
+  USER_DATA_EXPORT_JOB_PREFIX,
   getExportStream,
   FileError,
 } = await import("./index.js");
@@ -607,5 +609,60 @@ describe("async export storage", () => {
         "tenant-other/exports/job-123.csv",
       ),
     ).rejects.toMatchObject({ code: "STORAGE_PATH_ESCAPE" });
+  });
+});
+
+describe("json export format and user-data expiry", () => {
+  it("stores and streams a json export with the json content type", async () => {
+    const bytes = Buffer.from('{"a":1}');
+    const storageKey = await saveExport(TENANT_ID, "job-json", "json", bytes);
+    expect(storageKey).toBe(`${TENANT_ID}/exports/job-json.json`);
+    const result = await getExportStream(
+      TENANT_ID,
+      "job-json",
+      "json",
+      storageKey,
+    );
+    expect(result.mimeType).toBe("application/json");
+    await expect(readStreamToBuffer(result.stream)).resolves.toEqual(bytes);
+  });
+
+  it("deletes only expired userdata-* files and leaves other exports alone", async () => {
+    const tenant = "tenant-expiry-test";
+    const oldKey = await saveExport(
+      tenant,
+      `${USER_DATA_EXPORT_JOB_PREFIX}old`,
+      "json",
+      Buffer.from("{}"),
+    );
+    const freshKey = await saveExport(
+      tenant,
+      `${USER_DATA_EXPORT_JOB_PREFIX}fresh`,
+      "json",
+      Buffer.from("{}"),
+    );
+    const otherKey = await saveExport(
+      tenant,
+      "plain-entity-export",
+      "csv",
+      Buffer.from("a"),
+    );
+    const day = 24 * 60 * 60 * 1000;
+    const old = new Date(Date.now() - 8 * day);
+    await fsp.utimes(resolveStoragePath(oldKey), old, old);
+    await fsp.utimes(resolveStoragePath(otherKey), old, old);
+
+    await expect(deleteExpiredUserDataExports(tenant, 7 * day)).resolves.toBe(
+      1,
+    );
+    await expect(fsp.stat(resolveStoragePath(oldKey))).rejects.toThrow();
+    await expect(fsp.stat(resolveStoragePath(freshKey))).resolves.toBeTruthy();
+    await expect(fsp.stat(resolveStoragePath(otherKey))).resolves.toBeTruthy();
+  });
+
+  it("returns 0 for a tenant with no exports directory", async () => {
+    await expect(
+      deleteExpiredUserDataExports("tenant-no-exports", 1000),
+    ).resolves.toBe(0);
   });
 });

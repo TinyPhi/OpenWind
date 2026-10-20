@@ -17,6 +17,8 @@ import { getRedis } from "@platform/redis";
 import { isTenantTrialActive } from "@platform/auth";
 import { resolveRetentionPolicy } from "./retention-policy.js";
 import { sweepTenant } from "./retention-sweep.js";
+import { env } from "@platform/config";
+import { deleteExpiredUserDataExports } from "@platform/files";
 
 const QUEUE_NAME = "retention-archival";
 
@@ -63,6 +65,26 @@ export async function runRetentionArchivalSweep(): Promise<void> {
     for (const tenant of activeTenants) {
       const tenantId = tenant.id;
       const policy = resolveRetentionPolicy(tenant.config);
+
+      // Data-subject export files (docs/specs/user-data-export.md) are transient
+      // copies of personal data, so a retention hold does not keep them.
+      try {
+        const removed = await deleteExpiredUserDataExports(
+          tenantId,
+          env.USER_EXPORT_TTL_DAYS * 86_400_000,
+        );
+        if (removed > 0) {
+          logger.info(
+            { tenantId, removed },
+            "retention-archival: deleted expired user-data export files",
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, tenantId },
+          "retention-archival: failed to delete expired user-data exports",
+        );
+      }
 
       if (policy.hold) {
         logger.info(

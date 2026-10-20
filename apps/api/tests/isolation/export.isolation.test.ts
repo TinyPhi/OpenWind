@@ -42,6 +42,7 @@ const mockGetJob = vi.fn();
 vi.mock("../../src/lib/export-queue.js", () => ({
   exportQueue: { getJob: (...args: unknown[]) => mockGetJob(...args) },
   PII_EXPORT_ROLES: new Set(["pii_export", "admin", "superadmin"]),
+  isUserDataExportPayload: (d: { kind?: string }) => d.kind === "user_data",
 }));
 
 const { exportsRouter } = await import("../../src/routes/exports/download.js");
