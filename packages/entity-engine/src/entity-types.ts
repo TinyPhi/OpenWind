@@ -98,16 +98,15 @@ export async function createEntityType(
     // -- forcing team_id required would break that exclusivity. fieldType is
     // plain "text" (holds a teams.id UUID string), not "entity_ref": that
     // type validates against entity_instances, and teams is a separate
-    // lookup table, not an entity type. This field is deliberately never
-    // rendered via FieldInput on either ticket-creation form (excluded from
-    // both the Mandate and Other tabs) -- its value is written exclusively
-    // through the create form's User/Team assign-mode toggle.
+    // lookup table, not an entity type. Virtual: it has its own control (the
+    // User/Team assign toggle and the sidebar's "Team: <name>"), so forms
+    // leave it out of the generic field list.
     await addEntityField(db, tenantId, row.id, {
       entityTypeId: row.id,
       name: "team_id",
       label: "Team",
       fieldType: "text",
-      config: {},
+      config: { virtual: true },
       isRequired: false,
       isIndexed: true,
       isSystem: false,

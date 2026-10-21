@@ -35,7 +35,7 @@ export type { FileErrorCode } from "./errors.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+export const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
 const DEFAULT_QUOTA_MB = 5120; // 5 GB
 const AV_SCAN_QUEUE = "av-scan";
 
@@ -288,13 +288,21 @@ export type FileStreamResult = {
   sizeBytes: number;
 };
 
-export type ExportFormat = "csv" | "xlsx" | "pdf";
+export type ExportFormat = "csv" | "xlsx" | "pdf" | "json";
 
 const EXPORT_CONTENT_TYPES: Record<ExportFormat, string> = {
   csv: "text/csv; charset=utf-8",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   pdf: "application/pdf",
+  json: "application/json",
 };
+
+/**
+ * Job ids of GDPR data-subject exports (docs/specs/user-data-export.md) start
+ * with this prefix, so their files can be told apart on disk and swept on a
+ * shorter clock than ordinary entity exports.
+ */
+export const USER_DATA_EXPORT_JOB_PREFIX = "userdata-";
 
 function exportStorageKey(
   tenantId: string,
@@ -317,6 +325,59 @@ export async function saveExport(
   const storageKey = exportStorageKey(tenantId, jobId, format);
   await writeFileAtomic(resolveStoragePath(storageKey), bytes);
   return storageKey;
+}
+
+/**
+ * Delete a tenant's data-subject export files older than `maxAgeMs`. Only
+ * `userdata-*.json` files are touched. Returns the number deleted; a missing
+ * exports directory is not an error.
+ */
+export async function deleteExpiredUserDataExports(
+  tenantId: string,
+  maxAgeMs: number,
+  now: number = Date.now(),
+): Promise<number> {
+  const dirKey = exportStorageKey(
+    tenantId,
+    `${USER_DATA_EXPORT_JOB_PREFIX}sweep`,
+    "json",
+  );
+  const dir = path.dirname(resolveStoragePath(dirKey));
+  let names: string[];
+  try {
+    names = await fsp.readdir(dir);
+  } catch (err) {
+    const absent =
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      err.code === "ENOENT";
+    if (absent) return 0; // no exports directory means nothing to sweep
+    throw new FileError("STORAGE_READ_FAILED", { tenantId, err: String(err) });
+  }
+  let deleted = 0;
+  for (const name of names) {
+    if (
+      !name.startsWith(USER_DATA_EXPORT_JOB_PREFIX) ||
+      !name.endsWith(".json")
+    ) {
+      continue;
+    }
+    const abs = path.join(dir, name);
+    try {
+      const stat = await fsp.stat(abs);
+      if (now - stat.mtimeMs > maxAgeMs) {
+        await fsp.unlink(abs);
+        deleted += 1;
+      }
+    } catch (err) {
+      logger.warn(
+        { tenantId, file: name, err: String(err) },
+        "files: expired user-data export deletion failed",
+      );
+    }
+  }
+  return deleted;
 }
 
 export async function getExportStream(

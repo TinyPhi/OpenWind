@@ -107,3 +107,7 @@ prod
 
 # Local env switching script (Windows only, not cross-platform)
 switch-env.bat
+
+# Python bytecode
+__pycache__/
+*.pyc

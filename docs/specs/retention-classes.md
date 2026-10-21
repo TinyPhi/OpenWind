@@ -27,11 +27,11 @@ deleted case history by age alone.
 3. **Windows**, in days. Defaults come from validated env settings and can be overridden per tenant
    in `tenants.config`. An invalid override falls back to the default for that field only. A config that is not an object is treated as a hold.
 
-   | Class (and `outbox_events`, `tenant_usage_daily` for noise) | Env default                    | Tenant override           |
-   | ----------------------------------------------------------- | ------------------------------ | ------------------------- |
-   | noise, delivered outbox rows, usage rows                    | `RETENTION_DEFAULT_DAYS` 90    | `retention_days`          |
-   | comment                                                     | `RETENTION_COMMENT_DAYS` 365   | `retention_comment_days`  |
-   | evidence                                                    | `RETENTION_EVIDENCE_DAYS` 2555 | `retention_evidence_days` |
+   | Class (and the non-event tables listed in item 7, for noise) | Env default                    | Tenant override           |
+   | ------------------------------------------------------------ | ------------------------------ | ------------------------- |
+   | noise, delivered outbox rows, usage rows, item 7 tables      | `RETENTION_DEFAULT_DAYS` 90    | `retention_days`          |
+   | comment                                                      | `RETENTION_COMMENT_DAYS` 365   | `retention_comment_days`  |
+   | evidence                                                     | `RETENTION_EVIDENCE_DAYS` 2555 | `retention_evidence_days` |
 
    Bounds: noise 7–3650, comment 30–3650, evidence 365–7300. **The comment and evidence defaults are
    placeholders for the owner and counsel to confirm.**
@@ -43,15 +43,61 @@ deleted case history by age alone.
 6. **Visibility.** Rows deleted are counted in `openwind_retention_deleted_rows_total{table,class}`,
    and each tenant's per-table result is logged, so a sweep that deletes nothing shows up.
 
+7. **Operational tables (issue #636).** The sweep also deletes, per tenant and under the noise
+   window, rows past it from `notification_recipients` then `notifications` (children first;
+   recipients are matched through the parent's `created_at`), `connector_delivery_attempts` and
+   `dead_letter_events` (by `created_at`), and `idempotency_keys` (by `expires_at`, so the window runs
+   from expiry, not creation). They use the same hold, batching and
+   `openwind_retention_deleted_rows_total{table,class="noise"}` conventions. `app_user` already holds
+   DELETE on all five (migrations 0022, 0040, 0057, 0082), so no migration was needed. **Out of scope:**
+   `schedule_executions` is append-only; sweeping it needs a `GRANT DELETE` migration and a human
+   ADR-017 amendment, so it is not touched.
+
+8. **Data-subject export files (#642).** The same daily sweep also deletes a tenant's
+   `userdata-*.json` export files older than `USER_EXPORT_TTL_DAYS` (default 7)
+   (docs/specs/user-data-export.md). This runs before the hold check, because a hold keeps records, not
+   transient copies of personal data. Other export files are not swept.
+
+9. **Retention policy management endpoint (issue #637).** Platform operators can configure
+   per-tenant retention windows and holds via `PATCH /admin/tenants/:id/retention`:
+   - **Access control:** Protected by `requireAuth`, `requireRole("superadmin")`, `requireIntrospection()`
+     (live token introspection to protect against stolen tokens), and platform-operator fence
+     (`denyUnlessPlatformOperator`, answering with 404 for callers outside `PLATFORM_ORG_ID` or
+     nonexistent tenants before body validation).
+   - **Bounds:** Validated against `RETENTION_BOUNDS`, which come from validated env vars and default
+     to the sweep's long-standing ranges: `RETENTION_DAYS_MIN`/`MAX` (7–3650), `RETENTION_COMMENT_DAYS_MIN`/
+     `MAX` (30–3650), `RETENTION_EVIDENCE_DAYS_MIN`/`MAX` (365–7300). Startup fails if a minimum is above
+     its maximum, if a platform default (`RETENTION_DEFAULT_DAYS` and the two below) is outside its range,
+     or if a bound is under 1 day or over 100 years. The same range applies to provisioning, the PATCH and
+     the sweep, so a stored value is never one the sweep would ignore.
+   - **Clearing overrides:** Passing `null` for any retention parameter deletes the override from
+     `tenants.config`, reverting the tenant to platform defaults (`RETENTION_DEFAULT_DAYS`,
+     `RETENTION_COMMENT_DAYS`, `RETENTION_EVIDENCE_DAYS`).
+   - **Shortening guard:** Shortening any retention window below the current active policy (whether
+     via explicit days or by clearing an override back to a default that is shorter than the active
+     override) requires explicit confirmation (`confirmShorten: true`). Requests without confirmation
+     fail with 400 `CONFIRM_SHORTEN_REQUIRED` to protect against immediate permanent data loss on the
+     subsequent daily sweep. `RETENTION_REQUIRE_SHORTEN_CONFIRM=false` turns the requirement off (only
+     the literal `false` does; any other value, including a typo, keeps it on).
+   - **Atomicity & Auditing:** The update runs inside `withTenantContext` with `SELECT ... FOR UPDATE`
+     row locking on `tenants`, non-destructively updating `tenants.config` (preserving other keys
+     such as `rate_limit_per_min`) and recording an immutable audit entry in `admin_audit_log`
+     containing before and after policy snapshots without PII.
+
 ## Structure
 
 `retention-archival.ts` orchestrates (lock, tenant list, trial and hold checks).
-`retention-policy.ts` resolves a tenant's policy. `retention-sweep.ts` owns the SQL, so a later
-change to how the event log is maintained swaps one module.
+`retention-policy.ts` resolves a tenant's policy (re-exporting canonical resolver from `@platform/config`).
+`retention-sweep.ts` owns the SQL, so a later change to how the event log is maintained swaps one module.
 
 ## Tests
 
-- `retention-policy.test.ts`, `retention-archival.test.ts`, config tests — unit.
+- `retention-policy.test.ts`, `retention-archival.test.ts`, config tests (`packages/config/src/retention.test.ts`) — unit.
+- `apps/api/src/routes/admin/tenants.test.ts` — unit: platform operator fence before validation, shortening safety, null clears, audit logging.
 - `tests/isolation/retention-sweep.isolation.test.ts` — real Postgres as `app_user`: deletion by
   class, open and recently-active evidence kept, hold honoured, another tenant untouched, default
-  windows keep old evidence.
+  windows keep old evidence. Also covers the item 7 tables: old rows deleted, recent rows kept,
+  held and other tenants untouched.
+- `tests/isolation/tenant-retention.isolation.test.ts` — real Postgres as `app_user`: token introspection, role gates, cross-tenant isolation, null clearing, config persistence, and audit logging.
+- `apps/worker/src/retention-sweep.test.ts` — unit: delete order (recipients before notifications),
+  tenant filter and window on every new statement, hold is a no-op.

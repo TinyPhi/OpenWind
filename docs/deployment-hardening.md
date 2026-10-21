@@ -29,6 +29,34 @@ tenant access but is not disk encryption.
 For a suspected personal-data breach (GDPR Article 33), follow the
 [breach notification runbook](runbooks/breach-notification.md).
 
+## Runtime environment mode
+
+`NODE_ENV` defaults to `development`. Only the exact value `production` enables OpenWind's
+production-only safety checks, including rejection of development secrets, unsafe tenant settings
+and insecure OpenBao configuration.
+
+The supported Compose deployment sets this value for the API and worker through
+`docker-compose.prod.yml`. Always start production with both Compose files:
+
+```bash
+DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+$DC up -d
+```
+
+If another orchestrator or a direct process launch is used, set `NODE_ENV=production` explicitly in
+both the API and worker environments. Do not copy the development value from `.env.example`; use
+`.env.production.example` as the production template.
+
+After deployment, verify both OpenWind services received the production value:
+
+```bash
+$DC exec ow-backend printenv NODE_ENV
+$DC exec ow-worker printenv NODE_ENV
+```
+
+Both commands must print `production`. A missing value or `development` means the production safety
+checks are not active; correct the deployment before exposing it.
+
 ## TLS termination and HSTS
 
 Terminate TLS at a reverse proxy or load balancer. Do not expose the backend,
@@ -67,8 +95,9 @@ server {
 ```
 
 Apply equivalent settings to the Zitadel hostname. Set
-`ZITADEL_EXTERNALSECURE=true` before Zitadel's first boot, as described in the
-setup guide; Zitadel persists its issuer scheme during initialisation.
+`ZITADEL_EXTERNALSECURE=true` before Zitadel's first boot (see the warning at the start of
+[First-time setup](runbooks/openbao-secrets.md#first-time-setup)); Zitadel persists its issuer scheme
+during initialisation, and fixing it later means wiping its database.
 
 Do not enable HSTS preload casually. `includeSubDomains` and `preload` can make
 unrelated or future subdomains unreachable if they are not HTTPS-ready. Treat
@@ -93,6 +122,21 @@ curl -I https://openwind.example.com/api/v1/health
 Confirm the first response redirects to HTTPS, HTTPS responses include
 `Strict-Transport-Security`, certificates are valid, and infrastructure ports
 are not externally reachable.
+
+## Client addresses, rate limits and request size
+
+- **`TRUST_PROXY`** decides whether the API believes `X-Real-IP` / `X-Forwarded-For` when it picks the
+  address a rate limit is keyed on. It defaults to `false`, so behind a reverse proxy every client
+  shares the proxy's address and one bucket. Set it to the proxy's address or CIDR list (for example
+  `10.0.0.0/8`), or `true` only when the proxy is the sole way in and overwrites the headers. The API
+  logs a warning at startup in production when it is `false`.
+- **`PLATFORM_ORG_ID`** is the Zitadel org of the platform operators. In production the
+  `/admin/tenants` and `/admin/platform-settings` routes refuse every caller while it is unset (fail
+  closed); set it to the operator org's UUID.
+- **`API_BODY_LIMIT_BYTES`** (default 2 MiB) caps every request body except file uploads, which are
+  capped at 105 MiB (`multipart/form-data` or `application/octet-stream` sent to `POST /files` or
+  `PUT /api/v1/attachments/:id/upload`). Over the limit the API answers `413 PAYLOAD_TOO_LARGE`.
+  Also set a matching limit at the proxy.
 
 ## Encryption at rest
 
@@ -187,6 +231,36 @@ are in the [OpenBao secrets runbook](runbooks/openbao-secrets.md). In short:
   [the backup runbook](specs/backup-dr-runbook.md)).
 - Changing a secret means restarting the service that reads it.
 
+## Redis: queue/state and cache instances
+
+OpenWind uses two Redis roles, and they need opposite eviction policies (#1013).
+
+| Instance    | Env var           | Holds                                                                                                                                        | Policy                                                       |
+| ----------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Queue/state | `REDIS_URL`       | BullMQ jobs and locks, rate-limit counters, platform-admin MFA markers, sandbox handover tokens, usage metering, idempotency and sweep locks | `noeviction`, AOF (`appendonly yes`, `appendfsync everysec`) |
+| Cache       | `REDIS_CACHE_URL` | Disposable keys that can be rebuilt (the entity schema cache, once it is repointed to `getCacheRedis()`)                                     | `allkeys-lru`, no persistence                                |
+
+Why: under `allkeys-lru` a single Redis silently drops whatever is least recently used, which can be
+a queued job, a lock or a security marker. `noeviction` turns memory pressure into a loud write
+error instead. AOF means a restart keeps delayed SLA, due-date and automation jobs, which exist
+only in Redis; at most about a second of writes is at risk.
+
+- **Compose:** `redis` is the queue/state instance (1 GB, `noeviction`, AOF) and `redis-cache` is
+  the cache (256 MB, LRU, no persistence, no host port). Both are healthchecked, and the backend
+  and worker wait for both. Existing installs: the first start after upgrading re-creates `redis`
+  with the new flags and reads its existing data.
+- **Managed Redis (hosted/SaaS):** provision two instances. Set the eviction policy per instance
+  (a parameter group on most providers) and enable AOF or equivalent durability on the queue/state
+  one. Point `REDIS_URL` and `REDIS_CACHE_URL` at them. A single instance with two logical
+  databases does not help, because eviction policy is per instance.
+- **One instance only:** leave `REDIS_CACHE_URL` unset. Everything then shares `REDIS_URL`, which
+  must still be `noeviction`. Production logs a startup warning when no cache instance is set.
+- **Monitor:** alert on `used_memory` against `maxmemory` for the queue/state instance (writes fail
+  at the limit) and on `evicted_keys` for the cache.
+- **Not moved yet:** the Superset result cache (`redis://redis:6379/2`, reporting profile) and
+  Novu still use the queue/state instance. Superset's result cache is a cache and belongs on
+  `redis-cache`; that change is left to the reporting work (#728).
+
 ## Zitadel machine-key rotation
 
 OpenWind talks to Zitadel with three machine-user private keys. Each one is exchanged for a
@@ -263,13 +337,52 @@ metrics, so alert on them as well as on the email:
 
 To check on demand, restart `ow-worker`.
 
+## Container images: non-root, compiled, health-checked
+
+`apps/api/Dockerfile` and `apps/worker/Dockerfile` are multi-stage builds on `node:22-slim`
+with two targets:
+
+- `runtime` (the default, last stage) runs `node dist/index.js` as the unprivileged `node`
+  user (uid/gid 1000). It holds production dependencies only (`pnpm deploy --legacy --prod`),
+  its code is root-owned and read-only to the app, and it has a `HEALTHCHECK`.
+  `docker-compose.prod.yml` selects it with `build.target: runtime`.
+- `dev` is the old behaviour: the whole workspace run with `tsx` as root. The base
+  `docker-compose.yml` selects it, so `docker compose up -d` is unchanged for development.
+
+Health checks run inside the container with `node` (the slim image has no `curl`): the API
+polls `GET /health` on port 3000, the worker polls `GET /healthz` on port 3002 (healthy only
+while both of its Redis connections are ready; it does not check Postgres). Nothing is
+published for the worker port.
+
+### File storage ownership
+
+`/data/files` is where the API writes uploads and the worker's virus scan reads them. Both
+now run as uid 1000, so the host directory behind `FILES_STORAGE_PATH_HOST` must be owned by
+it, or every upload fails with a permission error:
+
+```bash
+sudo mkdir -p "$FILES_STORAGE_PATH_HOST"
+sudo chown -R 1000:1000 "$FILES_STORAGE_PATH_HOST"
+sudo chmod 750 "$FILES_STORAGE_PATH_HOST"
+```
+
+Existing deployments must run the `chown` once before switching to the new images; files
+written earlier by root are otherwise readable but not deletable by the app. A fresh Docker
+named volume mounted at `/data/files` needs nothing: the image creates the directory owned
+by uid 1000, and Docker copies that ownership into an empty named volume. Rollback to the old
+image is safe (root can read and write uid 1000 files).
+
 ## Go-live checklist
 
 - [ ] Public HTTP redirects to HTTPS for both OpenWind and Zitadel.
 - [ ] TLS 1.2/1.3 certificates renew automatically and expiry is monitored.
 - [ ] HSTS is returned on HTTPS responses; domain-wide options were reviewed.
+- [ ] `ZITADEL_EXTERNALSECURE=true` was set before Zitadel's first boot (it cannot be changed later without wiping its database).
+- [ ] `NODE_ENV=production` is present in both the API and worker runtime environments.
 - [ ] Forwarding headers are overwritten by the single trusted proxy.
+- [ ] `TRUST_PROXY` names that proxy, and `PLATFORM_ORG_ID` is set to the operator org.
 - [ ] Database, cache, secrets, worker and scanning ports are not public.
+- [ ] `REDIS_URL` points at a `noeviction` instance with persistence, and `REDIS_CACHE_URL` at a separate LRU instance (or is deliberately unset).
 - [ ] PostgreSQL, uploads, Zitadel and production OpenBao storage are encrypted.
 - [ ] Backup output is encrypted, access-controlled and copied off-host.
 - [ ] Encryption and backup keys are stored separately from protected data.
@@ -278,3 +391,5 @@ To check on demand, restart `ow-worker`.
 - [ ] An OpenBao restore has been tested together with a database restore.
 - [ ] Every Zitadel machine key has an expiry date, `OPS_ALERT_EMAIL` is set, and the
       key-expiry metrics are alerted on.
+- [ ] API and worker run the `runtime` image target (`node`, uid 1000, not `tsx`, not root),
+      both report `healthy` in `docker ps`, and `FILES_STORAGE_PATH_HOST` is owned by 1000:1000.

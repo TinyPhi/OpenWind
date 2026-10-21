@@ -281,7 +281,7 @@ describe("EntityInstanceCreate — team_id excluded from Other tab", () => {
       fieldType: "text",
       isRequired: false,
       isSystem: false,
-      config: {},
+      config: { virtual: true },
     };
     mockLoad([MANDATE_FIELD, TEAM_ID_FIELD]);
     renderAt();

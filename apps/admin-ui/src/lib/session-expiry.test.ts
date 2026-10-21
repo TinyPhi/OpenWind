@@ -14,7 +14,8 @@ const {
   isSessionEndingUnauthorized,
   endSessionAndRedirectToLogin,
   consumeSessionEndNotice,
-  tenantAccessEndedReason,
+  accessDeniedReason,
+  redirectToAccessDenied,
   resetSessionExpiryForTests,
 } = await import("./session-expiry.js");
 const { setPlatformAdminMfaSession, getPlatformAdminMfaSession } =
@@ -163,16 +164,58 @@ describe("consumeSessionEndNotice", () => {
   });
 });
 
-describe("tenantAccessEndedReason", () => {
+// docs/specs/tenant-access-gate.md R5.
+describe("accessDeniedReason", () => {
   it.each([
-    [403, "TENANT_TRIAL_EXPIRED", "trial_ended"],
-    [403, "TENANT_SUSPENDED", "suspended"],
+    [403, "TENANT_TRIAL_EXPIRED", "TENANT_TRIAL_EXPIRED"],
+    [403, "TENANT_SUSPENDED", "TENANT_SUSPENDED"],
+    [403, "NO_ROLE", "NO_ROLE"],
+    [404, "TENANT_NOT_FOUND", "TENANT_NOT_FOUND"],
     [403, "FORBIDDEN", null],
     [403, "PLATFORM_ADMIN_TENANT_ACCESS_DENIED", null],
     [403, "MFA_REQUIRED", null],
+    [404, "NOT_FOUND", null],
     [403, undefined, null],
     [401, "TENANT_TRIAL_EXPIRED", null],
+    [403, "TENANT_NOT_FOUND", null],
   ] as const)("status %i with %s -> %s", (status, code, expected) => {
-    expect(tenantAccessEndedReason(status, code)).toBe(expected);
+    expect(accessDeniedReason(status, code)).toBe(expected);
   });
+});
+
+describe("redirectToAccessDenied", () => {
+  beforeEach(() => {
+    resetSessionExpiryForTests();
+    mockReplace.mockClear();
+    mockRemoveUser.mockClear();
+  });
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("sends a tenant page to the access-denied screen, keeping the user for the sign-out", () => {
+    setPath("/dashboard");
+    redirectToAccessDenied("NO_ROLE");
+    expect(mockReplace).toHaveBeenCalledWith("/access-denied?reason=NO_ROLE");
+    expect(mockRemoveUser).not.toHaveBeenCalled();
+  });
+
+  it("redirects only once when many requests are refused together", () => {
+    setPath("/records");
+    redirectToAccessDenied("TENANT_NOT_FOUND");
+    redirectToAccessDenied("TENANT_NOT_FOUND");
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["/platform-admin/dashboard", "/access-denied", "/login"])(
+    "leaves %s alone",
+    (path) => {
+      setPath(path);
+      redirectToAccessDenied("TENANT_NOT_FOUND");
+      expect(mockReplace).not.toHaveBeenCalled();
+    },
+  );
 });

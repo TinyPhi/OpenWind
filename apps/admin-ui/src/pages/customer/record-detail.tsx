@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared } from "../../lib/use-users.js";
 import { CoverageGapBadge } from "../../components/coverage-gap-badge.js";
@@ -1235,6 +1235,10 @@ function AccessUserRow({
 export function CustomerRecordDetail(): React.ReactElement {
   const { typeSlug, id } = useParams<{ typeSlug: string; id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [recordNotice, setRecordNotice] = useState<string | null>(
+    (location.state as { notice?: string } | null)?.notice ?? null,
+  );
   const { getTypeBySlug, getTypeById } = useEntityTypes();
   const entityType = typeSlug ? getTypeBySlug(typeSlug) : undefined;
   const entityTypeId = entityType?.id;
@@ -1606,9 +1610,6 @@ export function CustomerRecordDetail(): React.ReactElement {
       ? fields.filter((f) => /^(due_?date|due|description|desc)$/i.test(f.name))
       : fields
   ).filter((f) => !f.config.virtual);
-  // team_id shows as the resolved team name; it changes through assignment, never as a
-  // free-text input (blanking it would leave a team ticket with nobody).
-  const editFormFields = editableFields.filter((f) => f.name !== "team_id");
 
   // Child tickets use a fixed 3-state machine regardless of parent workflow
   const CHILD_TICKET_STATES: WorkflowState[] = [
@@ -3943,6 +3944,29 @@ export function CustomerRecordDetail(): React.ReactElement {
         </div>
       )}
 
+      {recordNotice && (
+        <div
+          className="portal-alert-error rcd-trans-error"
+          role="status"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            alignItems: "center",
+          }}
+        >
+          <span>{recordNotice}</span>
+          <button
+            type="button"
+            aria-label="Dismiss notice"
+            onClick={() => setRecordNotice(null)}
+            className="rcd-error-close"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ── Cards area ───────────────────────────────────── */}
       <div className="rcd-cards">
         {/* ══ CARD 1: Details ══════════════════════════════ */}
@@ -4423,7 +4447,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         ))}
                       </select>
                     </div>
-                    {editFormFields.map((f) => (
+                    {editableFields.map((f) => (
                       <div
                         key={f.id}
                         className={`portal-field-group ${f.fieldType === "longtext" ? "portal-field-full" : ""}`}
@@ -4487,15 +4511,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <div className="rcd-field-lbl">{f.label}</div>
                         <div className="rcd-field-val">
                           <FieldValue
-                            // team_id is a plain generic field on every
-                            // entity type (no dedicated field type) -- the
-                            // server-resolved live team name (get.ts) is
-                            // shown instead of the raw id whenever present.
-                            value={
-                              f.name === "team_id" && record.teamName
-                                ? record.teamName
-                                : record.fields[f.name]
-                            }
+                            value={record.fields[f.name]}
                             fieldType={f.fieldType}
                             field={f}
                             attachments={attachments}

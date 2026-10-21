@@ -35,6 +35,7 @@ jobs:
       db: ${{ steps.filter.outputs.db }}
       deps: ${{ steps.filter.outputs.deps }}
       superset: ${{ steps.filter.outputs.superset }}
+      images: ${{ steps.filter.outputs.images }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -64,6 +65,14 @@ jobs:
               - 'pnpm-workspace.yaml'
             superset:
               - 'docker/superset/**'
+              - '.github/workflows/ci.yml'
+            images:
+              - 'apps/api/Dockerfile'
+              - 'apps/worker/Dockerfile'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - '**/package.json'
               - '.github/workflows/ci.yml'
 
   # ── 1. Lint and type-check ─────────────────────────────────────────────────
@@ -109,7 +118,7 @@ jobs:
         run: pnpm lint --filter="$TURBO_FILTER"
 
       - name: Cross-package architecture guards
-        run: pnpm --filter @platform/api exec vitest run src/routes/api-keys/decoupling.architecture.test.ts
+        run: pnpm --filter @platform/api exec vitest run .architecture.test.ts
 
       - name: Type check
         run: pnpm typecheck --filter="$TURBO_FILTER"
@@ -453,6 +462,38 @@ jobs:
           --entrypoint /app/.venv/bin/python openwind-superset:ci
           -m unittest discover -s /t -p test_nullpool_guard.py
 
+  runtime-images:
+    name: Runtime images (build and structure check)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: >-
+      always() &&
+      github.event.pull_request.draft != true &&
+      (github.event_name == 'push' || needs.changes.result == 'failure' || needs.changes.outputs.images == 'true')
+    steps:
+      - uses: actions/checkout@v4
+      # Builds the default `runtime` target, the image servers run (#1016, #1033). A broken COPY,
+      # a missing file or a wrong user fails here instead of at a production deploy.
+      - name: Build the api and worker runtime images
+        run: |
+          docker build --target runtime -f apps/api/Dockerfile -t openwind-api:ci .
+          docker build --target runtime -f apps/worker/Dockerfile -t openwind-worker:ci .
+      - name: Check each image runs as non-root with a healthcheck and compiled output
+        run: |
+          for img in openwind-api openwind-worker; do
+            ref="${img}:ci"
+            echo "== ${ref}"
+            test "$(docker run --rm --entrypoint id "${ref}" -u)" = "1000"
+            test -n "$(docker inspect --format '{{json .Config.Healthcheck}}' "${ref}" | grep -v '^null$')"
+            docker run --rm --entrypoint test "${ref}" -f /app/dist/index.js
+            docker run --rm --entrypoint test "${ref}" -f /app/pnpm-workspace.yaml
+            docker run --rm --entrypoint test "${ref}" -d /app/modules
+            docker run --rm --entrypoint touch "${ref}" /data/files/.write-check
+            # Code must be read-only to the app user. `test ! -w` fails if the container cannot run,
+            # unlike inverting a failing `touch`, which would pass for a broken image.
+            docker run --rm --entrypoint sh "${ref}" -c 'test ! -w /app/dist'
+          done
+
   # ── Summary ───────────────────────────────────────────────────────────────
   ci-complete:
     name: CI complete
@@ -465,6 +506,7 @@ jobs:
         security,
         dependency-audit,
         superset-guard,
+        runtime-images,
       ]
     if: always() && github.event_name != 'schedule'
     steps:
@@ -476,6 +518,7 @@ jobs:
              ! ok "${{ needs.isolation-tests.result }}" || \
              ! ok "${{ needs.security.result }}" || \
              ! ok "${{ needs.superset-guard.result }}" || \
+             ! ok "${{ needs.runtime-images.result }}" || \
              ! ok "${{ needs.dependency-audit.result }}"; then
             echo "One or more required CI jobs failed."
             exit 1

@@ -21,11 +21,17 @@ const dbMock = {
   // Two select shapes are used by executor.ts: the rules lookup ends in
   // .orderBy() (mockSelect), T4's dedup existing-success check ends in
   // .limit() (mockDedupSelect) — kept distinct so tests can control each
-  // independently.
+  // independently. workflowOfType's .orderBy().limit() also ends in .limit().
   select: () => ({
     from: () => ({
       where: () => ({
-        orderBy: () => mockSelect(),
+        orderBy: () =>
+          Object.assign(
+            Promise.resolve().then(() => mockSelect()),
+            {
+              limit: () => mockDedupSelect(),
+            },
+          ),
         limit: () => mockDedupSelect(),
       }),
     }),

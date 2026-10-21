@@ -101,7 +101,10 @@ services:
 
   ow-backend:
     entrypoint: *node-loader
-    command: ["pnpm", "exec", "tsx", "apps/api/src/index.ts"]
+    # Compiled output on the non-root `runtime` image target (#1016).
+    build:
+      target: runtime
+    command: ["node", "dist/index.js"]
     env_file: !override
       - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/backend.env
     environment: !override
@@ -114,6 +117,8 @@ services:
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
       REDIS_URL: redis://redis:6379
+      SUPERSET_REDIS_URL: redis://redis:6379/2
+      REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
       SUPERSET_SITE_URL: ${SUPERSET_SITE_URL:?set SUPERSET_SITE_URL in .env}
@@ -127,6 +132,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redis-cache:
+        condition: service_healthy
     networks: !override
       default: {}
       openwind_zitadel: {}
@@ -135,7 +142,9 @@ services:
 
   ow-worker:
     entrypoint: *node-loader
-    command: ["pnpm", "exec", "tsx", "apps/worker/src/index.ts"]
+    build:
+      target: runtime
+    command: ["node", "dist/index.js"]
     env_file: !override
       - path: ${OPENWIND_SECRETS_DIR:?set OPENWIND_SECRETS_DIR in .env}/worker.env
     environment: !override
@@ -147,6 +156,8 @@ services:
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
       REDIS_URL: redis://redis:6379
+      SUPERSET_REDIS_URL: redis://redis:6379/2
+      REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
       FILES_STORAGE_PATH: /data/files
@@ -156,6 +167,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-cache:
         condition: service_healthy
       clamav:
         condition: service_healthy

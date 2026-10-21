@@ -94,6 +94,12 @@ server's name. Two habits keep values out of shell history and screen recordings
 For a new deployment with no running instance. To move an existing one, see
 [Cutover](#cutover-from-a-running-instance) instead.
 
+> **Before Zitadel's first boot, set `ZITADEL_EXTERNALSECURE=true`.** Zitadel stores its issuer scheme
+> (`http://` or `https://`) in its database when it first initialises, and it cannot be corrected
+> afterwards without wiping the Zitadel database. If it was initialised as `http://`, browsers block the
+> app's requests from HTTPS pages (the "Mixed Content" symptom in
+> [local setup troubleshooting](../local-setup.md)). `.env.production.example` already sets it.
+
 1. **Network and roles — [ops repo].** Ask the OpenBao owner to:
    - create the per-project network (`OPENBAO_NETWORK`, default `openbao-openwind`) and give OpenBao
      a network alias matching its certificate name;
@@ -325,7 +331,8 @@ cutover.
    ```
 
    Do the same for every service you start: `worker`, `superset`, `superset-init`, `bootstrap`
-   and `novu`, each into `rollback-<service>.env`. A `.env` file holds one value per line, so
+   and `novu`, each into `rollback-<service>.env`. `novu-api` and `novu-worker` share one
+   `rollback-novu.env`: export it once and use it for both. A `.env` file holds one value per line, so
    check that no value spans lines (base64 values such as `ZITADEL_KEY_JSON` are fine).
 
 2. Check, then start **with the production override still in place** plus the rollback override

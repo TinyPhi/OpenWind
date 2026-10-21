@@ -44,6 +44,8 @@ import {
   type FieldSensitivity,
 } from "@platform/workflow-engine";
 
+export { auditResourceId } from "./resource-id.js";
+
 export {
   ALL_AUDIT_ACTIONS,
   classifyOutcome,

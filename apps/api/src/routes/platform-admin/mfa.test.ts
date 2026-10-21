@@ -13,7 +13,10 @@ const { mockPlatformAdmin } = vi.hoisted(() => ({
 }));
 
 vi.mock("@platform/config", () => ({
-  env: { PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS: 7 },
+  env: {
+    PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS: 7,
+    PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: 900,
+  },
 }));
 
 const mockRequestMfaCode = vi.fn();
@@ -49,7 +52,6 @@ vi.mock("@platform/auth", () => ({
   verifyMfaCode: (...args: unknown[]) => mockVerifyMfaCode(...args),
   endMfaSession: (...args: unknown[]) => mockEndMfaSession(...args),
   PLATFORM_ADMIN_MFA_SESSION_HEADER: "X-Platform-Admin-Mfa",
-  MFA_CODE_TTL_SECONDS: 600,
 }));
 
 const { mfaRequestHandler, mfaVerifyHandler, mfaEndHandler } =
@@ -80,7 +82,7 @@ describe("POST /platform-admin/mfa/request", () => {
         sent: true,
         sentTo: "o***@openwind.io",
         resendAfterSeconds: 7,
-        expiresInSeconds: 600,
+        expiresInSeconds: 900,
       },
     });
   });

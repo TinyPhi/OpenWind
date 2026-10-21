@@ -212,156 +212,24 @@ docker exec ow-database psql -U platform -d platform -Atc \
 
 ## Production deployment (HTTPS)
 
-Before exposing a deployment publicly, also complete the
-[production hardening checklist](deployment-hardening.md). It covers the
-infrastructure controls this repository cannot configure: HSTS, encrypted
-database/file/backup storage, production OpenBao, key custody and restore
-testing.
+The local `setup.sh` / `setup.bat` flow and bare `docker compose` commands in this guide are for
+development only. Do not use them for a public deployment: the base Compose file enables
+development defaults and the development OpenBao container.
 
-Production uses the same `setup.sh` script as local dev — you configure it via
-environment variables instead of a different flow. The one thing that differs
-in a way that matters: **Zitadel must know it is running behind HTTPS before
-its very first boot.** Zitadel bakes the issuer URL into its database during
-`start-from-init`. If it initialises with `http://`, the issuer stays
-`http://` permanently until you wipe the database and start again — and the
-browser will block every auth request on an HTTPS page as mixed content.
-
-Follow these steps in order.
-
-### Step 1 — Prerequisites on the server
-
-- Docker and Docker Compose (v2) installed
-- A reverse proxy (nginx, Caddy, Traefik) handling SSL termination and forwarding
-  traffic to the container ports you choose below
-- Two subdomains with valid HTTPS certificates:
-  - `openwind.example.com` → forwards to the frontend's host port
-  - `owzitadel.example.com` → forwards to Zitadel's host port
-
-**The backend is never given its own subdomain or a public port.** The
-third-party API (ADR-012) is reached through the _same_ `openwind.example.com`
-domain as the frontend, split by path at the reverse proxy — same shape as
-`ow-frontend`'s own Vite dev proxy locally (see `apps/admin-ui/vite.config.ts`).
-The backend container only publishes to `127.0.0.1:${API_HOST_PORT:-3002}`
-(`docker-compose.yml`) — reachable by the reverse proxy running on the same
-box, unreachable from outside it. Add these two `location` blocks to the
-**existing** `openwind.example.com` server block, before its catch-all `/`
-block (nginx matches the most specific `location`, so exact placement relative
-to `/` doesn't actually matter, but keeping them together above it reads
-clearer):
-
-```nginx
-    # 3002 below is the API_HOST_PORT default -- if you overrode that env var,
-    # substitute your actual value in BOTH proxy_pass lines; nginx doesn't
-    # read the .env file, so there's no way to keep these in sync automatically.
-    location /api/v1/ {
-        proxy_pass http://127.0.0.1:3002;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        # OVERWRITE, not $proxy_add_x_forwarded_for (which APPENDS to
-        # whatever the client already sent). apps/api's rate limiter
-        # (middleware/rate-limit.ts) trusts the FIRST hop of X-Forwarded-For
-        # as the client's identity for its per-IP bucket -- append instead
-        # of overwrite, and an external caller can send their own
-        # X-Forwarded-For value (a fresh one on every request) and have
-        # nginx tack the real IP on afterward, completely defeating the
-        # rate limit. nginx is the single trusted hop here, so $remote_addr
-        # (the actual TCP peer nginx itself sees) is the only value that
-        # can't be forged by the request.
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /ws/ {
-        proxy_pass http://127.0.0.1:3002;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        # Same reasoning as /api/v1/ above -- without these, nginx proxies the
-        # WebSocket upgrade as a plain TCP connection from 127.0.0.1, and the
-        # rate limiter's getConnInfo() fallback collapses every real client
-        # into one shared bucket keyed on that loopback address. $remote_addr
-        # (overwrite), not $proxy_add_x_forwarded_for, for the same spoofing
-        # reason as the /api/v1/ block.
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-```
-
-No path rewriting here (unlike the frontend's own `/api` rule, which strips
-that prefix for its internal calls) — the backend already expects the literal
-`/api/v1/...` prefix (`apps/api/src/app.ts`'s `app.route("/api/v1", ...)`), so
-forwarding the URI unchanged is correct.
-
-### Step 2 — Clone the repo
+For production, follow the [OpenBao production runbook](runbooks/openbao-secrets.md). It uses
+`.env.production.example` and always starts OpenWind with both Compose files:
 
 ```bash
-git clone <repo-url> ~/openwind
-cd ~/openwind
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-### Step 3 — Set the deployment env vars
+Never drop `-f docker-compose.prod.yml` during setup, updates, rollback, or recovery. The override
+sets `NODE_ENV=production`, disables development OpenBao, and enables the production secret-loading
+path. Deployments using another orchestrator must provide the same environment contract explicitly.
 
-`setup.sh` reads these from the environment (export them, or put them in a
-gitignored `.env.server` and `source` it first). **Set these before the first
-run** — `ZITADEL_EXTERNALSECURE` in particular cannot be changed later without
-wiping Zitadel's database:
-
-```bash
-export ZITADEL_EXTERNAL_DOMAIN=owzitadel.example.com
-export ZITADEL_HOST_PORT=10405          # host port Zitadel binds to
-export ZITADEL_EXTERNALSECURE=true      # CRITICAL — must be true before first boot
-export ZITADEL_EXTERNAL_PORT=443        # public port browsers use (behind the proxy)
-export ZITADEL_TLS_MODE=disabled        # TLS terminates at the reverse proxy, not Zitadel
-export ADMIN_UI_HOST_PORT=10404         # host port the frontend binds to
-export APP_URL=https://openwind.example.com
-```
-
-**Why `ZITADEL_EXTERNALSECURE=true` matters:** `start-from-init` reads
-`ZITADEL_EXTERNALDOMAIN` / `ZITADEL_EXTERNALPORT` / `ZITADEL_EXTERNALSECURE`
-and writes the instance's issuer URL — `{scheme}://{domain}` — into its
-database once, on first boot. `true` gives `https://`; absent or `false` gives
-`http://` forever, until you wipe the database and reinitialise. There is no
-in-place migration.
-
-### Step 4 — Run setup
-
-```bash
-cd ~/openwind
-./setup.sh
-```
-
-Same script, same four steps as local dev — it just picks up the env vars from
-Step 3 and generates HTTPS-correct URLs and OIDC redirect URIs throughout. It
-prints the same summary block with both URLs and both sets of credentials at
-the end.
-
-### Step 5 — Verify
-
-- App: `https://openwind.example.com` → log in with `owAdmin` / `OpenWind1234!`
-- Zitadel console: `https://owzitadel.example.com/ui/console` → log in with
-  `owZitadelAdmin@openwind.local` and the password printed at the end of setup
-
-### Updating production after a code change
-
-```bash
-cd ~/openwind
-git pull
-docker compose up -d --build ow-backend ow-frontend
-```
-
-Setup does not need to re-run for code updates — only for a full reset.
-
-### Resetting production
-
-```bash
-pnpm dev:reset      # confirms, then wipes both volumes + .env.local — see the
-                    # local-dev "Resetting everything" section above for why
-                    # this always wipes both sides together
-# re-export the Step 3 env vars (or re-source .env.server), then:
-./setup.sh
-```
+Before exposing the deployment, complete the [production hardening checklist](deployment-hardening.md),
+including TLS/HSTS, trusted-proxy configuration, encrypted storage, backups, production OpenBao,
+and verification that both the API and worker see `NODE_ENV=production`.
 
 ---
 
@@ -773,11 +641,11 @@ set). The issuer URL in its database is `http://` but the page is served over
 HTTPS — browsers block HTTP requests from HTTPS pages.
 
 **Fix:** Wipe Zitadel and reinitialise with `ZITADEL_EXTERNALSECURE=true` set
-_before_ running setup again. See [Step 3](#step-3--set-the-deployment-env-vars)
-in the production section.
+_before_ running setup again. See the first-time setup warning in the
+[OpenBao secrets runbook](runbooks/openbao-secrets.md#first-time-setup).
 
 ```bash
-export ZITADEL_EXTERNALSECURE=true   # plus the rest of Step 3's env vars
+export ZITADEL_EXTERNALSECURE=true   # plus the rest of the deployment env vars
 (cd ../zitadel && docker compose down -v)
 rm .env.local
 ./setup.sh

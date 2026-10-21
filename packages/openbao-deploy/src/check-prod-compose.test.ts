@@ -6,6 +6,7 @@ import {
   checkComposeConfig,
   ALLOWED_ENV,
   type ComposeConfig,
+  parseComposeProfiles,
 } from "./check-prod-compose.js";
 
 const LOADER = ["node", "/app/packages/openbao-deploy/src/bao-env-loader.mjs"];
@@ -21,9 +22,14 @@ function valid(): ComposeConfig {
   return {
     services: {
       redis: {},
+      "redis-cache": {},
       "ow-backend": {
         entrypoint: LOADER,
-        environment: { ...LOADER_SETTINGS, REDIS_URL: "redis://redis:6379" },
+        environment: {
+          ...LOADER_SETTINGS,
+          REDIS_URL: "redis://redis:6379",
+          REDIS_CACHE_URL: "redis://redis-cache:6379",
+        },
         env_file: [{ path: "/srv/secrets/backend.env" }],
         volumes: [{ source: "/srv/files", target: "/data/files" }],
       },
@@ -165,6 +171,15 @@ describe("checkComposeConfig — published ports", () => {
     );
   });
 
+  it("accepts the cache Redis wiring and fails on a cache port on every interface (#1013)", () => {
+    expect(checkComposeConfig(valid(), [], FILES_OK)).toEqual([]);
+    const cfg = valid();
+    cfg.services!["redis-cache"]!.ports = [{ published: "6380", target: 6379 }];
+    expect(checkComposeConfig(cfg, [], FILES_OK).join("\n")).toMatch(
+      /redis-cache: ports published on every interface/,
+    );
+  });
+
   it("reads list-form environment by key name", () => {
     const cfg = valid();
     cfg.services!["ow-frontend"]!.environment = [
@@ -259,6 +274,27 @@ describe.skipIf(!hasCompose)("docker-compose.prod.yml", () => {
   });
 });
 
+describe("parseComposeProfiles (#981)", () => {
+  it("splits a plain list and ignores blanks", () => {
+    expect(parseComposeProfiles("reporting, notifications,,")).toEqual([
+      "reporting",
+      "notifications",
+    ]);
+    expect(parseComposeProfiles(undefined)).toEqual([]);
+  });
+
+  it("strips the quotes around a quoted .env value", () => {
+    expect(parseComposeProfiles('"reporting,notifications"')).toEqual([
+      "reporting",
+      "notifications",
+    ]);
+    expect(parseComposeProfiles("'reporting,notifications'")).toEqual([
+      "reporting",
+      "notifications",
+    ]);
+  });
+});
+
 describe("checkComposeConfig — rollback mode (#943)", () => {
   function rollbackService(overrides: Record<string, unknown> = {}) {
     return {
@@ -271,6 +307,16 @@ describe("checkComposeConfig — rollback mode (#943)", () => {
       ...overrides,
     };
   }
+
+  it("accepts a rollback file whose service name contains a digit (#982)", () => {
+    const cfg = valid();
+    cfg.services!["ow-backend"] = rollbackService({
+      env_file: [{ path: "/srv/secrets/rollback-novu2.env" }],
+    });
+    expect(
+      checkComposeConfig(cfg, [], { ...FILES_OK, mode: "rollback" }).join("\n"),
+    ).not.toMatch(/reads no rollback/);
+  });
 
   it("accepts a service with the loader off that reads its rollback file", () => {
     const cfg = valid();

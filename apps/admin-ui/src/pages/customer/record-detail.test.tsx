@@ -150,9 +150,13 @@ function mockRoutesForAccessRequests(
   });
 }
 
-function renderRecordDetail(): void {
+function renderRecordDetail(
+  initialEntries: Array<string | { pathname: string; state?: unknown }> = [
+    `/records/ticket/${RECORD_ID}`,
+  ],
+): void {
   render(
-    <MemoryRouter initialEntries={[`/records/ticket/${RECORD_ID}`]}>
+    <MemoryRouter initialEntries={initialEntries}>
       <Routes>
         <Route
           path="/records/:typeSlug/:id"
@@ -163,18 +167,15 @@ function renderRecordDetail(): void {
   );
 }
 
-// 2026-09-22: team_id is a plain generic field on every entity type (no
-// dedicated "team reference" field type) -- get.ts resolves it server-side
-// to a live team name (`teamName`), and the field grid must show that
-// resolved name instead of the raw id for any field literally named
-// "team_id".
-describe("CustomerRecordDetail — team_id field shows the resolved team name (2026-09-22)", () => {
+// team_id is a virtual field (config.virtual, PR #975 review): the team shows through the
+// assign control as "Team: <name>" (get.ts resolves `teamName`), never as a grid row.
+describe("CustomerRecordDetail — team_id is virtual", () => {
   beforeEach(() => {
     capturedRoomHandler = null;
   });
   afterEach(() => cleanup());
 
-  it("shows the resolved teamName, not the raw team_id, for a field named team_id", async () => {
+  it("leaves the virtual team_id field out of the grid and never shows the raw id", async () => {
     mockFetchWithAuth.mockImplementation((url: string) => {
       if (url === `/api/entities/${RECORD_ID}`) {
         return Promise.resolve({
@@ -195,7 +196,7 @@ describe("CustomerRecordDetail — team_id field shows the resolved team name (2
               fieldType: "text",
               isRequired: false,
               isSystem: false,
-              config: {},
+              config: { virtual: true },
             },
           ],
         });
@@ -205,8 +206,12 @@ describe("CustomerRecordDetail — team_id field shows the resolved team name (2
 
     renderRecordDetail();
 
-    await waitFor(() => expect(screen.getByText("Dev Team")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText(/Dev Team/).length).toBeGreaterThan(0),
+    );
     expect(screen.queryByText("team-uuid-1")).toBeNull();
+    const gridLabels = [...document.querySelectorAll(".rcd-field-lbl")];
+    expect(gridLabels.some((el) => el.textContent === "Team")).toBe(false);
   });
 });
 
@@ -1397,7 +1402,10 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
             field("severity", "Severity Field", "select", {
               config: { options: ["low", "high"], virtual: true },
             }),
-            field("team_id", "Team", "text", { isSystem: false }),
+            field("team_id", "Team", "text", {
+              isSystem: false,
+              config: { virtual: true },
+            }),
           ],
         });
       }
@@ -1781,6 +1789,24 @@ describe("CustomerRecordDetail — mandatory fields on the ticket page", () => {
     expect(notice.textContent).toContain(
       "could not be added as the first comment",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("displays the forwarded record notice from navigation and allows dismissing it (#1022)", async () => {
+    mockMandatoryTicket({ canAddChildren: true });
+    const noticeText =
+      "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket.";
+    renderRecordDetail([
+      {
+        pathname: `/records/ticket/${RECORD_ID}`,
+        state: { notice: noticeText },
+      },
+    ]);
+
+    const notice = await screen.findByRole("status", {}, { timeout: 3000 });
+    expect(notice.textContent).toContain(noticeText);
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
     expect(screen.queryByRole("status")).toBeNull();

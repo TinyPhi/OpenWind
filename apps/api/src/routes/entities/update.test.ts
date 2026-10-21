@@ -8,6 +8,8 @@ import type * as WorkflowEngine from "@platform/workflow-engine";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockUpdateEntity = vi.fn();
+// Number of open withTenantContext callbacks, to assert Zitadel-backed work runs outside one.
+const txDepth = vi.hoisted(() => ({ current: 0 }));
 const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
 
 // ensureUserRefsKnown's own branching logic is covered in
@@ -67,8 +69,17 @@ vi.mock("@platform/db", () => ({
   db: mockDb,
   tenantUsers: {},
   entityInstances: {},
-  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
-    fn(mockTx),
+  withTenantContext: async (
+    _tenantId: unknown,
+    fn: (tx: unknown) => unknown,
+  ) => {
+    txDepth.current++;
+    try {
+      return await fn(mockTx);
+    } finally {
+      txDepth.current--;
+    }
+  },
 }));
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
@@ -332,7 +343,9 @@ describe("PATCH /entities/:id — wiring ensureUserRefsKnown (first-login-cache 
     // consumer of mockTx.limit() for this request - see the field's comment.
     ownershipRow = { entityTypeId: "type-x" };
     const order: string[] = [];
+    let depthAtCall = -1;
     mockEnsureUserRefsKnown.mockImplementation(() => {
+      depthAtCall = txDepth.current;
       order.push("ensureUserRefsKnown");
       return Promise.resolve();
     });
@@ -350,13 +363,13 @@ describe("PATCH /entities/:id — wiring ensureUserRefsKnown (first-login-cache 
     });
 
     expect(mockEnsureUserRefsKnown).toHaveBeenCalledWith(
-      expect.any(Object),
       "t-aaa",
       "type-x",
       { technical_reviewer: "u-reviewer" },
       "org-ccc",
     );
     expect(order).toEqual(["ensureUserRefsKnown", "updateEntity"]);
+    expect(depthAtCall).toBe(0);
   });
 
   it("does not call ensureUserRefsKnown when the update has no fields", async () => {

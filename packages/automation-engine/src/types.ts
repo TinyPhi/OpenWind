@@ -180,8 +180,9 @@ export class AutomationError extends Error {
       | "CIRCUIT_BREAKER_UNAVAILABLE"
       | "NOTIFY_LINK_INVALID",
     public readonly meta?: Record<string, unknown>,
+    message?: string,
   ) {
-    super(code);
+    super(message ?? code);
     this.name = "AutomationError";
   }
 }

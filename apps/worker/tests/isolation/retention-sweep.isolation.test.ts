@@ -16,6 +16,11 @@ import {
   entityInstances,
   workflowEvents,
   tenantUsageDaily,
+  notifications,
+  notificationRecipients,
+  connectorDeliveryAttempts,
+  deadLetterEvents,
+  idempotencyKeys,
 } from "@platform/db";
 
 vi.mock("../../src/queues.js", () => ({ connection: {} }));
@@ -148,14 +153,163 @@ async function surviving(ids: string[]): Promise<Set<string>> {
 
 const seeded: Record<string, Seeded> = {};
 
+interface ExtraSeeded {
+  oldNotification: string;
+  newNotification: string;
+  oldRecipient: string;
+  newRecipient: string;
+  oldAttempt: string;
+  newAttempt: string;
+  oldDeadLetter: string;
+  newDeadLetter: string;
+  oldKey: string;
+  newKey: string;
+}
+const extras: Record<string, ExtraSeeded> = {};
+
+async function seedExtras(tenantId: string): Promise<ExtraSeeded> {
+  const mkNotification = async (age: number): Promise<string> => {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        tenantId,
+        type: "system.error",
+        title: "t",
+        body: "b",
+        createdAt: daysAgo(age),
+      })
+      .returning({ id: notifications.id });
+    return row!.id;
+  };
+  const mkRecipient = async (notificationId: string): Promise<string> => {
+    const [row] = await db
+      .insert(notificationRecipients)
+      .values({ notificationId, tenantId, userId: "u1" })
+      .returning({ id: notificationRecipients.id });
+    return row!.id;
+  };
+  const mkAttempt = async (age: number): Promise<string> => {
+    const [row] = await db
+      .insert(connectorDeliveryAttempts)
+      .values({
+        tenantId,
+        deliveryId: crypto.randomUUID(),
+        status: "success",
+        attemptNumber: 1,
+        createdAt: daysAgo(age),
+      })
+      .returning({ id: connectorDeliveryAttempts.id });
+    return row!.id;
+  };
+  const mkDeadLetter = async (age: number): Promise<string> => {
+    const [row] = await db
+      .insert(deadLetterEvents)
+      .values({
+        tenantId,
+        eventType: "x",
+        payload: {},
+        error: "e",
+        attemptCount: 1,
+        createdAt: daysAgo(age),
+      })
+      .returning({ id: deadLetterEvents.id });
+    return row!.id;
+  };
+  const mkKey = async (expiredDaysAgo: number): Promise<string> => {
+    const [row] = await db
+      .insert(idempotencyKeys)
+      .values({
+        tenantId,
+        apiKeyId: crypto.randomUUID(),
+        actingPersonId: "p",
+        idempotencyKey: crypto.randomUUID(),
+        contentHash: "h",
+        responseStatus: 200,
+        responseBody: {},
+        expiresAt: daysAgo(expiredDaysAgo),
+      })
+      .returning({ id: idempotencyKeys.id });
+    return row!.id;
+  };
+  const oldNotification = await mkNotification(100);
+  const newNotification = await mkNotification(10);
+  return {
+    oldNotification,
+    newNotification,
+    oldRecipient: await mkRecipient(oldNotification),
+    newRecipient: await mkRecipient(newNotification),
+    oldAttempt: await mkAttempt(100),
+    newAttempt: await mkAttempt(10),
+    oldDeadLetter: await mkDeadLetter(100),
+    newDeadLetter: await mkDeadLetter(10),
+    oldKey: await mkKey(100),
+    newKey: await mkKey(10),
+  };
+}
+
+async function extraSurvivors(e: ExtraSeeded): Promise<Set<string>> {
+  const ids = (rows: { id: string }[]): string[] => rows.map((r) => r.id);
+  const found = [
+    ...ids(
+      await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          inArray(notifications.id, [e.oldNotification, e.newNotification]),
+        ),
+    ),
+    ...ids(
+      await db
+        .select({ id: notificationRecipients.id })
+        .from(notificationRecipients)
+        .where(
+          inArray(notificationRecipients.id, [e.oldRecipient, e.newRecipient]),
+        ),
+    ),
+    ...ids(
+      await db
+        .select({ id: connectorDeliveryAttempts.id })
+        .from(connectorDeliveryAttempts)
+        .where(
+          inArray(connectorDeliveryAttempts.id, [e.oldAttempt, e.newAttempt]),
+        ),
+    ),
+    ...ids(
+      await db
+        .select({ id: deadLetterEvents.id })
+        .from(deadLetterEvents)
+        .where(
+          inArray(deadLetterEvents.id, [e.oldDeadLetter, e.newDeadLetter]),
+        ),
+    ),
+    ...ids(
+      await db
+        .select({ id: idempotencyKeys.id })
+        .from(idempotencyKeys)
+        .where(inArray(idempotencyKeys.id, [e.oldKey, e.newKey])),
+    ),
+  ];
+  return new Set(found);
+}
+
 beforeAll(async () => {
   seeded[TENANT] = await seedTenant(TENANT, "retention-a");
   seeded[OTHER] = await seedTenant(OTHER, "retention-b");
   seeded[HELD] = await seedTenant(HELD, "retention-hold");
+  for (const t of ALL_TENANTS) extras[t] = await seedExtras(t);
 });
 
 afterAll(async () => {
   for (const t of ALL_TENANTS) {
+    await db
+      .delete(notificationRecipients)
+      .where(eq(notificationRecipients.tenantId, t));
+    await db.delete(notifications).where(eq(notifications.tenantId, t));
+    await db
+      .delete(connectorDeliveryAttempts)
+      .where(eq(connectorDeliveryAttempts.tenantId, t));
+    await db.delete(deadLetterEvents).where(eq(deadLetterEvents.tenantId, t));
+    await db.delete(idempotencyKeys).where(eq(idempotencyKeys.tenantId, t));
     await db.delete(workflowEvents).where(eq(workflowEvents.tenantId, t));
     await db.delete(tenantUsageDaily).where(eq(tenantUsageDaily.tenantId, t));
     await db.delete(entityInstances).where(eq(entityInstances.tenantId, t));
@@ -190,6 +344,58 @@ describe("retention sweep as app_user", () => {
     expect(other.size).toBe(Object.values(seeded[OTHER]!).length);
   });
 
+  it("sweeps notifications, delivery attempts, dead letters and expired idempotency keys past the noise window only", async () => {
+    // Runs after the first test swept TENANT; the sweep is idempotent.
+    const e = extras[TENANT]!;
+    const kept = await extraSurvivors(e);
+    expect(kept).toEqual(
+      new Set([
+        e.newNotification,
+        e.newRecipient,
+        e.newAttempt,
+        e.newDeadLetter,
+        e.newKey,
+      ]),
+    );
+  });
+
+  it("reports per-table counts for the new tables", async () => {
+    const fresh = "dddddddd-0950-4000-d000-000000000004";
+    await db
+      .insert(tenants)
+      .values({
+        id: fresh,
+        name: "retention-fresh",
+        slug: `retention-fresh-${Date.now()}`,
+      })
+      .onConflictDoNothing();
+    try {
+      const e = await seedExtras(fresh);
+      const result = await sweepTenant(fresh, resolveRetentionPolicy({}));
+      expect(result.notificationRecipients).toBe(1);
+      expect(result.notifications).toBe(1);
+      expect(result.connectorDeliveryAttempts).toBe(1);
+      expect(result.deadLetterEvents).toBe(1);
+      expect(result.idempotencyKeys).toBe(1);
+      expect((await extraSurvivors(e)).size).toBe(5);
+    } finally {
+      await db
+        .delete(notificationRecipients)
+        .where(eq(notificationRecipients.tenantId, fresh));
+      await db.delete(notifications).where(eq(notifications.tenantId, fresh));
+      await db
+        .delete(connectorDeliveryAttempts)
+        .where(eq(connectorDeliveryAttempts.tenantId, fresh));
+      await db
+        .delete(deadLetterEvents)
+        .where(eq(deadLetterEvents.tenantId, fresh));
+      await db
+        .delete(idempotencyKeys)
+        .where(eq(idempotencyKeys.tenantId, fresh));
+      await db.delete(tenants).where(eq(tenants.id, fresh));
+    }
+  });
+
   it("deletes nothing for a tenant under retention hold", async () => {
     const policy = resolveRetentionPolicy({
       retention_evidence_days: 365,
@@ -199,6 +405,11 @@ describe("retention sweep as app_user", () => {
     expect(Object.values(result).every((n) => n === 0)).toBe(true);
     const kept = await surviving(Object.values(seeded[HELD]!));
     expect(kept.size).toBe(Object.values(seeded[HELD]!).length);
+    expect((await extraSurvivors(extras[HELD]!)).size).toBe(10);
+  });
+
+  it("never touched another tenant's extended-table rows", async () => {
+    expect((await extraSurvivors(extras[OTHER]!)).size).toBe(10);
   });
 
   it("with default windows keeps 400-day-old evidence even on a closed case", async () => {

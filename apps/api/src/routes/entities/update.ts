@@ -102,14 +102,15 @@ export const updateEntityHandler = factory.createHandlers(
             ? dbUser.email
             : null;
 
-      const instance = await withTenantContext(tenantId, async (tx) => {
-        // Upsert tenant_users for any user_ref field referencing a genuine
-        // org member who hasn't logged into this app yet - otherwise
-        // updateEntity's own validateUserRefs (tenant_users-only) wrongly
-        // rejects them. Must run inside this same transaction, before
-        // updateEntity, so its validation sees the freshly-inserted rows.
-        if (input.fields !== undefined) {
-          const [existing] = await tx
+      // Upsert tenant_users for any user_ref field referencing a genuine
+      // org member who hasn't logged into this app yet - otherwise
+      // updateEntity's own validateUserRefs (tenant_users-only) wrongly
+      // rejects them. Runs before the update transaction opens so the
+      // Zitadel lookup never holds a database connection, and commits
+      // first so updateEntity's validation sees the inserted rows.
+      if (input.fields !== undefined) {
+        const [existing] = await withTenantContext(tenantId, (tx) =>
+          tx
             .select({ entityTypeId: entityInstances.entityTypeId })
             .from(entityInstances)
             .where(
@@ -118,17 +119,18 @@ export const updateEntityHandler = factory.createHandlers(
                 eq(entityInstances.tenantId, tenantId),
               ),
             )
-            .limit(1);
-          if (existing) {
-            await ensureUserRefsKnown(
-              tx,
-              tenantId,
-              existing.entityTypeId,
-              input.fields,
-              orgId,
-            );
-          }
+            .limit(1),
+        );
+        if (existing) {
+          await ensureUserRefsKnown(
+            tenantId,
+            existing.entityTypeId,
+            input.fields,
+            orgId,
+          );
         }
+      }
+      const instance = await withTenantContext(tenantId, async (tx) => {
         return updateEntity(tx, tenantId, id, {
           ...input,
           actorId: userId,

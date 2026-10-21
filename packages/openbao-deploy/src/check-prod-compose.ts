@@ -67,12 +67,15 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "SERVER_TLS_SSLMODE",
   ],
   redis: [],
+  "redis-cache": [],
   clamav: [],
   "ow-backend": [
     ...LOADER_ENV,
     "BAO_KEEP_LOGIN",
     "OPENBAO_TRANSIT_KEY",
     "REDIS_URL",
+    "SUPERSET_REDIS_URL",
+    "REDIS_CACHE_URL",
     "ZITADEL_JWKS_URL",
     "ZITADEL_INTROSPECTION_URL",
     "SUPERSET_SITE_URL",
@@ -87,6 +90,8 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "BAO_KEEP_LOGIN",
     "OPENBAO_TRANSIT_KEY",
     "REDIS_URL",
+    "SUPERSET_REDIS_URL",
+    "REDIS_CACHE_URL",
     "ZITADEL_JWKS_URL",
     "ZITADEL_INTROSPECTION_URL",
     "FILES_STORAGE_PATH",
@@ -299,7 +304,7 @@ export function checkComposeConfig(
         problems.push(`${name}: still starts through the OpenBao loader`);
       }
       const files = (service.env_file ?? []).map((f) => f.path ?? "");
-      if (!files.some((f) => /rollback-[a-z-]+\.env$/.test(f))) {
+      if (!files.some((f) => /rollback-[a-z0-9-]+\.env$/.test(f))) {
         problems.push(`${name}: reads no rollback-<service>.env file`);
       }
       continue;
@@ -337,6 +342,16 @@ export function checkComposeConfig(
 
 // Same sources as Docker Compose: the COMPOSE_PROFILES variable, else the
 // project's .env file.
+export function parseComposeProfiles(raw: string | undefined): string[] {
+  // A quoted .env value (COMPOSE_PROFILES="a,b") must not keep its quotes in the first and last name.
+  return (raw ?? "")
+    .trim()
+    .replace(/^(["'])(.*)\1$/, "$2")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
 function composeProfiles(repoRoot: string): string[] {
   let raw = process.env["COMPOSE_PROFILES"];
   const envFile = resolve(repoRoot, ".env");
@@ -346,10 +361,7 @@ function composeProfiles(repoRoot: string): string[] {
       .find((l) => l.startsWith("COMPOSE_PROFILES="));
     raw = line?.slice("COMPOSE_PROFILES=".length);
   }
-  return (raw ?? "")
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  return parseComposeProfiles(raw);
 }
 
 // Renders without interpolation, so the output can't contain resolved values.

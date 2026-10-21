@@ -5,7 +5,11 @@ import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import type { AuditAction } from "@platform/audit";
-import { exportQueue, PII_EXPORT_ROLES } from "../../lib/export-queue.js";
+import {
+  exportQueue,
+  isUserDataExportPayload,
+  PII_EXPORT_ROLES,
+} from "../../lib/export-queue.js";
 import type { AuthContext } from "@platform/auth";
 import { Readable } from "node:stream";
 import { getExportStream } from "@platform/files";
@@ -46,6 +50,30 @@ router.get(
       );
     }
 
+    // A data-subject export holds one person's personal data and is served only
+    // by the admin-only route in platform/user-export.ts; never through here,
+    // which agents can reach. Same 404 as a missing job.
+    if (isUserDataExportPayload(job.data)) {
+      await withTenantContext(tenantId, (tx) =>
+        writeAuditEntry(tx, {
+          tenantId,
+          actorId: userId,
+          actorType: "user",
+          resourceType: "user_data_export",
+          // resource_id is a uuid column; the job id is "userdata-<uuid>".
+          resourceId: jobId.slice("userdata-".length),
+          action: "export.download_denied",
+          metadata: { jobId, via: "entity_export_route" },
+        }),
+      );
+      return c.json(
+        { error: "NOT_FOUND", message: "Export job not found" },
+        404,
+      );
+    }
+
+    const jobData = job.data;
+
     // If the export included PII columns, require either the original requester
     // or a PII-capable role. This covers: role revoked after enqueue, and
     // within-tenant job ID enumeration by a lower-privilege user.
@@ -59,20 +87,20 @@ router.get(
           actorId: userId,
           actorType: "user",
           resourceType: "entity_type",
-          resourceId: job.data.entityTypeId,
+          resourceId: jobData.entityTypeId,
           action,
-          metadata: { jobId, format: job.data.format, mode: "async" },
+          metadata: { jobId, format: jobData.format, mode: "async" },
         }),
       );
 
     const jobIncludedPii =
-      job.data.includePii ??
-      job.data.requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
+      jobData.includePii ??
+      jobData.requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
       false;
 
     if (jobIncludedPii) {
       const canSeePii = roles.some((r) => PII_EXPORT_ROLES.has(r));
-      if (!canSeePii && job.data.requestedBy !== userId) {
+      if (!canSeePii && jobData.requestedBy !== userId) {
         await audit("export.download_denied");
         return c.json(
           { error: "NOT_FOUND", message: "Export job not found" },

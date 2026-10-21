@@ -352,7 +352,7 @@ required in every phase touching tenant-scoped data or new routes.
 The MFA code goes out by email, so an email outage affects the admin's ability to verify.
 
 - **Code did not arrive:** request another from the code dialog or `/platform-admin/mfa`. A new
-  code replaces the old one and is valid for 10 minutes, with 5 attempts. Resends are limited to one
+  code replaces the old one and is valid for `PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS` (default 600), with `PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS` attempts (default 5). The verified session lasts `PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS` (default 43200, #929). Resends are limited to one
   per `PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS` (default 30) per admin; the UI shows the countdown
   and a too-early request gets `429` with `Retry-After`.
 - **Already verified in this sign-in:** list, read, create and trial changes keep working while email

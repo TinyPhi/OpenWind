@@ -38,9 +38,10 @@ import { env } from "@platform/config";
 /** Request header carrying the MFA session token verifyMfaCode issued to this sign-in. */
 export const PLATFORM_ADMIN_MFA_SESSION_HEADER = "X-Platform-Admin-Mfa";
 
-export const MFA_CODE_TTL_SECONDS = 600; // 10 minutes to enter the code
-const VERIFIED_TTL_SECONDS = 12 * 60 * 60; // a single sign-in's verification lasts at most 12h
-const MAX_VERIFY_ATTEMPTS = 5; // guards the 6-digit code against brute force within its TTL
+// The code lifetime, the verified-session lifetime and the per-code attempt cap come from
+// @platform/config (PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS, _VERIFIED_TTL_SECONDS,
+// _MAX_VERIFY_ATTEMPTS, #929); the attempt cap guards the 6-digit code against brute force
+// within its TTL.
 // PR #947 review (R3/R4, finding 1): requesting a new code resets the per-code count above, so
 // on its own it allowed 5 fresh guesses every resend cooldown, indefinitely. Wrong codes also
 // count here, per user, across codes; only a correct code clears it. At the limit both
@@ -129,6 +130,15 @@ export type MfaVerifyResult =
   | { ok: false; reason: "expired" | "locked" }
   | { ok: false; reason: "locked_out"; retryAfterSeconds: number };
 
+// Rounded down, so the email never promises a longer life than the code has.
+function codeLifetimeText(): string {
+  const minutes = Math.max(
+    1,
+    Math.floor(env.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS / 60),
+  );
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
 function generateCode(): string {
   // 6-digit, zero-padded -- randomInt's upper bound is exclusive.
   return randomInt(0, 1_000_000).toString().padStart(6, "0");
@@ -165,14 +175,19 @@ export async function requestMfaCode(
   }
 
   const code = generateCode();
-  await redis.set(otpKey(userId), sha256(code), "EX", MFA_CODE_TTL_SECONDS);
+  await redis.set(
+    otpKey(userId),
+    sha256(code),
+    "EX",
+    env.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS,
+  );
   await redis.del(attemptsKey(userId));
 
   try {
     await sendDirectNotification({
       notificationId: `platform-admin-mfa:${userId}:${Date.now()}`,
       title: "Your OpenWind platform admin verification code",
-      body: `Your verification code is ${code}. It expires in 10 minutes. If you did not request this, contact your OpenWind administrator.`,
+      body: `Your verification code is ${code}. It expires in ${codeLifetimeText()}. If you did not request this, contact your OpenWind administrator.`,
       recipients: [{ userId, email }],
     });
   } catch (err) {
@@ -192,7 +207,7 @@ export async function requestMfaCode(
  * otp/attempts keys), ends the session token the client presented (a step-up replaces it), and
  * starts a new MFA session. An incorrect code increments the attempt counter; the last allowed
  * wrong guess invalidates the code outright (the admin must request a new one) rather than
- * allowing unlimited guesses within the 10-minute window.
+ * allowing unlimited guesses within the code's lifetime.
  */
 export async function verifyMfaCode(
   userId: string,
@@ -211,21 +226,25 @@ export async function verifyMfaCode(
   // Review finding (PR #803): INCR is atomic so concurrent calls always get distinct,
   // strictly-increasing counts -- no two requests can ever read the same attempt number.
   // The remaining (accepted) slack is timing, not a shared counter race: several concurrent
-  // guesses can each observe a count <= MAX_VERIFY_ATTEMPTS and reach the comparison below
+  // guesses can each observe a count <= PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS and reach the comparison below
   // before any of them has deleted the code, so a burst of truly simultaneous requests can
-  // land marginally more than MAX_VERIFY_ATTEMPTS comparisons before lockout takes effect.
+  // land marginally more than PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS comparisons before lockout takes effect.
   // For a 6-digit numeric OTP this does not materially change the brute-force odds (roughly
-  // 2x MAX_VERIFY_ATTEMPTS guesses worst-case out of 1,000,000 is still ~0.001%), and this is
+  // 2x PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS guesses worst-case out of 1,000,000 is still ~0.001%), and this is
   // a single-trusted-operator role (spec §C), so a Lua-script atomic increment-check-compare
   // is not worth the added complexity here.
   const attempts = await redis.incr(attemptsKey(userId));
   // NX on every attempt, not only the first (R3 finding 3): a crash between INCR and EXPIRE
   // can't leave the counter without a TTL, because the next attempt sets it.
-  await redis.expire(attemptsKey(userId), MFA_CODE_TTL_SECONDS, "NX");
+  await redis.expire(
+    attemptsKey(userId),
+    env.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS,
+    "NX",
+  );
   // On lockout only the code is deleted. The attempts counter stays until it expires, so a burst
   // of parallel guesses that already read the code still lands over the limit instead of
   // restarting the count at 1.
-  if (attempts > MAX_VERIFY_ATTEMPTS) {
+  if (attempts > env.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS) {
     await redis.del(otpKey(userId));
     logger.warn({ userId }, "platform-admin-mfa: max verify attempts exceeded");
     return { ok: false, reason: "locked" };
@@ -256,7 +275,8 @@ export async function verifyMfaCode(
         retryAfterSeconds,
       };
     }
-    const attemptsRemaining = MAX_VERIFY_ATTEMPTS - attempts;
+    const attemptsRemaining =
+      env.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS - attempts;
     if (attemptsRemaining <= 0) {
       await redis.del(otpKey(userId));
       logger.warn(
@@ -275,11 +295,11 @@ export async function verifyMfaCode(
     verifiedKey(userId, sessionToken),
     "1",
     "EX",
-    VERIFIED_TTL_SECONDS,
+    env.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS,
   );
   // Step-up marker (ADR-022 Decision 10, #865): this code was just entered, so the admin is
   // "fresh" for the configured window -- what reset and delete require on top of the
-  // 12-hour verified flag.
+  // verified flag (12 hours by default).
   await redis.set(
     freshKey(userId, sessionToken),
     "1",

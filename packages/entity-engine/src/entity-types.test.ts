@@ -158,6 +158,7 @@ describe("createEntityType", () => {
         name: "team_id",
         isRequired: false,
         isSystem: false,
+        config: { virtual: true },
       }),
     );
   });

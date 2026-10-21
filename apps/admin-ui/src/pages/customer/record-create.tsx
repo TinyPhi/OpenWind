@@ -15,6 +15,7 @@ import {
   DEFAULT_SEVERITY,
   type Severity,
 } from "../../components/severity-tag.js";
+import { showAlert } from "../../components/global-alert-dialog.js";
 
 type UserOption = {
   userId: string;
@@ -576,12 +577,8 @@ export function CustomerRecordCreate(): React.ReactElement {
   const { stagedFiles, addFiles, removeFile, pendingCount, cleanFileIds } =
     useFileUpload({ moduleSlug: typeSlug ?? "unknown" });
   const mandateFields = fields.filter((f) => f.isRequired);
-  // team_id is excluded here (docs/specs/team-assign-oncall-fallback.md R2)
-  // -- it is exclusively set through the User/Team toggle below, never
-  // independently editable as a normal Other-tab custom field.
-  const otherFields = fields.filter(
-    (f) => !f.isRequired && f.name !== "team_id",
-  );
+  // Virtual fields (team_id, set through the User/Team toggle below) never reach `fields`.
+  const otherFields = fields.filter((f) => !f.isRequired);
 
   const currentWorkflowName = workflows.find((w) => w.id === workflowId)?.name;
 
@@ -699,11 +696,11 @@ export function CustomerRecordCreate(): React.ReactElement {
       if (currentState) payload["currentState"] = currentState;
       if (routeState.appClientId)
         payload["appClientId"] = routeState.appClientId;
-      const res = await fetchWithAuth(`${API_URL}/entities`, {
+      const res = (await fetchWithAuth(`${API_URL}/entities`, {
         method: "POST",
         body: JSON.stringify(payload),
-      });
-      const created = (res as { data: { id: string } }).data;
+      })) as { data: { id: string }; warnings?: unknown };
+      const created = res.data;
       for (const fileId of cleanFileIds) {
         try {
           await fetchWithAuth(`${API_URL}/entities/${created.id}/attachments`, {
@@ -716,10 +713,22 @@ export function CustomerRecordCreate(): React.ReactElement {
           // detail page.
         }
       }
+      const warnings = res.warnings;
+      const notice =
+        Array.isArray(warnings) && warnings.includes("remark_comment_failed")
+          ? "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket."
+          : undefined;
+
       if (routeState.returnTo) {
+        // Only the record page renders a navigation notice, and returnTo can be any page, so
+        // the warning goes through the global alert there instead of being lost.
+        if (notice) showAlert(notice);
         navigate(routeState.returnTo);
       } else {
-        navigate(`/records/${typeSlug}/${created.id}`);
+        navigate(
+          `/records/${typeSlug}/${created.id}`,
+          notice ? { state: { notice } } : undefined,
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create");

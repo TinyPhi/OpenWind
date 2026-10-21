@@ -20,6 +20,106 @@ const MINIMAL_VALID_ENV = {
   OPENBAO_TOKEN: "dev-root-token",
 };
 
+describe("SUPERSET_REDIS_URL (#728)", () => {
+  it("is optional, so the cache flush is off unless configured", () => {
+    expect(
+      EnvSchema.parse(MINIMAL_VALID_ENV).SUPERSET_REDIS_URL,
+    ).toBeUndefined();
+  });
+
+  it("accepts a url and rejects anything else", () => {
+    const ok = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      SUPERSET_REDIS_URL: "redis://redis:6379/2",
+    });
+    expect(ok.SUPERSET_REDIS_URL).toBe("redis://redis:6379/2");
+    expect(
+      EnvSchema.safeParse({ ...MINIMAL_VALID_ENV, SUPERSET_REDIS_URL: "nope" })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("REDIS_CACHE_URL (#1013)", () => {
+  it("is optional, so one Redis still works for dev", () => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV).REDIS_CACHE_URL).toBeUndefined();
+  });
+
+  it("accepts a url and rejects anything else", () => {
+    const ok = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      REDIS_CACHE_URL: "redis://redis-cache:6379",
+    });
+    expect(ok.REDIS_CACHE_URL).toBe("redis://redis-cache:6379");
+    expect(
+      EnvSchema.safeParse({ ...MINIMAL_VALID_ENV, REDIS_CACHE_URL: "nope" })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("retention bounds and the shorten confirmation (#637)", () => {
+  it("default to the sweep's long-standing ranges and to requiring confirmation", () => {
+    const p = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect([p.RETENTION_DAYS_MIN, p.RETENTION_DAYS_MAX]).toEqual([7, 3650]);
+    expect([
+      p.RETENTION_COMMENT_DAYS_MIN,
+      p.RETENTION_COMMENT_DAYS_MAX,
+    ]).toEqual([30, 3650]);
+    expect([
+      p.RETENTION_EVIDENCE_DAYS_MIN,
+      p.RETENTION_EVIDENCE_DAYS_MAX,
+    ]).toEqual([365, 7300]);
+    expect(p.RETENTION_REQUIRE_SHORTEN_CONFIRM).toBe(true);
+  });
+
+  it("accept a changed range that still contains the default", () => {
+    const p = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      RETENTION_DAYS_MIN: "30",
+      RETENTION_DAYS_MAX: "1000",
+    });
+    expect([p.RETENTION_DAYS_MIN, p.RETENTION_DAYS_MAX]).toEqual([30, 1000]);
+  });
+
+  it.each([
+    [
+      "a minimum above its maximum",
+      { RETENTION_DAYS_MIN: "500", RETENTION_DAYS_MAX: "100" },
+    ],
+    ["a default below the range", { RETENTION_DAYS_MIN: "100" }],
+    ["a default above the range", { RETENTION_DAYS_MAX: "60" }],
+    [
+      "a comment default outside its range",
+      { RETENTION_COMMENT_DAYS_MIN: "400" },
+    ],
+    [
+      "an evidence default outside its range",
+      { RETENTION_EVIDENCE_DAYS_MAX: "2000" },
+    ],
+    ["a bound below 1 day", { RETENTION_DAYS_MIN: "0" }],
+    ["a bound above 100 years", { RETENTION_DAYS_MAX: "36501" }],
+  ])("reject %s", (_label, extra) => {
+    expect(() => EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...extra })).toThrow();
+  });
+
+  it("turns the confirmation off only for the literal false", () => {
+    const off = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      RETENTION_REQUIRE_SHORTEN_CONFIRM: "false",
+    });
+    expect(off.RETENTION_REQUIRE_SHORTEN_CONFIRM).toBe(false);
+    for (const v of ["true", "flase", "0", ""]) {
+      expect(
+        EnvSchema.parse({
+          ...MINIMAL_VALID_ENV,
+          RETENTION_REQUIRE_SHORTEN_CONFIRM: v,
+        }).RETENTION_REQUIRE_SHORTEN_CONFIRM,
+      ).toBe(true);
+    }
+  });
+});
+
 describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   it("defaults to 600 when absent from the environment", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
@@ -32,6 +132,24 @@ describe("RATE_LIMIT_TENANT_PER_MIN", () => {
       RATE_LIMIT_TENANT_PER_MIN: "1200",
     });
     expect(parsed.RATE_LIMIT_TENANT_PER_MIN).toBe(1200);
+  });
+});
+
+describe("API_BODY_LIMIT_BYTES (#1012)", () => {
+  it("defaults to 2 MiB and honors an override", () => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV).API_BODY_LIMIT_BYTES).toBe(
+      2 * 1024 * 1024,
+    );
+    expect(
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, API_BODY_LIMIT_BYTES: "4096" })
+        .API_BODY_LIMIT_BYTES,
+    ).toBe(4096);
+  });
+
+  it("refuses a limit too small to carry a request", () => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, API_BODY_LIMIT_BYTES: "10" }),
+    ).toThrow();
   });
 });
 
@@ -67,6 +185,61 @@ describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
       ).toThrow();
     },
   );
+});
+
+describe("platform_admin MFA timings (#929)", () => {
+  it("default to the values that were hardcoded: 12h session, 10-minute code, 5 attempts", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS).toBe(43200);
+    expect(parsed.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS).toBe(600);
+    expect(parsed.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS).toBe(5);
+  });
+
+  it("accept explicit in-bounds values as strings", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "3600",
+      PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: "300",
+      PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS: "3",
+    });
+    expect(parsed.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS).toBe(3600);
+    expect(parsed.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS).toBe(300);
+    expect(parsed.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS).toBe(3);
+  });
+
+  it.each([
+    ["PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS", "899"],
+    ["PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS", "86401"],
+    ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS", "59"],
+    ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS", "1801"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "0"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "6"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "2.5"],
+  ])("reject %s=%s", (key, value) => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, [key]: value }),
+    ).toThrow();
+  });
+
+  it("rejects a fresh window longer than the verified session", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "900",
+        PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS: "901",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a code lifetime longer than the verified session", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "900",
+        PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: "1200",
+      }),
+    ).toThrow(/must not exceed PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS/);
+  });
 });
 
 describe("PLATFORM_ADMIN_MFA_DEV_BYPASS", () => {
@@ -515,5 +688,36 @@ describe("retention settings (docs/specs/retention-classes.md)", () => {
     expect(() =>
       EnvSchema.parse({ ...MINIMAL_VALID_ENV, RETENTION_BATCH_SIZE: "0" }),
     ).toThrow();
+  });
+});
+
+describe("user data export settings (docs/specs/user-data-export.md)", () => {
+  it("default to a 7-day TTL, 10000 rows per table and audit included", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.USER_EXPORT_TTL_DAYS).toBe(7);
+    expect(parsed.USER_EXPORT_ROW_LIMIT).toBe(10000);
+    expect(parsed.USER_EXPORT_INCLUDE_AUDIT).toBe(true);
+  });
+
+  it("accept overrides", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      USER_EXPORT_TTL_DAYS: "2",
+      USER_EXPORT_ROW_LIMIT: "500",
+      USER_EXPORT_INCLUDE_AUDIT: "false",
+    });
+    expect(parsed.USER_EXPORT_TTL_DAYS).toBe(2);
+    expect(parsed.USER_EXPORT_ROW_LIMIT).toBe(500);
+    expect(parsed.USER_EXPORT_INCLUDE_AUDIT).toBe(false);
+  });
+
+  it("reject a zero TTL, a tiny row limit and a non-boolean audit flag", () => {
+    for (const bad of [
+      { USER_EXPORT_TTL_DAYS: "0" },
+      { USER_EXPORT_ROW_LIMIT: "5" },
+      { USER_EXPORT_INCLUDE_AUDIT: "flase" },
+    ]) {
+      expect(() => EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...bad })).toThrow();
+    }
   });
 });

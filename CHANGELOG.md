@@ -3,6 +3,63 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — configurable platform-admin MFA timings (#929)]
+
+### Added
+
+- `PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS` (default 43200, allowed 900–86400), `PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS`
+  (default 600, allowed 60–1800) and `PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS` (default 5, allowed 1–5; the per-admin limit across codes is 5 in 30 minutes, so a higher cap would do nothing)
+  replace three hardcoded constants. Defaults equal the old values, so behaviour is unchanged unless set.
+  The code lifetime must not exceed the verified lifetime. The verification email states the configured
+  lifetime in minutes, rounded up.
+
+### Changed
+
+- `@platform/auth` no longer exports `MFA_CODE_TTL_SECONDS`; the route reads the env var.
+
+## [Unreleased — configurable per-tenant retention policy updates (#637)]
+
+### Changed
+
+- The retention bounds are now configurable: `RETENTION_DAYS_MIN`/`MAX`, `RETENTION_COMMENT_DAYS_MIN`/`MAX`
+  and `RETENTION_EVIDENCE_DAYS_MIN`/`MAX` (defaults 7–3650, 30–3650 and 365–7300, the values the sweep always
+  enforced), checked at startup together with the platform defaults. `RETENTION_REQUIRE_SHORTEN_CONFIRM`
+  (default true; only the literal `false` turns it off) controls whether shortening a window needs
+  `confirmShorten: true`.
+
+### Added
+
+- **Per-tenant retention policy management endpoint.** Added `PATCH /admin/tenants/:id/retention`
+  allowing superadmins in the platform organization to configure noise, comment, and evidence
+  retention windows or toggle legal holds on a per-tenant basis.
+- **Accidental data loss protection.** Shortening any retention window below the active policy
+  (whether via explicit days or by clearing an override back to a default that is shorter than
+  the active override) requires explicit confirmation (`confirmShorten: true`), rejecting with
+  400 `CONFIRM_SHORTEN_REQUIRED` to safeguard against immediate permanent data loss during sweeps.
+- **Override clearance to platform defaults.** Supports passing `null` for retention parameters
+  to remove overrides from `tenants.config` and revert to platform defaults.
+- **Atomic read-modify-write and audit trail.** Executes inside `withTenantContext` with
+  `SELECT ... FOR UPDATE` row locking on `tenants` and writes an immutable audit entry in
+  `admin_audit_log` with before and after policy snapshots.
+- **Defense-in-depth platform fence.** Unauthorized callers outside `PLATFORM_ORG_ID` receive
+  404 before parameter and body validation, preventing tenant existence discovery.
+
+---
+
+## [Unreleased — GDPR data-subject export (#642)]
+
+### Added
+
+- `POST /users/:userId/export` (admin only) builds a JSON file of the personal data stored about one
+  user in the tenant; `GET /users/:userId/export/:jobId/download` (admin only) fetches it. The file
+  is deleted after `USER_EXPORT_TTL_DAYS` (default 7). `USER_EXPORT_ROW_LIMIT` (10000) and
+  `USER_EXPORT_INCLUDE_AUDIT` (true) are also configurable. See `docs/specs/user-data-export.md`.
+
+### Security
+
+- A data-subject export can never be fetched through `GET /exports/:jobId/download`, which agents
+  can reach; that route now answers 404 and audits `export.download_denied`.
+
 ---
 
 ## [Unreleased — per-sign-in platform-admin MFA, login polish and handover CSV (#947)]
@@ -236,6 +293,8 @@ complete the ADR-023 production setup first. See `docs/runbooks/openbao-secrets.
   through the whole Zitadel org (capped at 10,000 members, logged when truncated).
 - Adding a comment or granting access no longer holds a database connection while it waits on Zitadel:
   membership is read, Zitadel is called, then the new members are recorded in a second short step.
+- Creating or updating a ticket with a user-reference field no longer holds a database connection while it waits
+  on Zitadel: colleagues who have not signed in yet are recorded before the entity transaction opens.
 - A failed Zitadel org-member lookup (for example a rate limit) is no longer cached as an empty org until the
   process restarts; the next mention or grant retries.
 - A Zitadel rate limit (429) while resolving a notification recipient now falls back to the cached profile

@@ -72,6 +72,14 @@ const EnvSchema = z
     DATABASE_DIRECT_URL: z.string().url().optional(),
     DATABASE_LOCK_POOL_MAX: z.coerce.number().int().min(1).default(5),
     REDIS_URL: z.string().url(),
+    // The Redis db Superset keeps its result cache in (db 2 of the compose Redis). When set, a user
+    // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
+    // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
+    SUPERSET_REDIS_URL: z.string().url().optional(),
+    // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
+    // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
+    // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).
+    REDIS_CACHE_URL: z.string().url().optional(),
     // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
     // enforces this per verified auth.tenantId, independent of the pre-auth
     // IP-based flood guard in apps/api's rate-limit middleware. Raised from
@@ -81,27 +89,56 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // Largest accepted request body for every route except file uploads (those take a fixed,
+    // larger cap in apps/api/src/middleware/body-limit.ts). Over the limit: 413 PAYLOAD_TOO_LARGE.
+    API_BODY_LIMIT_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .default(2 * 1024 * 1024),
     // Retention sweep defaults (docs/specs/retention-classes.md). Per-tenant
     // overrides live in tenants.config. Evidence and comment defaults are
     // placeholders pending owner/counsel confirmation.
-    RETENTION_DEFAULT_DAYS: z.coerce
+    // The allowed range for a tenant's override, and for the defaults below, is configurable
+    // (#637). The defaults of the range are the values the sweep always enforced. Hard limits
+    // (at least 1 day, at most 100 years) only stop an absurd setting; the refine below keeps
+    // min <= max and each default inside its range.
+    RETENTION_DAYS_MIN: z.coerce.number().int().min(1).max(36500).default(7),
+    RETENTION_DAYS_MAX: z.coerce.number().int().min(1).max(36500).default(3650),
+    RETENTION_COMMENT_DAYS_MIN: z.coerce
       .number()
       .int()
-      .min(7)
-      .max(3650)
-      .default(90),
-    RETENTION_COMMENT_DAYS: z.coerce
+      .min(1)
+      .max(36500)
+      .default(30),
+    RETENTION_COMMENT_DAYS_MAX: z.coerce
       .number()
       .int()
-      .min(30)
-      .max(3650)
+      .min(1)
+      .max(36500)
+      .default(3650),
+    RETENTION_EVIDENCE_DAYS_MIN: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(36500)
       .default(365),
-    RETENTION_EVIDENCE_DAYS: z.coerce
+    RETENTION_EVIDENCE_DAYS_MAX: z.coerce
       .number()
       .int()
-      .min(365)
-      .max(7300)
-      .default(2555),
+      .min(1)
+      .max(36500)
+      .default(7300),
+    // Shortening a retention window deletes data at the next sweep and cannot be undone, so the
+    // PATCH asks for confirmShorten: true. Only the literal "false" turns the requirement off; a
+    // typo keeps it on.
+    RETENTION_REQUIRE_SHORTEN_CONFIRM: z
+      .string()
+      .transform((v) => v !== "false")
+      .default("true"),
+    RETENTION_DEFAULT_DAYS: z.coerce.number().int().min(1).default(90),
+    RETENTION_COMMENT_DAYS: z.coerce.number().int().min(1).default(365),
+    RETENTION_EVIDENCE_DAYS: z.coerce.number().int().min(1).default(2555),
     RETENTION_BATCH_SIZE: z.coerce
       .number()
       .int()
@@ -114,6 +151,22 @@ const EnvSchema = z
       .min(0)
       .max(5000)
       .default(50),
+    // docs/specs/user-data-export.md (#642) — GDPR Art. 15/20 data-subject export.
+    // TTL is how long the generated file stays downloadable before the daily
+    // retention sweep deletes it; the row limit caps each table in the bundle
+    // (truncation is recorded in the bundle metadata); include-audit controls whether the
+    // subject's admin_audit_log entries go in. Strict "true"/"false" so a typo fails startup.
+    USER_EXPORT_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+    USER_EXPORT_ROW_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(100000)
+      .default(10000),
+    USER_EXPORT_INCLUDE_AUDIT: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
     // docs/temporal-scheduler-design.md §3.1/§3.5 — the scheduler tick's poll
     // interval and its cap on missed fires executed in one catch-up run
     // (SCHEDULE_CATCH_UP_MAX exists specifically so a long worker outage on a
@@ -180,6 +233,32 @@ const EnvSchema = z
       .min(60)
       .max(900)
       .default(300),
+    // #929 — the remaining platform_admin MFA timings, with the values they were hardcoded at
+    // as defaults. The bounds keep each one safe: the verified session is capped at 24h (ADR-022
+    // Decision 10 sets 12h), a code lives 1-30 minutes (long enough to type, short enough to
+    // limit guessing), and at most 5 guesses per code. The cap is 5, not higher, because the
+    // per-admin limit across codes (MAX_FAILED_VERIFIES in platform-admin-mfa.ts, 5 per 30
+    // minutes) locks an admin out at the fifth wrong code whatever the per-code cap is, so a
+    // larger value would be a setting that does nothing. Refines below keep the code lifetime and
+    // the fresh window within the session lifetime.
+    PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(900)
+      .max(86400)
+      .default(43200),
+    PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(60)
+      .max(1800)
+      .default(600),
+    PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(5)
+      .default(5),
     // #801 — minimum gap between two verification-code emails for one admin, so the
     // resend path cannot be used to flood an inbox. Enforced per admin, on top of the
     // global per-IP rate limit.
@@ -484,10 +563,70 @@ const EnvSchema = z
     message:
       "CORS_ORIGIN must be set in production to restrict allowed origins",
   })
+  .superRefine((v, ctx) => {
+    const ranges = [
+      {
+        name: "RETENTION_DAYS",
+        min: v.RETENTION_DAYS_MIN,
+        max: v.RETENTION_DAYS_MAX,
+        defaultKey: "RETENTION_DEFAULT_DAYS",
+        def: v.RETENTION_DEFAULT_DAYS,
+      },
+      {
+        name: "RETENTION_COMMENT_DAYS",
+        min: v.RETENTION_COMMENT_DAYS_MIN,
+        max: v.RETENTION_COMMENT_DAYS_MAX,
+        defaultKey: "RETENTION_COMMENT_DAYS",
+        def: v.RETENTION_COMMENT_DAYS,
+      },
+      {
+        name: "RETENTION_EVIDENCE_DAYS",
+        min: v.RETENTION_EVIDENCE_DAYS_MIN,
+        max: v.RETENTION_EVIDENCE_DAYS_MAX,
+        defaultKey: "RETENTION_EVIDENCE_DAYS",
+        def: v.RETENTION_EVIDENCE_DAYS,
+      },
+    ];
+    for (const r of ranges) {
+      if (r.min > r.max) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${r.name}_MIN must not exceed ${r.name}_MAX`,
+          path: [`${r.name}_MIN`],
+        });
+      } else if (r.def < r.min || r.def > r.max) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${r.defaultKey} must be between ${r.name}_MIN and ${r.name}_MAX`,
+          path: [r.defaultKey],
+        });
+      }
+    }
+  })
   .refine((v) => !(v.NODE_ENV === "production" && v.SKIP_AV_SCAN), {
     message:
       "SKIP_AV_SCAN must not be true in production — it marks every upload clean without running antivirus scanning",
   })
+  .refine(
+    (v) =>
+      v.PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS <=
+      v.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS,
+    {
+      message:
+        "PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS must not exceed PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS",
+      path: ["PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS"],
+    },
+  )
+  .refine(
+    (v) =>
+      v.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS <=
+      v.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS,
+    {
+      message:
+        "PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS must not exceed PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS",
+      path: ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS"],
+    },
+  )
   .refine(
     (v) => !(v.NODE_ENV === "production" && v.PLATFORM_ADMIN_MFA_DEV_BYPASS),
     {

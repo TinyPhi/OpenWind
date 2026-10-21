@@ -8,6 +8,8 @@ import type * as EntityEngine from "@platform/entity-engine";
 
 const mockCreateEntity = vi.fn();
 const mockListUserIdsWithRole = vi.fn();
+// Number of open withTenantContext callbacks, to assert Zitadel-backed work runs outside one.
+const txDepth = vi.hoisted(() => ({ current: 0 }));
 const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/auth", () => ({
@@ -39,6 +41,11 @@ vi.mock("../../lib/ensure-user-refs.js", () => ({
   ensureUserRefsKnown: (...args: unknown[]) => mockEnsureUserRefsKnown(...args),
 }));
 
+const mockPostRemarkComment = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../lib/post-remark-comment.js", () => ({
+  postRemarkComment: (...args: unknown[]) => mockPostRemarkComment(...args),
+}));
+
 const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
 const mockUpdateSet = vi.fn(() => ({ where: mockUpdateWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockUpdateSet }));
@@ -68,8 +75,17 @@ vi.mock("@platform/db", () => ({
     uploadedBy: "uploaded_by",
     entityId: "entity_id",
   },
-  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
-    fn(mockTx),
+  withTenantContext: async (
+    _tenantId: unknown,
+    fn: (tx: unknown) => unknown,
+  ) => {
+    txDepth.current++;
+    try {
+      return await fn(mockTx);
+    } finally {
+      txDepth.current--;
+    }
+  },
 }));
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
@@ -533,7 +549,9 @@ describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap f
 
   it("calls ensureUserRefsKnown before createEntity, with the entity type/fields/org", async () => {
     const order: string[] = [];
+    let depthAtCall = -1;
     mockEnsureUserRefsKnown.mockImplementation(() => {
+      depthAtCall = txDepth.current;
       order.push("ensureUserRefsKnown");
       return Promise.resolve();
     });
@@ -549,12 +567,53 @@ describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap f
     });
 
     expect(mockEnsureUserRefsKnown).toHaveBeenCalledWith(
-      expect.any(Object),
       "t-aaa",
       TYPE_ID,
       { technical_reviewer: "u-reviewer" },
       "org-ccc",
     );
     expect(order).toEqual(["ensureUserRefsKnown", "createEntity"]);
+    expect(depthAtCall).toBe(0);
+  });
+});
+
+describe("POST /entities — remark-as-first-comment warning contract (#1022)", () => {
+  const fakeWorkflowInstance = {
+    ...fakeInstance,
+    workflowId: "wf-1",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
+    mockCreateEntity.mockResolvedValue(fakeWorkflowInstance);
+    mockPostRemarkComment.mockResolvedValue(undefined);
+    mockSelectLimitResult = [];
+  });
+
+  it("still returns 201 but flags remark_comment_failed when posting the remark comment fails", async () => {
+    mockPostRemarkComment.mockRejectedValue(new Error("comment store down"));
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ remark: "Initial remark on create" }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: unknown; warnings?: string[] };
+    expect(body.warnings).toEqual(["remark_comment_failed"]);
+  });
+
+  it("returns no warnings when the remark comment posts successfully", async () => {
+    mockPostRemarkComment.mockResolvedValue(undefined);
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ remark: "Initial remark on create" }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("warnings");
   });
 });

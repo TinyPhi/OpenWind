@@ -244,6 +244,9 @@ importers:
       csv-stringify:
         specifier: ^6.8.0
         version: 6.8.0
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(postgres@3.4.9)
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -275,9 +278,6 @@ importers:
       '@types/ws':
         specifier: ^8.5.12
         version: 8.18.1
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(postgres@3.4.9)
       postgres:
         specifier: ^3.4.0
         version: 3.4.9
