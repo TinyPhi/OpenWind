@@ -29,8 +29,9 @@ export interface MergedOrgUser {
 
 /**
  * Shared Zitadel-org-users + tenant_users merge, parameterized by which
- * roles to include. Extracted so /users (customers only) and /admin/members
- * (agents+admins, for on-call assignment -- PR #602 review) apply the same
+ * roles to include. Extracted so /users ("user" employees) and /admin/members
+ * (admins, agents and "user" employees, for on-call assignment -- PR #602
+ * review) apply the same
  * merge/dedup/sort logic with a different role filter, rather than each
  * re-implementing it.
  */
@@ -109,9 +110,9 @@ export async function listMergedOrgUsersByRole(
   return merged;
 }
 
-// GET /users — returns org users holding the "user" role (customers), alphabetically
-// by display name. Feeds both the users page and the @mention picker — neither should
-// ever surface agents/admins, so the role filter lives here once for both consumers.
+// GET /users — returns org users holding the "user" role (employees without admin
+// rights), alphabetically by display name. Feeds the users page, the @mention picker
+// and the assignee pickers, so the role filter lives here once for every consumer.
 // Merges Zitadel org users (source of truth) with tenant_users DB records
 // (which hold locally-resolved display names for users who have logged in).
 usersRouter.get(

@@ -191,19 +191,18 @@ export async function executeDispatchSeverityNotificationAction(
       return; // severity didn't change in this event
     }
     severity = severityChange.new;
-  } else if (event.eventType === "entity.created") {
-    const created = event.fields["severity"];
-    if (typeof created !== "string" || !created) return;
-    severity = created;
-  } else {
+  } else if (event.eventType !== "entity.created") {
     return;
   }
+  // entity.created: severity is its own entity_instances column, never in the
+  // event's `fields`, so it is read from the stored row below.
 
   const [instance] = await db
     .select({
       assignedTo: entityInstances.assignedTo,
       workflowId: entityInstances.workflowId,
       fields: entityInstances.fields,
+      severity: entityInstances.severity,
     })
     .from(entityInstances)
     .where(
@@ -215,6 +214,12 @@ export async function executeDispatchSeverityNotificationAction(
     )
     .limit(1);
   if (!instance) return;
+
+  if (event.eventType === "entity.created") {
+    if (!instance.severity) return;
+    severity = instance.severity;
+  }
+  if (!severity) return;
 
   const fields = instance.fields as Record<string, unknown>;
   const teamId =

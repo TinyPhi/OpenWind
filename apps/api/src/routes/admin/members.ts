@@ -8,16 +8,13 @@
  * separate, admin-only endpoint rather than a role-filter change to
  * /users (which would break its existing customer-only contract).
  *
- * PR #623 review (Vijit), round 2 BLOCKER-1: the role set was briefly
- * expanded to ["agent", "admin", "user"] on the premise that this
- * deployment has no "agent" role in use -- but "user" is specifically the
- * customer role (see platform/users.ts's GET /users: "Only surface users
- * holding the 'user' role -- agents/admins must never appear"). Including
- * it here let customers be selected as on-call primary/backup/escalation
- * contacts, so they'd receive incident routing alerts. Reverted to
- * ["agent", "admin"] -- on-call staff without an "agent" role assignment
- * in this deployment should be granted "admin" (or a dedicated "agent"
- * role) in Zitadel instead of loosening this endpoint to customers.
+ * Roles (owner, 2026-10-21; docs/specs/oncall-routing.md "Roles"): "user" is
+ * an employee without admin rights, never a customer. PR #623 had left
+ * "user" out because it was then read as the customer role; with that
+ * settled, a "user" employee is a valid on-call contact, as they already are
+ * a ticket assignee and severity-alert recipient. Sandboxes seed their staff
+ * as "user", so without it their roster could only pick the admin. If an org
+ * ever holds customer accounts, they need their own role, not "user".
  */
 
 import { Hono } from "hono";
@@ -25,20 +22,21 @@ import { requireAuth, requireRole } from "@platform/auth";
 import { db } from "@platform/db";
 import type { AuthContext } from "@platform/auth";
 import { listMergedOrgUsersByRole } from "../platform/users.js";
+import { ONCALL_ROLES } from "../../lib/oncall-roles.js";
 
 type Vars = { Variables: { auth: AuthContext } };
 
 export const membersRouter = new Hono<Vars>();
 
-// GET /admin/members — org users holding "agent" or "admin", for admin-only
-// assignment pickers (on-call roster primary/backup/escalation-manager).
-// Never "user" -- that's the customer role (see comment above).
+// GET /admin/members — org users holding "agent", "admin", or "user", for
+// admin-only assignment pickers (on-call roster primary/backup/
+// escalation-manager).
 membersRouter.get("/", requireAuth(db), requireRole("admin"), async (c) => {
   const { tenantId, orgId } = c.get("auth");
   const merged = await listMergedOrgUsersByRole(
     tenantId,
     orgId,
-    ["agent", "admin"],
+    ONCALL_ROLES,
     c.req.query("bust") === "1",
   );
   return c.json({ data: merged });

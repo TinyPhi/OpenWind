@@ -12,6 +12,12 @@
  * this schema has no separate "deactivated user" signal beyond that, so
  * R6's "referenced_user_deleted" distinction is approximated as "no
  * tenant_users row found", not a true deactivation flag).
+ *
+ * tenant_users only gets a row once a person signs in, but the roster picker
+ * (GET /admin/members) lists the live Zitadel org. Before each write opens its
+ * transaction, resolveTenantMembers records any picked org member who hasn't
+ * signed in yet, so a pickable person never 422s; an id outside the org is
+ * left out and still rejected.
  */
 
 import { Hono } from "hono";
@@ -37,6 +43,9 @@ import {
 } from "@platform/teams";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
+import { resolveTenantMembers } from "../../lib/ensure-user-refs.js";
+import { listUserRolesByUserId } from "../../lib/zitadel-management.js";
+import { ONCALL_ROLES } from "../../lib/oncall-roles.js";
 
 type Vars = { Variables: { auth: AuthContext } };
 
@@ -93,6 +102,33 @@ function isExclusionViolation(err: unknown): boolean {
     "code" in err.cause &&
     err.cause.code === "23P01",
   );
+}
+
+// Called with no transaction open, so a slow Zitadel lookup never holds a
+// database connection (#952). Only people holding an on-call role are
+// recorded, matching the picker; anyone else who hasn't signed in still 422s.
+async function recordPickedMembers(
+  auth: AuthContext,
+  input: {
+    primaryUserId?: string | undefined;
+    backupUserId?: string | undefined;
+    escalationManagerUserId?: string | undefined;
+  },
+): Promise<void> {
+  const ids = [
+    input.primaryUserId,
+    input.backupUserId,
+    input.escalationManagerUserId,
+  ].filter((id): id is string => typeof id === "string");
+  if (ids.length === 0 || !auth.orgId) return;
+  const rolesByUserId = await listUserRolesByUserId(auth.orgId).catch(
+    () => new Map<string, string[]>(),
+  );
+  const eligible = ids.filter((id) =>
+    (rolesByUserId.get(id) ?? []).some((r) => ONCALL_ROLES.includes(r)),
+  );
+  if (eligible.length === 0) return;
+  await resolveTenantMembers(auth.tenantId, eligible, auth.orgId);
 }
 
 // Runs under the caller's withTenantContext tx (not the raw db client) so
@@ -410,6 +446,7 @@ router.post(
     const input = c.req.valid("json");
 
     try {
+      await recordPickedMembers(auth, input);
       const result = await withTenantContext(auth.tenantId, async (tx) => {
         const refErrors = await validateScheduleRefs(tx, auth.tenantId, input);
         if (refErrors.length > 0) {
@@ -499,6 +536,7 @@ router.patch(
     const input = c.req.valid("json");
 
     try {
+      await recordPickedMembers(auth, input);
       const result = await withTenantContext(auth.tenantId, async (tx) => {
         const refErrors = await validateScheduleRefs(tx, auth.tenantId, input);
         if (refErrors.length > 0) {

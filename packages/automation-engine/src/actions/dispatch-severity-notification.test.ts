@@ -3,7 +3,12 @@ import type { TriggerEvent } from "../event-schemas.js";
 
 const insertedRows: Array<{ table: unknown; values: unknown }> = [];
 let entityRow:
-  | { assignedTo: string | null; workflowId: string | null; fields: unknown }
+  | {
+      assignedTo: string | null;
+      workflowId: string | null;
+      fields: unknown;
+      severity: string | null;
+    }
   | undefined = undefined;
 let policyCandidates: Array<{
   id: string;
@@ -124,8 +129,15 @@ describe("executeDispatchSeverityNotificationAction", () => {
     onInsert = undefined;
   });
 
+  // The created event carries no severity in `fields` (it never does), so
+  // this proves the stored column is read.
   it("dispatches to the assignee on entity.created with severity set, falling back to the hardcoded email-only default when no policy matches", async () => {
-    entityRow = { assignedTo: "u-assignee", workflowId: null, fields: {} };
+    entityRow = {
+      assignedTo: "u-assignee",
+      workflowId: null,
+      fields: {},
+      severity: "high",
+    };
 
     const event: TriggerEvent = {
       version: 1,
@@ -133,7 +145,7 @@ describe("executeDispatchSeverityNotificationAction", () => {
       eventType: "entity.created",
       instanceId: INSTANCE_ID,
       entityTypeId: "et-1",
-      fields: { severity: "high" },
+      fields: {},
       createdBy: "u-creator",
     };
 
@@ -162,6 +174,36 @@ describe("executeDispatchSeverityNotificationAction", () => {
       expect.anything(),
       expect.objectContaining({ action: "notification.dispatched" }),
     );
+  });
+
+  it("does nothing on entity.created when the instance has no severity set", async () => {
+    entityRow = {
+      assignedTo: "u-assignee",
+      workflowId: null,
+      fields: {},
+      severity: null,
+    };
+
+    const event: TriggerEvent = {
+      version: 1,
+      tenantId: TENANT_ID,
+      eventType: "entity.created",
+      instanceId: INSTANCE_ID,
+      entityTypeId: "et-1",
+      fields: {},
+      createdBy: "u-creator",
+    };
+
+    await executeDispatchSeverityNotificationAction(
+      dbMock as never,
+      TENANT_ID,
+      event,
+      {},
+      redisMock(),
+    );
+
+    expect(insertedRows).toHaveLength(0);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
   it("does nothing on entity.updated when severity is not in the changed map", async () => {
@@ -215,6 +257,7 @@ describe("executeDispatchSeverityNotificationAction", () => {
       assignedTo: "u-assignee",
       workflowId: null,
       fields: { team_id: "team-1" },
+      severity: "high",
     };
     policyCandidates = [
       {
@@ -267,6 +310,7 @@ describe("executeDispatchSeverityNotificationAction", () => {
       assignedTo: null,
       workflowId: null,
       fields: { team_id: "team-1" },
+      severity: "critical",
     };
     policyCandidates = [
       {
@@ -314,7 +358,12 @@ describe("executeDispatchSeverityNotificationAction", () => {
   });
 
   it("isolates a per-channel failure — one failed channel does not suppress the others (R18)", async () => {
-    entityRow = { assignedTo: "u-assignee", workflowId: null, fields: {} };
+    entityRow = {
+      assignedTo: "u-assignee",
+      workflowId: null,
+      fields: {},
+      severity: "high",
+    };
     policyCandidates = [
       {
         id: "policy-1",
@@ -365,7 +414,12 @@ describe("executeDispatchSeverityNotificationAction", () => {
   });
 
   it("is idempotent — a second delivery for the same (ticket, severity) pair is a no-op", async () => {
-    entityRow = { assignedTo: "u-assignee", workflowId: null, fields: {} };
+    entityRow = {
+      assignedTo: "u-assignee",
+      workflowId: null,
+      fields: {},
+      severity: "high",
+    };
 
     const event: TriggerEvent = {
       version: 1,
@@ -418,7 +472,12 @@ describe("executeDispatchSeverityNotificationAction", () => {
     });
 
     beforeEach(() => {
-      entityRow = { assignedTo: "u-assignee", workflowId: null, fields: {} };
+      entityRow = {
+        assignedTo: "u-assignee",
+        workflowId: null,
+        fields: {},
+        severity: "high",
+      };
     });
 
     it.each([
@@ -457,7 +516,12 @@ describe("executeDispatchSeverityNotificationAction", () => {
     });
 
     it("does not count a policy match when there is no recipient to send to", async () => {
-      entityRow = { assignedTo: null, workflowId: null, fields: {} };
+      entityRow = {
+        assignedTo: null,
+        workflowId: null,
+        fields: {},
+        severity: "high",
+      };
 
       await run();
 
