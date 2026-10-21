@@ -114,6 +114,19 @@ describe("GET /entities", () => {
     );
   });
 
+  // The records list's "Unassigned" filter.
+  it("passes unassigned=true to the engine", async () => {
+    mockListEntities.mockResolvedValue({ data: [], nextCursor: null });
+
+    await makeApp().request(`/?entityTypeId=${TYPE_ID}&unassigned=true`);
+
+    expect(mockListEntities).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      expect.objectContaining({ unassigned: true }),
+    );
+  });
+
   it("returns 400 when entityTypeId is missing", async () => {
     const res = await makeApp().request("/");
 

@@ -326,12 +326,6 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               // API always creates at Medium, unconditionally; no request
               // param can set this (out of scope for this feature's v1).
               severity: DEFAULT_TICKET_SEVERITY,
-              // ADR-012 keeps a partner ticket whose assignee can't be resolved, unassigned
-              // with a system comment, until its amendment adds a fallback owner
-              // (docs/specs/mandatory-ticket-fields.md R6/T11).
-              ...(assignedToUnresolved
-                ? { mandatoryExemption: "partner_unresolved_assignee" as const }
-                : {}),
             });
             // Same transaction as the create above -- a rejected attachment
             // reference rolls back the whole ticket creation, never leaving a

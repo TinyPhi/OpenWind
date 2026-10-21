@@ -29,12 +29,9 @@ const CreateEntitySchema = z
     // Mandatory platform-wide invariant on every creation path (admin-ui here,
     // third-party/tickets.ts, third-party/children.ts) -- title and dueDate
     // are required on every ticket, on every workflow, no exceptions.
-    // assignedTo/teamId are each optional individually but exactly one of the
-    // two must be present -- docs/specs/team-assign-oncall-fallback.md R1.
-    // Previously optional here even though the admin-ui form already blocked
-    // submission without them client-side -- trivially bypassed by any direct
-    // API call. Not a per-workflow toggle like a workflow's own custom
-    // entity_fields.
+    // assignedTo/teamId: at most one. Neither leaves the ticket unassigned, which is
+    // allowed -- it stays on its workflow's records list under the "Unassigned" filter
+    // (docs/specs/mandatory-ticket-fields.md, owner decision 2026-10-19).
     assignedTo: z.string().min(1).optional(),
     // docs/specs/team-assign-oncall-fallback.md R1/R3 -- alternative to
     // assignedTo. Resolved asynchronously to an on-call user (or a fallback
@@ -66,8 +63,7 @@ const CreateEntitySchema = z
     appClientId: z.string().trim().min(1).optional(),
   })
   .superRefine((input, ctx) => {
-    // docs/specs/team-assign-oncall-fallback.md R1 — exactly one of
-    // assignedTo/teamId, enforced server-side regardless of client behavior
+    // At most one of assignedTo/teamId, enforced server-side regardless of client behavior
     // (§V — never trust the toggle UI alone).
     const hasAssignedTo = input.assignedTo !== undefined;
     const hasTeamId = input.teamId !== undefined;
@@ -77,14 +73,8 @@ const CreateEntitySchema = z
       // fine on its own (/review finding, 2026-09-21).
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Exactly one of assignedTo or teamId must be set, not both",
+        message: "Set at most one of assignedTo or teamId",
         path: ["teamId"],
-      });
-    } else if (!hasAssignedTo && !hasTeamId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Exactly one of assignedTo or teamId must be set",
-        path: ["assignedTo"],
       });
     }
   });

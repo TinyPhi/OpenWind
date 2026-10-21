@@ -118,8 +118,6 @@ export type CreateChildRelationInput = {
   severity?: TicketSeverity | undefined;
   /** Team assignment, stored in `fields.team_id`; same rules as createEntity's teamId. */
   teamId?: string | undefined;
-  /** Same narrow partner-API exemption as createEntity's. */
-  mandatoryExemption?: "partner_unresolved_assignee" | undefined;
 };
 
 export type MoveChildRelationInput = {
@@ -184,12 +182,6 @@ export type CreateEntityInput = {
    */
   teamId?: string | undefined;
   /**
-   * docs/specs/mandatory-ticket-fields.md R6: only the partner API sets this, when the
-   * requested assignee can't be resolved, until the ADR-012 amendment. Skips the assignee
-   * part of the mandatory-fields check and nothing else.
-   */
-  mandatoryExemption?: "partner_unresolved_assignee" | undefined;
-  /**
    * docs/specs/state-override.md: an explicit `currentState` on a workflow-bound create must
    * be the workflow's initial state. Set by the user-facing create route so a caller cannot
    * start a record in a later step (past every transition guard). Seeds and tests that
@@ -224,6 +216,8 @@ export type ListEntitiesInput = {
   entityTypeId: string;
   state?: string | undefined;
   assignedTo?: string | undefined;
+  /** Only records with nobody assigned (the records list's "Unassigned" filter). */
+  unassigned?: boolean | undefined;
   /**
    * Non-privileged-caller scoping: matches instances where this user is
    * createdBy, assignedTo, or holds an __accessUsers ACL grant — not

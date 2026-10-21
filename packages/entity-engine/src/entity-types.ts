@@ -93,7 +93,7 @@ export async function createEntityType(
     // R2) -- guarantee every new, per-tenant entity type has a team_id field
     // available from creation, mirroring the title auto-seed above. Always
     // optional (never isRequired: true): a ticket assigned by user has no
-    // team, and by design exactly one of assignedTo/teamId is ever set (see
+    // team, and by design at most one of assignedTo/teamId is ever set (see
     // apps/api/src/routes/entities/create.ts's CreateEntitySchema refinement)
     // -- forcing team_id required would break that exclusivity. fieldType is
     // plain "text" (holds a teams.id UUID string), not "entity_ref": that

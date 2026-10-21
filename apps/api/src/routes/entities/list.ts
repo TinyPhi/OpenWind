@@ -25,6 +25,11 @@ const ListEntitiesQuerySchema = z.object({
   entityTypeId: z.string().uuid(),
   state: z.string().optional(),
   assignedTo: z.string().optional(),
+  // The records list's "Unassigned" filter: only records with nobody assigned.
+  unassigned: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   fields: z
     .string()
     .optional()

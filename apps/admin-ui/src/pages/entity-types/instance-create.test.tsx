@@ -93,7 +93,7 @@ function renderAt(): ReturnType<typeof render> {
 }
 
 async function fillMandatoryFields(): Promise<void> {
-  fireEvent.click(screen.getByText("Assign to…"));
+  fireEvent.click(screen.getByText("Unassigned"));
   const option = await screen.findByText(TEST_USER.displayName);
   fireEvent.click(option);
 
@@ -199,7 +199,7 @@ describe("EntityInstanceCreate — mandatory assignedTo/dueDate/remark", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Assigned To, Due Date, and Remark are required."),
+        screen.getByText("Due Date and Remark are required."),
       ).toBeDefined();
     });
     expect(fetchWithAuth).not.toHaveBeenCalledWith(
@@ -315,7 +315,7 @@ describe("EntityInstanceCreate — User/Team assign-mode toggle", () => {
     renderAt();
 
     await waitFor(() => {
-      expect(screen.getByText("Assign to…")).toBeDefined();
+      expect(screen.getByText("Unassigned")).toBeDefined();
     });
   });
 
@@ -324,18 +324,18 @@ describe("EntityInstanceCreate — User/Team assign-mode toggle", () => {
     renderAt();
 
     await waitFor(() => {
-      expect(screen.getByText("Assign to…")).toBeDefined();
+      expect(screen.getByText("Unassigned")).toBeDefined();
     });
 
     fireEvent.click(screen.getByText("Team"));
 
     await waitFor(() => {
-      expect(screen.getByText("Select a team…")).toBeDefined();
+      expect(screen.getByText("Unassigned")).toBeDefined();
     });
-    expect(screen.queryByText("Assign to…")).toBeNull();
+    expect(screen.getByText("Unassigned").closest("select")).not.toBeNull();
   });
 
-  it("blocks submit with a team-specific error when Team mode has no team selected", async () => {
+  it("blocks submit in Team mode while Due Date and Remark are empty", async () => {
     mockLoad();
     renderAt();
 
@@ -355,7 +355,7 @@ describe("EntityInstanceCreate — User/Team assign-mode toggle", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Team, Due Date, and Remark are required."),
+        screen.getByText("Due Date and Remark are required."),
       ).toBeDefined();
     });
     expect(fetchWithAuth).not.toHaveBeenCalledWith(
@@ -397,7 +397,7 @@ describe("EntityInstanceCreate — User/Team assign-mode toggle", () => {
     fireEvent.change(titleInput, { target: { value: "Some ticket" } });
 
     fireEvent.click(screen.getByText("Team"));
-    const select = screen.getByText("Select a team…").closest("select");
+    const select = screen.getByText("Unassigned").closest("select");
     if (!select) throw new Error("team select not found");
     fireEvent.change(select, { target: { value: TEST_TEAM.id } });
 

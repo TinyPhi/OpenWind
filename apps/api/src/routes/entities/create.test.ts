@@ -398,15 +398,20 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
   // status as every other CreateEntitySchema violation (assignedTo/dueDate/
   // remark missing, above). 422 is reserved for checks that run AFTER
   // schema validation (e.g. teamId not resolving to a real team, below).
-  it("returns 400 when neither assignedTo nor teamId is set", async () => {
+  // Owner decision 2026-10-19: an unassigned ticket is allowed.
+  it("creates an unassigned ticket when neither assignedTo nor teamId is set", async () => {
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: validBody({ assignedTo: undefined }),
     });
 
-    expect(res.status).toBe(400);
-    expect(mockCreateEntity).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.not.objectContaining({ assignedTo: expect.anything() }),
+    );
   });
 
   it("returns 400 when both assignedTo and teamId are set", async () => {

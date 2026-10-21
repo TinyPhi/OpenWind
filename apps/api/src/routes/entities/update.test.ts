@@ -226,6 +226,18 @@ describe("PATCH /entities/:id", () => {
     );
   });
 
+  // docs/specs/mandatory-ticket-fields.md R5: a due date can be changed, never removed.
+  it("refuses to clear the due date", async () => {
+    const res = await makeApp().request(`/${INST_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dueDate: null }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdateEntity).not.toHaveBeenCalled();
+  });
+
   it("returns 404, not 500, when the record's workflow was deleted before the workflow-admin check (#184)", async () => {
     const { WorkflowError } = await import("@platform/workflow-engine");
     currentAuth = {

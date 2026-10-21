@@ -792,9 +792,34 @@ function AssignDropdown({
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          {/* No "Unassigned" choice: every ticket keeps an assignee or a team
-              (docs/specs/mandatory-ticket-fields.md R3). */}
           <div className="asgn-options">
+            {/* Unassigned is allowed: the ticket stays on the records list under the
+                "Unassigned" filter (docs/specs/mandatory-ticket-fields.md, 2026-10-19). */}
+            <button
+              type="button"
+              className={`asgn-option ${!value ? "asgn-option-selected" : ""}`}
+              onClick={() => select("")}
+            >
+              <span className="asgn-avatar asgn-avatar-empty">?</span>
+              <span className="asgn-option-info">
+                <span className="asgn-option-name">Unassigned</span>
+              </span>
+              {!value && (
+                <svg
+                  className="asgn-check"
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </button>
             {filtered.length === 0 && (
               <div className="asgn-empty">No results</div>
             )}
@@ -2484,11 +2509,10 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   async function createChild(): Promise<void> {
     if (!id || !effectiveEntityTypeId) return;
-    // docs/specs/mandatory-ticket-fields.md R4: a sub-task needs the same five mandatory
-    // values as a full ticket.
+    // docs/specs/mandatory-ticket-fields.md R4: a sub-task needs the same four mandatory
+    // values as a full ticket; the assignee is optional.
     const missing = [
       !newChildTitle.trim() && "Title",
-      !newChildAssignedTo && "Assignee",
       !newChildDueDate && "Due date",
       !newChildRemark.trim() && "Remark",
     ].filter((m): m is string => typeof m === "string");
@@ -2517,7 +2541,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           body: JSON.stringify({
             entityTypeId: effectiveEntityTypeId,
             fields: childFields,
-            assignedTo: newChildAssignedTo,
+            ...(newChildAssignedTo ? { assignedTo: newChildAssignedTo } : {}),
             dueDate: new Date(newChildDueDate).toISOString(),
             remark: newChildRemark.trim(),
             severity: newChildSeverity,
@@ -2877,8 +2901,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         body: JSON.stringify({
           fields: editValues,
           currentState,
-          // Empty means a team ticket left as is: the assignee is never sent as null.
-          ...(editAssignedTo ? { assignedTo: editAssignedTo } : {}),
+          assignedTo: editAssignedTo || null,
           ...(dueDateChanged
             ? { dueDate: new Date(editDueDate).toISOString() }
             : {}),
@@ -2899,13 +2922,12 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   async function quickAssign(userId: string): Promise<void> {
-    // Never clears the assignee (docs/specs/mandatory-ticket-fields.md R3).
-    if (!id || !userId) return;
+    if (!id) return;
     setQuickAssigning(true);
     try {
       await fetchWithAuth(`${API_URL}/entities/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ assignedTo: userId }),
+        body: JSON.stringify({ assignedTo: userId || null }),
       });
       void loadRecord();
     } finally {
@@ -4373,23 +4395,17 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </div>
                     )}
                     <div className="portal-field-group portal-field-full">
-                      <label className="portal-field-label">
-                        Assigned To<span className="portal-required">*</span>
-                      </label>
+                      <label className="portal-field-label">Assigned To</label>
                       <select
                         className="portal-input"
                         value={editAssignedTo}
                         onChange={(e) => setEditAssignedTo(e.target.value)}
                       >
-                        {/* No "Unassigned": the empty value only labels a team ticket
-                            (or a legacy unassigned one) and is never saved. */}
-                        {!editAssignedTo && (
-                          <option value="" disabled>
-                            {record.teamName
-                              ? `Team: ${record.teamName}`
-                              : "Select assignee"}
-                          </option>
-                        )}
+                        <option value="">
+                          {record.teamName && !record.assignedTo
+                            ? `Team: ${record.teamName}`
+                            : "Unassigned"}
+                        </option>
                         {users.map((u) => (
                           <option key={u.userId} value={u.userId}>
                             {u.displayName ?? u.email}
@@ -5907,13 +5923,12 @@ export function CustomerRecordDetail(): React.ReactElement {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Assign to *</label>
+              <label className="form-label">Assign to</label>
               <AssignDropdown
                 value={newChildAssignedTo}
                 users={users}
                 onChange={setNewChildAssignedTo}
                 className="asgn-drop-full"
-                emptyLabel="Select assignee"
               />
             </div>
             <div className="form-group">

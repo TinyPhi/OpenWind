@@ -228,11 +228,6 @@ export const createThirdPartyChildHandler = factory.createHandlers(
               originMechanism: "api",
               originOidcClientId,
               originPerformerUserId: actingPersonId,
-              // Same ADR-012 exemption as a partner ticket (docs/specs/mandatory-ticket-fields.md
-              // R6/T11).
-              ...(assignedToUnresolved
-                ? { mandatoryExemption: "partner_unresolved_assignee" as const }
-                : {}),
             });
             await writeAuditEntry(tx, {
               tenantId,

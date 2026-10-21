@@ -82,7 +82,7 @@ export async function executeCreateChildAction(
     );
   }
 
-  // docs/specs/mandatory-ticket-fields.md R7: the sub-task always carries all five mandatory
+  // docs/specs/mandatory-ticket-fields.md R7: the sub-task always carries the four mandatory
   // values -- the rule's template, else the defaults (title "<rule>: <parent title>").
   const parentTitle =
     typeof parent.fields["title"] === "string" ? parent.fields["title"] : "";

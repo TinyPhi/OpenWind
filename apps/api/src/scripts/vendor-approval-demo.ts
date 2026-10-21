@@ -7,7 +7,7 @@
  *     [--tenant <uuid>] [--assignee <userId>] [--notify it_security=<userId>] \
  *     [--notify legal=<userId>] [--notify finance_approver=<userId>]
  *
- * Every vendor record gets the five mandatory ticket values
+ * Every vendor record gets the four mandatory ticket values
  * (docs/specs/mandatory-ticket-fields.md): --assignee, else the first --notify user.
  *
  * Idempotent: the module install is a no-op once installed, and fixtures are

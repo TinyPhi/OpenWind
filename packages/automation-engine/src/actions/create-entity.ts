@@ -36,7 +36,7 @@ async function workflowOfType(
 
 /**
  * create_entity action. A ticket (a record of a type with a workflow) always carries the
- * five mandatory values (docs/specs/mandatory-ticket-fields.md R7): from the rule's
+ * four mandatory values (docs/specs/mandatory-ticket-fields.md R7): from the rule's
  * template, else the defaults in ticket-template.ts. Records of other types are created as
  * before.
  */

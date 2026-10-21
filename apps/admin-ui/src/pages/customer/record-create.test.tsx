@@ -134,10 +134,12 @@ const TEST_USER = {
 // docs/specs/team-assign-oncall-fallback.md R1 fixture.
 const TEST_TEAM = { id: "team-1", name: "Platform Engineering" };
 
-async function fillMandatoryFields(): Promise<void> {
-  fireEvent.click(screen.getByText("Search and assign a user…"));
-  const option = await screen.findByText(TEST_USER.displayName);
-  fireEvent.click(option);
+async function fillMandatoryFields(pickUser = true): Promise<void> {
+  if (pickUser) {
+    fireEvent.click(screen.getByText("Unassigned"));
+    const option = await screen.findByText(TEST_USER.displayName);
+    fireEvent.click(option);
+  }
 
   const dueDateLabel = screen.getByText("Due Date");
   const dueDateGroup = dueDateLabel.closest(".portal-field-group");
@@ -308,7 +310,7 @@ describe("CustomerRecordCreate — User/Team assign-mode toggle", () => {
     renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
 
     await waitFor(() => {
-      expect(screen.getByText("Search and assign a user…")).toBeDefined();
+      expect(screen.getByText("Unassigned")).toBeDefined();
     });
   });
 
@@ -316,7 +318,7 @@ describe("CustomerRecordCreate — User/Team assign-mode toggle", () => {
     renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
 
     await waitFor(() => {
-      expect(screen.getByText("Search and assign a user…")).toBeDefined();
+      expect(screen.getByText("Unassigned")).toBeDefined();
     });
 
     fireEvent.click(screen.getByText("Team"));
@@ -324,10 +326,10 @@ describe("CustomerRecordCreate — User/Team assign-mode toggle", () => {
     await waitFor(() => {
       expect(screen.getByText("Select a team…")).toBeDefined();
     });
-    expect(screen.queryByText("Search and assign a user…")).toBeNull();
+    expect(screen.queryByText("Unassigned")).toBeNull();
   });
 
-  it("blocks submit with a team-specific error when Team mode has no team selected", async () => {
+  it("blocks submit in Team mode while Due Date and Remark are empty", async () => {
     renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
 
     await waitFor(() => {
@@ -340,7 +342,7 @@ describe("CustomerRecordCreate — User/Team assign-mode toggle", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Team, Due Date, and Remark are required."),
+        screen.getByText("Due Date and Remark are required."),
       ).toBeDefined();
     });
     expect(fetchWithAuth).not.toHaveBeenCalledWith(
@@ -416,7 +418,7 @@ describe("CustomerRecordCreate — mandatory assignedTo/dueDate", () => {
     cleanup();
   });
 
-  it("blocks submit and never calls POST /entities when Assigned To and Due Date are both empty", async () => {
+  it("blocks submit and never calls POST /entities when Due Date and Remark are empty", async () => {
     renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
 
     await waitFor(() => {
@@ -428,7 +430,7 @@ describe("CustomerRecordCreate — mandatory assignedTo/dueDate", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Assigned To, Due Date, and Remark are required."),
+        screen.getByText("Due Date and Remark are required."),
       ).toBeDefined();
     });
     expect(fetchWithAuth).not.toHaveBeenCalledWith(
@@ -471,6 +473,44 @@ describe("CustomerRecordCreate — mandatory assignedTo/dueDate", () => {
       };
       expect(body.assignedTo).toBe(TEST_USER.userId);
       expect(body.dueDate).toBeTruthy();
+    });
+  });
+
+  // Owner decision 2026-10-19: "Unassigned" is the default and a valid choice.
+  it("creates an unassigned ticket when nobody is picked", async () => {
+    renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Title")).toBeDefined();
+    });
+
+    fetchWithAuth.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes("/fields")) return Promise.resolve({ data: FIELDS });
+      if (url.includes("/workflows")) return Promise.resolve({ data: [] });
+      if (url.includes("/admin/teams"))
+        return Promise.resolve({ data: [TEST_TEAM] });
+      if (url.includes("/users")) return Promise.resolve({ data: [TEST_USER] });
+      if (url === "/api/entities" && opts?.method === "POST") {
+        return Promise.resolve({ data: { id: "new-ticket-1" } });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    fireEvent.change(titleInput(), { target: { value: "Some ticket" } });
+    await fillMandatoryFields(false);
+    fireEvent.click(screen.getByText("Create Ticket"));
+
+    await waitFor(() => {
+      const call = fetchWithAuth.mock.calls.find(
+        ([url, opts]) => url === "/api/entities" && opts?.method === "POST",
+      );
+      expect(call).toBeDefined();
+      const body = JSON.parse(String(call?.[1]?.body)) as Record<
+        string,
+        unknown
+      >;
+      expect(body).not.toHaveProperty("assignedTo");
+      expect(body).not.toHaveProperty("teamId");
     });
   });
 });

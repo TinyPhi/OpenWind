@@ -41,10 +41,11 @@ WHERE NOT EXISTS (
 -- values, action does its own guard" pattern (see modules/tender's
 -- 003_automation_rules.sql for the same convention on entity.created).
 --
--- KNOWN PREREQUISITE GAP: team_id is not yet a seeded entity field on
--- 'ticket' (see 001_entity_types.sql's header comment) -- this rule is a
--- no-op until that lands, by design (the action returns early when
--- team_id is absent).
+-- Unscoped (trigger_config '{}'): a team assignment resolves to the on-call
+-- person on every workflow, not only helpdesk tickets (docs/specs/
+-- mandatory-ticket-fields.md, owner decision 2026-10-19). The action returns
+-- early when the record has no team, so other records are unaffected.
+-- Migration 0153 widens existing tenants' rows.
 INSERT INTO automation_rules (id, tenant_id, name, is_enabled, trigger_type, trigger_config, conditions, actions, priority)
 SELECT
   gen_random_uuid(),
@@ -52,7 +53,7 @@ SELECT
   'Auto-assign on-call user when team is set on ticket creation',
   true,
   'entity.created',
-  '{"entityType": "ticket"}'::jsonb,
+  '{}'::jsonb,
   NULL,
   '[{"type": "resolve_oncall", "config": {}}]'::jsonb,
   0
@@ -68,7 +69,7 @@ SELECT
   'Auto-assign on-call user when ticket team changes',
   true,
   'entity.updated',
-  '{"entityType": "ticket"}'::jsonb,
+  '{}'::jsonb,
   NULL,
   '[{"type": "resolve_oncall", "config": {}}]'::jsonb,
   0
