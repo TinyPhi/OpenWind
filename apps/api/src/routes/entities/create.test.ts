@@ -8,6 +8,8 @@ import type * as EntityEngine from "@platform/entity-engine";
 
 const mockCreateEntity = vi.fn();
 const mockListUserIdsWithRole = vi.fn();
+// Number of open withTenantContext callbacks, to assert Zitadel-backed work runs outside one.
+const txDepth = vi.hoisted(() => ({ current: 0 }));
 const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/auth", () => ({
@@ -73,8 +75,17 @@ vi.mock("@platform/db", () => ({
     uploadedBy: "uploaded_by",
     entityId: "entity_id",
   },
-  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
-    fn(mockTx),
+  withTenantContext: async (
+    _tenantId: unknown,
+    fn: (tx: unknown) => unknown,
+  ) => {
+    txDepth.current++;
+    try {
+      return await fn(mockTx);
+    } finally {
+      txDepth.current--;
+    }
+  },
 }));
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
@@ -533,7 +544,9 @@ describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap f
 
   it("calls ensureUserRefsKnown before createEntity, with the entity type/fields/org", async () => {
     const order: string[] = [];
+    let depthAtCall = -1;
     mockEnsureUserRefsKnown.mockImplementation(() => {
+      depthAtCall = txDepth.current;
       order.push("ensureUserRefsKnown");
       return Promise.resolve();
     });
@@ -549,13 +562,13 @@ describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap f
     });
 
     expect(mockEnsureUserRefsKnown).toHaveBeenCalledWith(
-      expect.any(Object),
       "t-aaa",
       TYPE_ID,
       { technical_reviewer: "u-reviewer" },
       "org-ccc",
     );
     expect(order).toEqual(["ensureUserRefsKnown", "createEntity"]);
+    expect(depthAtCall).toBe(0);
   });
 });
 

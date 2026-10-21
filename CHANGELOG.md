@@ -271,6 +271,8 @@ complete the ADR-023 production setup first. See `docs/runbooks/openbao-secrets.
   through the whole Zitadel org (capped at 10,000 members, logged when truncated).
 - Adding a comment or granting access no longer holds a database connection while it waits on Zitadel:
   membership is read, Zitadel is called, then the new members are recorded in a second short step.
+- Creating or updating a ticket with a user-reference field no longer holds a database connection while it waits
+  on Zitadel: colleagues who have not signed in yet are recorded before the entity transaction opens.
 - A failed Zitadel org-member lookup (for example a rate limit) is no longer cached as an empty org until the
   process restarts; the next mention or grant retries.
 - A Zitadel rate limit (429) while resolving a notification recipient now falls back to the cached profile
