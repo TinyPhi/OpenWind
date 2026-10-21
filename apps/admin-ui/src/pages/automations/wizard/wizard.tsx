@@ -10,19 +10,10 @@ import { StepConditions } from "./step-conditions.js";
 import { StepActions } from "./step-actions.js";
 import { StepSave } from "./step-save.js";
 import { transitionActionProblem } from "./transition-action.js";
-import {
-  completeTemplate,
-  isTicketAction,
-  ticketActionProblem,
-} from "./ticket-template.js";
+import { isTicketAction, ticketActionProblem } from "./ticket-template.js";
 import type { TransitionsState } from "./transition-action.js";
 import { useTriggerTransitions } from "./use-trigger-transitions.js";
-import {
-  fromApiActions,
-  fromApiTrigger,
-  toApiActions,
-  toApiTrigger,
-} from "./payload.js";
+import { fromApiActions, fromApiTrigger, toApiRule } from "./payload.js";
 
 const STEPS = [
   { label: "Trigger", key: "trigger" },
@@ -142,23 +133,7 @@ export function AutomationWizard(): React.ReactElement {
     setSaving(true);
     setSaveError(null);
     try {
-      const payload = {
-        name: data.name.trim(),
-        ...toApiTrigger(data.triggerType, data.triggerConfig),
-        conditions: data.conditions,
-        actions: toApiActions(
-          data.actions.map((a) =>
-            isTicketAction(a.type)
-              ? {
-                  ...a,
-                  config: completeTemplate(a.type, a.config, data.name.trim()),
-                }
-              : a,
-          ),
-        ),
-        priority: data.priority,
-        isEnabled: data.isEnabled,
-      };
+      const payload = toApiRule(data, data.triggerType);
 
       if (isEdit && id) {
         await fetchWithAuth(`${API_URL}/automation-rules/${id}`, {

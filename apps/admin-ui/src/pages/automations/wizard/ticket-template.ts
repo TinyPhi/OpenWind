@@ -33,7 +33,9 @@ export function templateOf(config: Record<string, unknown>): TicketTemplate {
   const t = config.template;
   // The API stores the template as validated JSON (automation-rules/schemas.ts); the form
   // only reads keys it checks below.
-  return t && typeof t === "object" ? (t as TicketTemplate) : {};
+  return t && typeof t === "object" && !Array.isArray(t)
+    ? (t as TicketTemplate)
+    : {};
 }
 
 /** A new create action starts from the engine's own defaults. */
@@ -93,7 +95,10 @@ export function completeTemplate(
   return { ...config, template: next };
 }
 
-/** For the rules list: a create action whose template is missing a mandatory value. */
+/**
+ * For the rules list: a create action missing its workflow (a ticket action can't run without
+ * one) or a mandatory template value.
+ */
 export function needsTemplate(
   actions: Array<{ type: string; config: Record<string, unknown> }>,
 ): boolean {
@@ -104,7 +109,8 @@ export function needsTemplate(
       !validDueDays(t.due_days) ||
       blank(t.remark) ||
       !t.severity ||
-      (a.type === "create_entity" && blank(t.title))
+      (a.type === "create_entity" &&
+        (blank(t.title) || blank(a.config.entityTypeId)))
     );
   });
 }

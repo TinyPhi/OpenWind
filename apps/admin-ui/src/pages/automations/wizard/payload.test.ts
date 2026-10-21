@@ -4,10 +4,77 @@ import {
   fromApiTrigger,
   stateKeyFor,
   toApiActions,
+  toApiRule,
   toApiTrigger,
   withConfigValues,
 } from "./payload.js";
+import { EMPTY_WIZARD } from "./types.js";
 import type { ActionItem } from "./types.js";
+
+// docs/specs/mandatory-ticket-fields.md R7: what a wizard save sends.
+describe("toApiRule", () => {
+  it("fills a ticket action's blank title and remark from the rule's name", () => {
+    const body = toApiRule(
+      {
+        ...EMPTY_WIZARD,
+        name: "  Nightly check ",
+        actions: [
+          {
+            id: "a1",
+            type: "create_entity",
+            config: {
+              entityTypeId: "et-1",
+              template: { title: " ", due_days: 3, severity: "high" },
+            },
+          },
+          {
+            id: "a2",
+            type: "create_child",
+            config: { template: { due_days: 1, severity: "low" } },
+          },
+          { id: "a3", type: "notify", config: { message: "hi" } },
+        ],
+      },
+      "entity.created",
+    );
+
+    expect(body).toMatchObject({
+      name: "Nightly check",
+      triggerType: "entity.created",
+      actions: [
+        {
+          type: "create_entity",
+          config: {
+            entityTypeId: "et-1",
+            template: {
+              title: "Nightly check",
+              remark: "Created by automation: Nightly check",
+              due_days: 3,
+              severity: "high",
+            },
+          },
+        },
+        {
+          type: "create_child",
+          config: {
+            template: {
+              remark: "Created by automation: Nightly check",
+              due_days: 1,
+              severity: "low",
+            },
+          },
+        },
+        { type: "notify", config: { message: "hi" } },
+      ],
+    });
+    // toApiRule returns the loose API body; its actions come from toApiActions.
+    const actions = body.actions as Array<{ id?: string; config: unknown }>;
+    expect(actions.every((a) => a.id === undefined)).toBe(true);
+    expect(
+      (actions[1]?.config as { template: Record<string, unknown> }).template,
+    ).not.toHaveProperty("title");
+  });
+});
 
 describe("stateKeyFor", () => {
   it("uses toState for a state-entered trigger, matching the API schema", () => {

@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   cleanup,
@@ -47,15 +48,30 @@ function withAction(
   return { ...EMPTY_WIZARD, actions: [{ id: "a1", type, config }] };
 }
 
-function renderStep(data: WizardData): ReturnType<typeof vi.fn> {
-  const onChange = vi.fn();
-  render(
+// Feeds each change back in, as the wizard does, so the form sees its own edits.
+function Harness({
+  initial,
+  onChange,
+}: {
+  initial: WizardData;
+  onChange: (patch: Partial<WizardData>) => void;
+}): React.ReactElement {
+  const [data, setData] = useState(initial);
+  return (
     <StepActions
       data={data}
-      onChange={onChange}
+      onChange={(patch) => {
+        onChange(patch);
+        setData((d) => ({ ...d, ...patch }));
+      }}
       transitions={{ status: "no-workflow" }}
-    />,
+    />
   );
+}
+
+function renderStep(data: WizardData): ReturnType<typeof vi.fn> {
+  const onChange = vi.fn();
+  render(<Harness initial={data} onChange={onChange} />);
   return onChange;
 }
 
@@ -145,6 +161,55 @@ describe("StepActions — ticket template actions", () => {
     expect(lastConfig(onChange)).toMatchObject({
       template: { assignedTo: PERSON },
     });
+  });
+
+  it("shows the team picker when a saved rule's team arrives after the form opened", () => {
+    mockOptions();
+    const props = {
+      onChange: vi.fn(),
+      transitions: { status: "no-workflow" } as const,
+    };
+    const { rerender } = render(
+      <StepActions
+        data={withAction("create_entity", { template: {} })}
+        {...props}
+      />,
+    );
+    expect(
+      (screen.getByLabelText("Assign to") as HTMLSelectElement).value,
+    ).toBe("owner");
+
+    rerender(
+      <StepActions
+        data={withAction("create_entity", {
+          template: { due_days: 3, severity: "medium", teamId: "team-1" },
+        })}
+        {...props}
+      />,
+    );
+    expect(
+      (screen.getByLabelText("Assign to") as HTMLSelectElement).value,
+    ).toBe("team");
+    expect(screen.getByLabelText("Team")).toBeDefined();
+  });
+
+  it("says when a list couldn't load instead of showing it empty", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.startsWith("/workflows")
+        ? Promise.reject(new Error("Network error"))
+        : Promise.resolve({ data: [] }),
+    );
+    renderStep(withAction("create_entity", { template: {} }));
+
+    expect(screen.getByRole("option", { name: "Loading…" })).toBeDefined();
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(
+        /Couldn't load the workflows/,
+      ),
+    );
+    expect(
+      screen.getByRole("option", { name: "Select a workflow…" }),
+    ).toBeDefined();
   });
 
   it("shows what a blank title and remark default to", () => {

@@ -132,9 +132,39 @@ describe("needsTemplate", () => {
     ).toBe(true);
   });
 
-  it("doesn't flag a complete template, a sub-task without a title, or other actions", () => {
+  it("flags a create action with a full template but no workflow", () => {
     expect(
       needsTemplate([{ type: "create_entity", config: { template: full } }]),
+    ).toBe(true);
+    expect(
+      needsTemplate([
+        {
+          type: "create_entity",
+          config: { entityTypeId: "  ", template: full },
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("treats a template stored as an array as missing", () => {
+    expect(
+      needsTemplate([
+        {
+          type: "create_entity",
+          config: { entityTypeId: "et-1", template: [] },
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("doesn't flag a complete template, a sub-task without a title, or other actions", () => {
+    expect(
+      needsTemplate([
+        {
+          type: "create_entity",
+          config: { entityTypeId: "et-1", template: full },
+        },
+      ]),
     ).toBe(false);
     expect(
       needsTemplate([

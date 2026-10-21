@@ -13,25 +13,48 @@ type WorkflowOption = { id: string; name: string; entityTypeId: string };
 type TeamOption = { id: string; name: string };
 type AssignMode = "owner" | "user" | "team";
 
-function useOptions<T>(path: string | null): T[] {
+type LoadState = "loading" | "ready" | "failed";
+
+function useOptions<T>(path: string | null): { items: T[]; state: LoadState } {
   const [items, setItems] = useState<T[]>([]);
+  const [state, setState] = useState<LoadState>("loading");
   useEffect(() => {
     if (!path) return;
     let cancelled = false;
+    setState("loading");
     fetchWithAuth(`${API_URL}${path}`).then(
       (res) => {
+        if (cancelled) return;
         // Every list route answers with the { data: T[] } envelope.
-        if (!cancelled) setItems((res as { data: T[] }).data);
+        setItems((res as { data: T[] }).data);
+        setState("ready");
       },
       () => {
-        if (!cancelled) setItems([]);
+        if (cancelled) return;
+        setItems([]);
+        setState("failed");
       },
     );
     return () => {
       cancelled = true;
     };
   }, [path]);
-  return items;
+  return { items, state };
+}
+
+function placeholder(state: LoadState, ready: string): string {
+  return state === "loading" ? "Loading…" : ready;
+}
+
+function LoadFailed({ what }: { what: string }): React.ReactElement {
+  return (
+    <p
+      role="alert"
+      style={{ fontSize: "12px", color: "var(--danger)", margin: "4px 0 0" }}
+    >
+      Couldn&apos;t load the {what}. Refresh the page to try again.
+    </p>
+  );
 }
 
 /**
@@ -47,16 +70,23 @@ export function TicketTemplateConfig({
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }): React.ReactElement {
-  const workflows = useOptions<WorkflowOption>(
-    type === "create_entity" ? "/workflows?activeOnly=true" : null,
-  );
-  const teams = useOptions<TeamOption>("/admin/teams");
-  const { users } = useUsers();
+  const { items: workflows, state: workflowsState } =
+    useOptions<WorkflowOption>(
+      type === "create_entity" ? "/workflows?activeOnly=true" : null,
+    );
+  const { items: teams, state: teamsState } =
+    useOptions<TeamOption>("/admin/teams");
+  const { users, loading: usersLoading, error: usersError } = useUsers();
 
   const template = templateOf(config);
-  const [mode, setMode] = useState<AssignMode>(
-    template.teamId ? "team" : template.assignedTo ? "user" : "owner",
-  );
+  // A chosen team or person decides the picker, so a rule loaded after mount shows the right
+  // one; the picked mode only matters while nobody is chosen yet.
+  const [pickedMode, setPickedMode] = useState<AssignMode>("owner");
+  const mode: AssignMode = template.teamId
+    ? "team"
+    : template.assignedTo
+      ? "user"
+      : pickedMode;
   const problem = ticketActionProblem(type, config);
   const entityTypeId =
     typeof config.entityTypeId === "string" ? config.entityTypeId : "";
@@ -68,7 +98,7 @@ export function TicketTemplateConfig({
   }
 
   function switchMode(next: AssignMode): void {
-    setMode(next);
+    setPickedMode(next);
     const { assignedTo: _a, teamId: _t, ...rest } = template;
     onChange({ template: rest });
   }
@@ -89,13 +119,16 @@ export function TicketTemplateConfig({
               onChange({ entityTypeId: wf?.entityTypeId ?? "" });
             }}
           >
-            <option value="">Select a workflow…</option>
+            <option value="">
+              {placeholder(workflowsState, "Select a workflow…")}
+            </option>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
               </option>
             ))}
           </select>
+          {workflowsState === "failed" && <LoadFailed what="workflows" />}
         </div>
       )}
       <div className="form-group">
@@ -185,7 +218,9 @@ export function TicketTemplateConfig({
           // Options are exactly the three AssignMode values.
           onChange={(e) => switchMode(e.target.value as AssignMode)}
         >
-          <option value="owner">Workflow owner (automatic)</option>
+          <option value="owner">
+            Workflow owner, else an admin (automatic)
+          </option>
           <option value="user">A person</option>
           <option value="team">A team (its on-call person)</option>
         </select>
@@ -197,7 +232,12 @@ export function TicketTemplateConfig({
             value={template.assignedTo ?? ""}
             onChange={(e) => patchTemplate({ assignedTo: e.target.value })}
           >
-            <option value="">Select a person…</option>
+            <option value="">
+              {placeholder(
+                usersLoading ? "loading" : "ready",
+                "Select a person…",
+              )}
+            </option>
             {users.map((u) => (
               <option key={u.userId} value={u.userId}>
                 {u.displayName ?? u.email}
@@ -205,6 +245,7 @@ export function TicketTemplateConfig({
             ))}
           </select>
         )}
+        {mode === "user" && usersError && <LoadFailed what="people" />}
         {mode === "team" && (
           <select
             aria-label="Team"
@@ -213,13 +254,18 @@ export function TicketTemplateConfig({
             value={template.teamId ?? ""}
             onChange={(e) => patchTemplate({ teamId: e.target.value })}
           >
-            <option value="">Select a team…</option>
+            <option value="">
+              {placeholder(teamsState, "Select a team…")}
+            </option>
             {teams.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
           </select>
+        )}
+        {mode === "team" && teamsState === "failed" && (
+          <LoadFailed what="teams" />
         )}
       </div>
       {problem && (

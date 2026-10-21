@@ -18,3 +18,10 @@
   keeps running on the engine defaults until edited.
 - **Tests.** Template rules (problems, completion on save, needs-template), the wizard's
   actions-step gate, and the form (defaults, workflow pick keeping other config, person/team).
+- **Review R1 (Vijit, 2026-10-21).** "Needs template" now also flags a "Create ticket" action
+  with no workflow; the assign picker follows the saved person/team (a rule loaded after the
+  form opened shows the right picker); the workflow/person/team lists show "Loading…" and a
+  "couldn't load" message instead of an empty list; a template stored as an array counts as
+  missing; the fallback reads "Workflow owner, else an admin (automatic)"; the save payload
+  moved to `toApiRule` in `payload.ts`, tested for the filled title/remark. A workflow
+  type-ahead is left for when orgs have many workflows.
