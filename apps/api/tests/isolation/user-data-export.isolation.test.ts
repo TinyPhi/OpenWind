@@ -3,7 +3,8 @@
  *
  * - the collector returns the subject's rows (including saved_views behind the
  *   app.user_id GUC) and never another tenant's, and no secret value;
- * - POST /users/:userId/export is tenant-scoped: another tenant's admin gets 404;
+ * - POST /users/:userId/export is tenant-scoped: a user from another tenant gets the same 422 answer as a
+ *   user who does not exist;
  * - an agent cannot download a user_data export, through the entity-export
  *   route or the admin route; the denial is audited.
  *
@@ -293,12 +294,15 @@ describe("POST /users/:userId/export tenant scoping (#642)", () => {
     ]);
   });
 
-  it("returns 404 for another tenant's user, enqueues nothing, audits nothing", async () => {
+  it("returns the same 422 USER_NOT_IN_WORKSPACE for another tenant's user as for a missing one, enqueues nothing, audits nothing", async () => {
     const res = await app(OTHER_TENANT, ADMIN, ["admin"]).request(
       `/users/${ONLY_IN_A}/export`,
       { method: "POST" },
     );
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "USER_NOT_IN_WORKSPACE",
+    );
     expect(mockAdd).not.toHaveBeenCalled();
     expect(await auditRows(OTHER_TENANT)).toEqual([]);
     expect(await auditRows(TENANT)).toEqual([]);

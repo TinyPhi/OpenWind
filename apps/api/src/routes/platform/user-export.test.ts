@@ -187,13 +187,17 @@ describe("POST /users/:userId/export", () => {
     expect(requireRoleCalls.every((r) => r.join() === "admin")).toBe(true);
   });
 
-  it("returns 404 and enqueues nothing for a user with no row in this tenant", async () => {
+  it("returns 422 USER_NOT_IN_WORKSPACE with an actionable message and enqueues nothing for a user with no row in this tenant", async () => {
     memberLookupTx();
     mockMemberRows.mockResolvedValue([]);
     const res = await makeApp().request("/users/u-other-tenant/export", {
       method: "POST",
     });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("USER_NOT_IN_WORKSPACE");
+    expect(body.message).toMatch(/signed in/);
+    expect(body.message).toMatch(/user id/i);
     expect(mockAdd).not.toHaveBeenCalled();
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
@@ -269,11 +273,14 @@ describe("GET /users/:userId/export/:jobId/download", () => {
     expect(audits()[0]).toMatchObject({ action: "export.download_denied" });
   });
 
-  it("returns 404 once the subject has been erased, even for a finished bundle", async () => {
+  it("returns 410 EXPORT_NO_LONGER_AVAILABLE once the subject has been erased, even for a finished bundle", async () => {
     mockGetJob.mockResolvedValue(job("completed"));
     mockMemberRows.mockResolvedValue([]);
     const res = await makeApp().request(url("?file=1"));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(410);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "EXPORT_NO_LONGER_AVAILABLE",
+    );
     expect(mockGetExportStream).not.toHaveBeenCalled();
   });
 

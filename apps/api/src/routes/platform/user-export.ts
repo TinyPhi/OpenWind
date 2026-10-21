@@ -92,7 +92,16 @@ userExportRouter.post(
         .limit(1),
     );
     if (!member) {
-      return c.json({ error: "NOT_FOUND", message: "User not found" }, 404);
+      // 422, not 404, so the admin is told what to do. It reveals nothing about other tenants: a
+      // user id from another workspace gets the same answer as one that does not exist.
+      return c.json(
+        {
+          error: "USER_NOT_IN_WORKSPACE",
+          message:
+            "No user with this id has signed in to this workspace, so OpenWind holds no records for them to export. Check that you are using the user's Zitadel user id (the id shown on their profile) and that they have signed in at least once.",
+        },
+        422,
+      );
     }
 
     const exportId = randomUUID();
@@ -199,7 +208,16 @@ userExportRouter.get(
         )
         .limit(1),
     );
-    if (!member) return notFound();
+    if (!member) {
+      return c.json(
+        {
+          error: "EXPORT_NO_LONGER_AVAILABLE",
+          message:
+            "The user this export was made for no longer exists in this workspace (erased or removed), so the file is no longer available.",
+        },
+        410,
+      );
+    }
 
     const state = await job.getState();
     if (state === "failed") {
