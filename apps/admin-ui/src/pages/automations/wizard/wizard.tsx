@@ -10,14 +10,10 @@ import { StepConditions } from "./step-conditions.js";
 import { StepActions } from "./step-actions.js";
 import { StepSave } from "./step-save.js";
 import { transitionActionProblem } from "./transition-action.js";
+import { isTicketAction, ticketActionProblem } from "./ticket-template.js";
 import type { TransitionsState } from "./transition-action.js";
 import { useTriggerTransitions } from "./use-trigger-transitions.js";
-import {
-  fromApiActions,
-  fromApiTrigger,
-  toApiActions,
-  toApiTrigger,
-} from "./payload.js";
+import { fromApiActions, fromApiTrigger, toApiRule } from "./payload.js";
 
 const STEPS = [
   { label: "Trigger", key: "trigger" },
@@ -45,8 +41,10 @@ export function canAdvance(
       data.actions.length > 0 &&
       data.actions.every(
         (a) =>
-          a.type !== "transition" ||
-          transitionActionProblem(a.config, transitions) === null,
+          (a.type !== "transition" ||
+            transitionActionProblem(a.config, transitions) === null) &&
+          (!isTicketAction(a.type) ||
+            ticketActionProblem(a.type, a.config) === null),
       )
     );
   }
@@ -135,14 +133,7 @@ export function AutomationWizard(): React.ReactElement {
     setSaving(true);
     setSaveError(null);
     try {
-      const payload = {
-        name: data.name.trim(),
-        ...toApiTrigger(data.triggerType, data.triggerConfig),
-        conditions: data.conditions,
-        actions: toApiActions(data.actions),
-        priority: data.priority,
-        isEnabled: data.isEnabled,
-      };
+      const payload = toApiRule(data, data.triggerType);
 
       if (isEdit && id) {
         await fetchWithAuth(`${API_URL}/automation-rules/${id}`, {

@@ -8,6 +8,8 @@ import {
   transitionOptionLabel,
 } from "./transition-action.js";
 import type { TransitionsState } from "./transition-action.js";
+import { TicketTemplateConfig } from "./step-ticket-template.js";
+import { defaultTemplate, isTicketAction } from "./ticket-template.js";
 
 type Props = {
   data: WizardData;
@@ -20,6 +22,8 @@ const ACTION_TYPE_LABELS: Record<ActionType, string> = {
   set_field: "Set field value",
   transition: "Trigger transition",
   webhook: "Call webhook",
+  create_entity: "Create ticket",
+  create_child: "Create sub-task",
 };
 
 const ACTION_TYPE_DESCRIPTIONS: Record<ActionType, string> = {
@@ -27,6 +31,8 @@ const ACTION_TYPE_DESCRIPTIONS: Record<ActionType, string> = {
   set_field: "Update a field on the triggering record",
   transition: "Move the record to another state",
   webhook: "HTTP POST to an external URL",
+  create_entity: "Create a ticket in a workflow",
+  create_child: "Create a sub-task under the triggering ticket",
 };
 
 function NotifyConfig({
@@ -410,13 +416,16 @@ function ActionCard({
             className="form-input"
             style={{ width: "200px", fontWeight: 600 }}
             value={action.type}
-            onChange={(e) =>
+            onChange={(e) => {
+              // select options are derived from ActionType keys — value is always a valid ActionType
+              const type = e.target.value as ActionType;
               onUpdate(action.id, {
-                // select options are derived from ActionType keys — value is always a valid ActionType
-                type: e.target.value as ActionType,
-                config: {},
-              })
-            }
+                type,
+                config: isTicketAction(type)
+                  ? { template: defaultTemplate() }
+                  : {},
+              });
+            }}
           >
             {(Object.keys(ACTION_TYPE_LABELS) as ActionType[]).map((t) => (
               <option key={t} value={t}>
@@ -453,6 +462,13 @@ function ActionCard({
       )}
       {action.type === "webhook" && (
         <WebhookConfig config={action.config} onChange={patchConfig} />
+      )}
+      {(action.type === "create_entity" || action.type === "create_child") && (
+        <TicketTemplateConfig
+          type={action.type}
+          config={action.config}
+          onChange={patchConfig}
+        />
       )}
     </div>
   );

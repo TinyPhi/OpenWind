@@ -2,7 +2,8 @@
 // payload (#684). The API validates trigger and action config keys against
 // apps/api/src/routes/automation-rules/schemas.ts, so these must match it.
 
-import type { ActionItem, TriggerType } from "./types.js";
+import type { ActionItem, TriggerType, WizardData } from "./types.js";
+import { completeTemplate, isTicketAction } from "./ticket-template.js";
 
 type HeaderRow = { key: string; value: string };
 
@@ -121,4 +122,26 @@ export function fromApiActions(
       },
     };
   });
+}
+
+/** The automation-rules API body for a save; ticket actions get their template completed. */
+export function toApiRule(
+  data: WizardData,
+  triggerType: TriggerType,
+): Record<string, unknown> {
+  const name = data.name.trim();
+  return {
+    name,
+    ...toApiTrigger(triggerType, data.triggerConfig),
+    conditions: data.conditions,
+    actions: toApiActions(
+      data.actions.map((a) =>
+        isTicketAction(a.type)
+          ? { ...a, config: completeTemplate(a.type, a.config, name) }
+          : a,
+      ),
+    ),
+    priority: data.priority,
+    isEnabled: data.isEnabled,
+  };
 }
