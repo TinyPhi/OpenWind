@@ -9,7 +9,6 @@ import {
   MfaResendTooSoonError,
   MfaLockedOutError,
   PLATFORM_ADMIN_MFA_SESSION_HEADER,
-  MFA_CODE_TTL_SECONDS,
 } from "@platform/auth";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
@@ -87,7 +86,7 @@ export const mfaRequestHandler = platformAdminFactory.createHandlers(
         sentTo,
         // Lets the client run an accurate resend countdown from the server's own setting.
         resendAfterSeconds: env.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS,
-        expiresInSeconds: MFA_CODE_TTL_SECONDS,
+        expiresInSeconds: env.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS,
       },
     });
   },

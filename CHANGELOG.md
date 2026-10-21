@@ -3,6 +3,20 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — configurable platform-admin MFA timings (#929)]
+
+### Added
+
+- `PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS` (default 43200, allowed 900–86400), `PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS`
+  (default 600, allowed 60–1800) and `PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS` (default 5, allowed 1–5; the per-admin limit across codes is 5 in 30 minutes, so a higher cap would do nothing)
+  replace three hardcoded constants. Defaults equal the old values, so behaviour is unchanged unless set.
+  The code lifetime must not exceed the verified lifetime. The verification email states the configured
+  lifetime in minutes, rounded up.
+
+### Changed
+
+- `@platform/auth` no longer exports `MFA_CODE_TTL_SECONDS`; the route reads the env var.
+
 ## [Unreleased — configurable per-tenant retention policy updates (#637)]
 
 ### Changed

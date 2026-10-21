@@ -233,6 +233,32 @@ const EnvSchema = z
       .min(60)
       .max(900)
       .default(300),
+    // #929 — the remaining platform_admin MFA timings, with the values they were hardcoded at
+    // as defaults. The bounds keep each one safe: the verified session is capped at 24h (ADR-022
+    // Decision 10 sets 12h), a code lives 1-30 minutes (long enough to type, short enough to
+    // limit guessing), and at most 5 guesses per code. The cap is 5, not higher, because the
+    // per-admin limit across codes (MAX_FAILED_VERIFIES in platform-admin-mfa.ts, 5 per 30
+    // minutes) locks an admin out at the fifth wrong code whatever the per-code cap is, so a
+    // larger value would be a setting that does nothing. Refines below keep the code lifetime and
+    // the fresh window within the session lifetime.
+    PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(900)
+      .max(86400)
+      .default(43200),
+    PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(60)
+      .max(1800)
+      .default(600),
+    PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(5)
+      .default(5),
     // #801 — minimum gap between two verification-code emails for one admin, so the
     // resend path cannot be used to flood an inbox. Enforced per admin, on top of the
     // global per-IP rate limit.
@@ -581,6 +607,26 @@ const EnvSchema = z
     message:
       "SKIP_AV_SCAN must not be true in production — it marks every upload clean without running antivirus scanning",
   })
+  .refine(
+    (v) =>
+      v.PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS <=
+      v.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS,
+    {
+      message:
+        "PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS must not exceed PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS",
+      path: ["PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS"],
+    },
+  )
+  .refine(
+    (v) =>
+      v.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS <=
+      v.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS,
+    {
+      message:
+        "PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS must not exceed PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS",
+      path: ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS"],
+    },
+  )
   .refine(
     (v) => !(v.NODE_ENV === "production" && v.PLATFORM_ADMIN_MFA_DEV_BYPASS),
     {

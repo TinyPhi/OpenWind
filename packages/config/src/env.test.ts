@@ -187,6 +187,61 @@ describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
   );
 });
 
+describe("platform_admin MFA timings (#929)", () => {
+  it("default to the values that were hardcoded: 12h session, 10-minute code, 5 attempts", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS).toBe(43200);
+    expect(parsed.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS).toBe(600);
+    expect(parsed.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS).toBe(5);
+  });
+
+  it("accept explicit in-bounds values as strings", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "3600",
+      PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: "300",
+      PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS: "3",
+    });
+    expect(parsed.PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS).toBe(3600);
+    expect(parsed.PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS).toBe(300);
+    expect(parsed.PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS).toBe(3);
+  });
+
+  it.each([
+    ["PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS", "899"],
+    ["PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS", "86401"],
+    ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS", "59"],
+    ["PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS", "1801"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "0"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "6"],
+    ["PLATFORM_ADMIN_MFA_MAX_VERIFY_ATTEMPTS", "2.5"],
+  ])("reject %s=%s", (key, value) => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, [key]: value }),
+    ).toThrow();
+  });
+
+  it("rejects a fresh window longer than the verified session", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "900",
+        PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS: "901",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a code lifetime longer than the verified session", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS: "900",
+        PLATFORM_ADMIN_MFA_CODE_TTL_SECONDS: "1200",
+      }),
+    ).toThrow(/must not exceed PLATFORM_ADMIN_MFA_VERIFIED_TTL_SECONDS/);
+  });
+});
+
 describe("PLATFORM_ADMIN_MFA_DEV_BYPASS", () => {
   it.each([
     [undefined, false],
