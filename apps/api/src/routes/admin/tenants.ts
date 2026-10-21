@@ -338,7 +338,11 @@ export const updateTenantRetentionHandlers = factory.createHandlers(
         nextPolicy.commentDays < currentPolicy.commentDays ||
         nextPolicy.evidenceDays < currentPolicy.evidenceDays;
 
-      if (isShortening && !input.confirmShorten) {
+      if (
+        isShortening &&
+        env.RETENTION_REQUIRE_SHORTEN_CONFIRM &&
+        !input.confirmShorten
+      ) {
         return { confirmShortenRequired: true } as const;
       }
 

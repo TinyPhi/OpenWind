@@ -14,10 +14,12 @@ import { inArray, eq, desc } from "drizzle-orm";
 import { db, tenants, adminAuditLog, withTenantContext } from "@platform/db";
 import type { AuthContext } from "@platform/auth";
 import { updateTenantRetentionHandlers } from "../../src/routes/admin/tenants.js";
+import { setTenantRateLimitOverride } from "@platform/auth";
 import { env } from "@platform/config";
 
 const TENANT = "aaaaaaaa-3333-4000-a000-000000000f03";
 const TENANT_B = "aaaaaaaa-3333-4000-a000-000000000f04";
+const TENANT_C = "aaaaaaaa-3333-4000-a000-000000000f05";
 const PLATFORM_ORG = "aaaaaaaa-0000-4000-a000-000000000060";
 
 let originalPlatformOrgId: string | undefined;
@@ -27,6 +29,17 @@ beforeAll(async () => {
   env.PLATFORM_ORG_ID = PLATFORM_ORG;
 
   await db.insert(tenants).values([
+    {
+      id: TENANT_C,
+      name: "Retention Config Tenant C",
+      slug: `retention-config-${TENANT_C}`,
+      config: {
+        rate_limit_per_min: 400,
+        retention_days: 90,
+        retention_comment_days: 365,
+        retention_evidence_days: 2555,
+      },
+    },
     {
       id: TENANT,
       name: "Retention Config Tenant A",
@@ -58,8 +71,10 @@ afterAll(async () => {
   try {
     await db
       .delete(adminAuditLog)
-      .where(inArray(adminAuditLog.tenantId, [TENANT, TENANT_B]));
-    await db.delete(tenants).where(inArray(tenants.id, [TENANT, TENANT_B]));
+      .where(inArray(adminAuditLog.tenantId, [TENANT, TENANT_B, TENANT_C]));
+    await db
+      .delete(tenants)
+      .where(inArray(tenants.id, [TENANT, TENANT_B, TENANT_C]));
   } finally {
     env.PLATFORM_ORG_ID = originalPlatformOrgId;
   }
@@ -290,5 +305,59 @@ describe("PATCH /admin/tenants/:id/retention — updates, null clears, and audit
     const finalCfg = (finalRow?.config as Record<string, unknown>) ?? {};
     expect(finalCfg).not.toHaveProperty("retention_days");
     expect(finalCfg["rate_limit_per_min"]).toBe(500);
+  });
+});
+
+describe("PATCH /admin/tenants/:id/retention — concurrent updates (#637)", () => {
+  it("keeps every concurrent change and the rate limit, because each update locks the tenant row", async () => {
+    const patch = (body: Record<string, unknown>) =>
+      makeApp(["superadmin"]).request(`/${TENANT_C}/retention`, {
+        method: "PATCH",
+        headers: skHeaders(),
+        body: JSON.stringify({ ...body, confirmShorten: true }),
+      });
+
+    const results = await Promise.all([
+      patch({ retention_days: 40 }),
+      patch({ retention_comment_days: 100 }),
+      patch({ retention_evidence_days: 800 }),
+      patch({ retention_hold: true }),
+      setTenantRateLimitOverride(db, TENANT_C, 900),
+    ]);
+    for (const r of results.slice(0, 4)) {
+      expect((r as Response).status).toBe(200);
+    }
+
+    const [row] = await db
+      .select({ config: tenants.config })
+      .from(tenants)
+      .where(eq(tenants.id, TENANT_C))
+      .limit(1);
+    const cfg = (row?.config as Record<string, unknown>) ?? {};
+    expect(cfg["retention_days"]).toBe(40);
+    expect(cfg["retention_comment_days"]).toBe(100);
+    expect(cfg["retention_evidence_days"]).toBe(800);
+    expect(cfg["retention_hold"]).toBe(true);
+    expect(cfg["rate_limit_per_min"]).toBe(900);
+  });
+});
+
+describe("PATCH /admin/tenants/:id/retention — RETENTION_REQUIRE_SHORTEN_CONFIRM (#637)", () => {
+  it("lets a shortening through without confirmShorten when the requirement is off", async () => {
+    const original = env.RETENTION_REQUIRE_SHORTEN_CONFIRM;
+    env.RETENTION_REQUIRE_SHORTEN_CONFIRM = false;
+    try {
+      const res = await makeApp(["superadmin"]).request(
+        `/${TENANT_B}/retention`,
+        {
+          method: "PATCH",
+          headers: skHeaders(),
+          body: JSON.stringify({ retention_days: 20 }), // current is 60
+        },
+      );
+      expect(res.status).toBe(200);
+    } finally {
+      env.RETENTION_REQUIRE_SHORTEN_CONFIRM = original;
+    }
   });
 });

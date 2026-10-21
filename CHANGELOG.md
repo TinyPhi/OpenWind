@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased — configurable per-tenant retention policy updates (#637)]
 
+### Changed
+
+- The retention bounds are now configurable: `RETENTION_DAYS_MIN`/`MAX`, `RETENTION_COMMENT_DAYS_MIN`/`MAX`
+  and `RETENTION_EVIDENCE_DAYS_MIN`/`MAX` (defaults 7–3650, 30–3650 and 365–7300, the values the sweep always
+  enforced), checked at startup together with the platform defaults. `RETENTION_REQUIRE_SHORTEN_CONFIRM`
+  (default true; only the literal `false` turns it off) controls whether shortening a window needs
+  `confirmShorten: true`.
+
 ### Added
 
 - **Per-tenant retention policy management endpoint.** Added `PATCH /admin/tenants/:id/retention`

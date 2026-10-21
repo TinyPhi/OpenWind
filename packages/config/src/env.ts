@@ -99,24 +99,46 @@ const EnvSchema = z
     // Retention sweep defaults (docs/specs/retention-classes.md). Per-tenant
     // overrides live in tenants.config. Evidence and comment defaults are
     // placeholders pending owner/counsel confirmation.
-    RETENTION_DEFAULT_DAYS: z.coerce
+    // The allowed range for a tenant's override, and for the defaults below, is configurable
+    // (#637). The defaults of the range are the values the sweep always enforced. Hard limits
+    // (at least 1 day, at most 100 years) only stop an absurd setting; the refine below keeps
+    // min <= max and each default inside its range.
+    RETENTION_DAYS_MIN: z.coerce.number().int().min(1).max(36500).default(7),
+    RETENTION_DAYS_MAX: z.coerce.number().int().min(1).max(36500).default(3650),
+    RETENTION_COMMENT_DAYS_MIN: z.coerce
       .number()
       .int()
-      .min(7)
-      .max(3650)
-      .default(90),
-    RETENTION_COMMENT_DAYS: z.coerce
+      .min(1)
+      .max(36500)
+      .default(30),
+    RETENTION_COMMENT_DAYS_MAX: z.coerce
       .number()
       .int()
-      .min(30)
-      .max(3650)
+      .min(1)
+      .max(36500)
+      .default(3650),
+    RETENTION_EVIDENCE_DAYS_MIN: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(36500)
       .default(365),
-    RETENTION_EVIDENCE_DAYS: z.coerce
+    RETENTION_EVIDENCE_DAYS_MAX: z.coerce
       .number()
       .int()
-      .min(365)
-      .max(7300)
-      .default(2555),
+      .min(1)
+      .max(36500)
+      .default(7300),
+    // Shortening a retention window deletes data at the next sweep and cannot be undone, so the
+    // PATCH asks for confirmShorten: true. Only the literal "false" turns the requirement off; a
+    // typo keeps it on.
+    RETENTION_REQUIRE_SHORTEN_CONFIRM: z
+      .string()
+      .transform((v) => v !== "false")
+      .default("true"),
+    RETENTION_DEFAULT_DAYS: z.coerce.number().int().min(1).default(90),
+    RETENTION_COMMENT_DAYS: z.coerce.number().int().min(1).default(365),
+    RETENTION_EVIDENCE_DAYS: z.coerce.number().int().min(1).default(2555),
     RETENTION_BATCH_SIZE: z.coerce
       .number()
       .int()
@@ -514,6 +536,46 @@ const EnvSchema = z
   .refine((v) => v.NODE_ENV !== "production" || v.CORS_ORIGIN !== undefined, {
     message:
       "CORS_ORIGIN must be set in production to restrict allowed origins",
+  })
+  .superRefine((v, ctx) => {
+    const ranges = [
+      {
+        name: "RETENTION_DAYS",
+        min: v.RETENTION_DAYS_MIN,
+        max: v.RETENTION_DAYS_MAX,
+        defaultKey: "RETENTION_DEFAULT_DAYS",
+        def: v.RETENTION_DEFAULT_DAYS,
+      },
+      {
+        name: "RETENTION_COMMENT_DAYS",
+        min: v.RETENTION_COMMENT_DAYS_MIN,
+        max: v.RETENTION_COMMENT_DAYS_MAX,
+        defaultKey: "RETENTION_COMMENT_DAYS",
+        def: v.RETENTION_COMMENT_DAYS,
+      },
+      {
+        name: "RETENTION_EVIDENCE_DAYS",
+        min: v.RETENTION_EVIDENCE_DAYS_MIN,
+        max: v.RETENTION_EVIDENCE_DAYS_MAX,
+        defaultKey: "RETENTION_EVIDENCE_DAYS",
+        def: v.RETENTION_EVIDENCE_DAYS,
+      },
+    ];
+    for (const r of ranges) {
+      if (r.min > r.max) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${r.name}_MIN must not exceed ${r.name}_MAX`,
+          path: [`${r.name}_MIN`],
+        });
+      } else if (r.def < r.min || r.def > r.max) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${r.defaultKey} must be between ${r.name}_MIN and ${r.name}_MAX`,
+          path: [r.defaultKey],
+        });
+      }
+    }
   })
   .refine((v) => !(v.NODE_ENV === "production" && v.SKIP_AV_SCAN), {
     message:

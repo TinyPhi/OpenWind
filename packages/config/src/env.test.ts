@@ -58,6 +58,68 @@ describe("REDIS_CACHE_URL (#1013)", () => {
   });
 });
 
+describe("retention bounds and the shorten confirmation (#637)", () => {
+  it("default to the sweep's long-standing ranges and to requiring confirmation", () => {
+    const p = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect([p.RETENTION_DAYS_MIN, p.RETENTION_DAYS_MAX]).toEqual([7, 3650]);
+    expect([
+      p.RETENTION_COMMENT_DAYS_MIN,
+      p.RETENTION_COMMENT_DAYS_MAX,
+    ]).toEqual([30, 3650]);
+    expect([
+      p.RETENTION_EVIDENCE_DAYS_MIN,
+      p.RETENTION_EVIDENCE_DAYS_MAX,
+    ]).toEqual([365, 7300]);
+    expect(p.RETENTION_REQUIRE_SHORTEN_CONFIRM).toBe(true);
+  });
+
+  it("accept a changed range that still contains the default", () => {
+    const p = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      RETENTION_DAYS_MIN: "30",
+      RETENTION_DAYS_MAX: "1000",
+    });
+    expect([p.RETENTION_DAYS_MIN, p.RETENTION_DAYS_MAX]).toEqual([30, 1000]);
+  });
+
+  it.each([
+    [
+      "a minimum above its maximum",
+      { RETENTION_DAYS_MIN: "500", RETENTION_DAYS_MAX: "100" },
+    ],
+    ["a default below the range", { RETENTION_DAYS_MIN: "100" }],
+    ["a default above the range", { RETENTION_DAYS_MAX: "60" }],
+    [
+      "a comment default outside its range",
+      { RETENTION_COMMENT_DAYS_MIN: "400" },
+    ],
+    [
+      "an evidence default outside its range",
+      { RETENTION_EVIDENCE_DAYS_MAX: "2000" },
+    ],
+    ["a bound below 1 day", { RETENTION_DAYS_MIN: "0" }],
+    ["a bound above 100 years", { RETENTION_DAYS_MAX: "36501" }],
+  ])("reject %s", (_label, extra) => {
+    expect(() => EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...extra })).toThrow();
+  });
+
+  it("turns the confirmation off only for the literal false", () => {
+    const off = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      RETENTION_REQUIRE_SHORTEN_CONFIRM: "false",
+    });
+    expect(off.RETENTION_REQUIRE_SHORTEN_CONFIRM).toBe(false);
+    for (const v of ["true", "flase", "0", ""]) {
+      expect(
+        EnvSchema.parse({
+          ...MINIMAL_VALID_ENV,
+          RETENTION_REQUIRE_SHORTEN_CONFIRM: v,
+        }).RETENTION_REQUIRE_SHORTEN_CONFIRM,
+      ).toBe(true);
+    }
+  });
+});
+
 describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   it("defaults to 600 when absent from the environment", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
