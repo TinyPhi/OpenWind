@@ -8,7 +8,7 @@
 
 status: in-progress
 created: 2026-10-15
-updated: 2026-10-19
+updated: 2026-10-21
 
 ---
 
@@ -96,6 +96,7 @@ R6: Partner API: an unresolvable assignee leaves the ticket unassigned, with a s
 R7: Automation and schedule rules use a full template.
 ✓ Picking a workflow pre-fills a template: title, due (in N days), assignee/team, remark, severity (default medium); rule can't be saved without them
 ✓ Existing automation rules missing template values keep running on defaults (due +3 days, medium, remark "Created by automation: <rule>", workflow owner) and are flagged "needs template" in the rule list
+✓ The automation wizard has "Create ticket" (pick a workflow) and "Create sub-task" actions with the template form; a blank title/remark is filled from the rule's name on save (a sub-task's blank title stays "<rule>: <parent title>"); assignee: workflow owner (automatic), a person, or a team
 
 R8: Removing a user leaves their tickets unassigned (2026-10-19), visible under the "Unassigned" filter.
 ✓ Erasure's existing unassign is kept; no reassignment
@@ -123,21 +124,21 @@ R12: A team assignment reaches a person on every workflow.
 
 ## §T Tasks
 
-| id  | task                                                                                        | phase | status                        | depends |
-| --- | ------------------------------------------------------------------------------------------- | ----- | ----------------------------- | ------- |
-| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                     | —       |
-| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                     | —       |
-| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                     | —       |
-| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                     | —       |
-| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                     | —       |
-| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | done 2.1 #973 + 2.2           | PR 1    |
-| T7  | R5 PATCH/bulk PATCH enforcement + engine update check + fields-edit key fix                 | 2     | 2.3                           | T6      |
-| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | defaults + config 2.2; UI 2.4 | T6      |
-| T9  | R8 erasure/removal reassign — dropped 2026-10-19 (unassigned allowed)                       | 2     | dropped                       | —       |
-| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo                          | T6–T9   |
-| T11 | R6 partner API fallback owner — dropped 2026-10-19 (unassigned allowed)                     | 2     | dropped                       | —       |
-| T12 | R3/R11 "Unassigned" in create/edit/sub-task forms + records-list filter (server-side)       | 2     | 2.3                           | T6      |
-| T13 | R12 on-call rules unscoped (seed + migration)                                               | 2     | 2.3                           | —       |
+| id  | task                                                                                        | phase | status                               | depends |
+| --- | ------------------------------------------------------------------------------------------- | ----- | ------------------------------------ | ------- |
+| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                            | —       |
+| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                            | —       |
+| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                            | —       |
+| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                            | —       |
+| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                            | —       |
+| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | done 2.1 #973 + 2.2                  | PR 1    |
+| T7  | R5 PATCH/bulk PATCH enforcement + engine update check + fields-edit key fix                 | 2     | done #1032                           | T6      |
+| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | defaults + config 2.2; UI 2.4 (done) | T6      |
+| T9  | R8 erasure/removal reassign — dropped 2026-10-19 (unassigned allowed)                       | 2     | dropped                              | —       |
+| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo                                 | T6–T9   |
+| T11 | R6 partner API fallback owner — dropped 2026-10-19 (unassigned allowed)                     | 2     | dropped                              | —       |
+| T12 | R3/R11 "Unassigned" in create/edit/sub-task forms + records-list filter (server-side)       | 2     | done #1032                           | T6      |
+| T13 | R12 on-call rules unscoped (seed + migration)                                               | 2     | done #1032                           | —       |
 
 phase gate: PR 1 merged and on the server before PR 2 starts. Owner overrode this on 2026-10-16: PR 2 stacks on #965.
 

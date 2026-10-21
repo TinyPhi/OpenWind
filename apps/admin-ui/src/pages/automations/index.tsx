@@ -13,6 +13,7 @@ import {
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { isRetiredTrigger, triggerLabel } from "./trigger-display.js";
+import { needsTemplate } from "./wizard/ticket-template.js";
 
 type AutomationRule = {
   id: string;
@@ -217,6 +218,19 @@ export function Automations(): React.ReactElement {
                       {rule.actions.length}{" "}
                       {rule.actions.length === 1 ? "action" : "actions"}
                     </span>
+                    {/* docs/specs/mandatory-ticket-fields.md R7: still runs, on defaults. */}
+                    {needsTemplate(rule.actions) && (
+                      <div
+                        title="This rule creates tickets without a full template; it uses the defaults until you edit it."
+                        style={{
+                          color: "var(--warning, #b45309)",
+                          fontSize: "11px",
+                          marginTop: "4px",
+                        }}
+                      >
+                        Needs template
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span

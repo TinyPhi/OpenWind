@@ -62,6 +62,35 @@ describe("canAdvance", () => {
       expect(canAdvance("actions", { ...base, actions: [] })).toBe(false);
     });
 
+    // docs/specs/mandatory-ticket-fields.md R7: a create action needs its template.
+    it("blocks a Create ticket action until it has a workflow, due days and severity", () => {
+      const action = (config: Record<string, unknown>): WizardData => ({
+        ...base,
+        actions: [{ id: "a1", type: "create_entity", config }],
+      });
+      expect(
+        canAdvance(
+          "actions",
+          action({ template: { due_days: 3, severity: "low" } }),
+        ),
+      ).toBe(false);
+      expect(
+        canAdvance(
+          "actions",
+          action({ entityTypeId: "et-1", template: { severity: "low" } }),
+        ),
+      ).toBe(false);
+      expect(
+        canAdvance(
+          "actions",
+          action({
+            entityTypeId: "et-1",
+            template: { due_days: 3, severity: "low" },
+          }),
+        ),
+      ).toBe(true);
+    });
+
     it("allows advance when at least one action exists", () => {
       expect(
         canAdvance("actions", {

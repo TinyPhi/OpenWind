@@ -39,7 +39,13 @@ export function genId(): string {
 
 export type ConditionNode = ConditionLeaf | ConditionGroup;
 
-export type ActionType = "notify" | "set_field" | "transition" | "webhook";
+export type ActionType =
+  | "notify"
+  | "set_field"
+  | "transition"
+  | "webhook"
+  | "create_entity"
+  | "create_child";
 
 export type ActionItem = {
   id: string; // local only, for React keys
