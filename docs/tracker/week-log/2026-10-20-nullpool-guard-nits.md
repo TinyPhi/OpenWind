@@ -10,3 +10,8 @@
   not contain), so this is belt-and-braces, not a fix.
 - Not done: #812 and #813 (audit payload field, statement timeout in the log handler) need a real Superset
   to verify; #810 needs a browser telemetry design first (admin-ui has no browser reporting).
+
+## Review fix
+
+- Two compiled `.pyc` files from the local test run had been committed by mistake. Removed from the PR, and
+  `__pycache__/` and `*.pyc` are now in the root `.gitignore` so this cannot recur for any Python file in the repo.
