@@ -25,9 +25,13 @@ const { mockAuth, mockWriteAuditEntry, mockResolveTenantMembers, callOrder } =
   }));
 
 let orgRoles = new Map<string, string[]>();
+let rolesLookupFails = false;
 
 vi.mock("../../lib/zitadel-management.js", () => ({
-  listUserRolesByUserId: () => Promise.resolve(orgRoles),
+  listUserRolesByUserId: () =>
+    rolesLookupFails
+      ? Promise.reject(new Error("zitadel unavailable"))
+      : Promise.resolve(orgRoles),
 }));
 
 vi.mock("../../lib/ensure-user-refs.js", () => ({
@@ -210,6 +214,7 @@ beforeEach(() => {
   callOrder.length = 0;
   mockResolveTenantMembers.mockReset();
   mockResolveTenantMembers.mockResolvedValue(new Set());
+  rolesLookupFails = false;
   orgRoles = new Map([
     ["u-bbb", ["admin"]],
     ["u-backup", ["user"]],
@@ -265,7 +270,7 @@ describe("on-call schedule writes — people who haven't signed in yet", () => {
     expect(mockResolveTenantMembers).not.toHaveBeenCalled();
   });
 
-  it("doesn't record an org member without an on-call role (platform admin or no role)", async () => {
+  it("refuses a person without an on-call role (platform admin or no role), naming each field", async () => {
     orgRoles = new Map([
       ["u-bbb", ["admin"]],
       ["u-platform", ["platform_admin"]],
@@ -280,11 +285,47 @@ describe("on-call schedule writes — people who haven't signed in yet", () => {
       }),
     });
     expect(res.status).toBe(422);
-    expect(mockResolveTenantMembers).toHaveBeenCalledWith(
-      "t-aaa",
-      ["u-bbb"],
-      "org-1",
+    const json = await res.json();
+    expect(json.fields).toEqual([
+      { field: "backupUserId", message: expect.stringMatching(/on-call role/) },
+      {
+        field: "escalationManagerUserId",
+        message: expect.stringMatching(/on-call role/),
+      },
+    ]);
+    expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+    expect(callOrder).not.toContain("withTenantContext");
+  });
+
+  it("refuses a signed-in person whose role isn't an on-call role (direct API call)", async () => {
+    // u-bbb is in tenant_users (the mocked lookup) but now holds no on-call role.
+    orgRoles = new Map([["u-bbb", ["platform_admin"]]]);
+    const res = await makeApp().request(
+      `/admin/on-call-schedules/${mockScheduleRow.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryUserId: "u-bbb" }),
+      },
     );
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.fields).toEqual([
+      expect.objectContaining({ field: "primaryUserId" }),
+    ]);
+  });
+
+  it("answers 503 when Zitadel can't be asked, without recording or writing", async () => {
+    rolesLookupFails = true;
+    const res = await makeApp().request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validCreateBody),
+    });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe("SERVICE_UNAVAILABLE");
+    expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+    expect(callOrder).not.toContain("withTenantContext");
   });
 
   it("still rejects a person who isn't in the org (422)", async () => {

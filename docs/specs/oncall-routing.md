@@ -322,7 +322,8 @@ R13: Only `admin` role can write teams, services, and schedules; agents get read
 R13a: Any employee can be an on-call contact (owner, 2026-10-21).
 Roles: `admin`; `user` = an employee without admin rights, never a customer; `platform_admin` = platform operator, outside every tenant. `agent` remains accepted where the code already allows it.
 ✓ The roster's person picker (`GET /admin/members`) lists `admin`, `agent` and `user` members, never a `platform_admin`-only account
-✓ A schedule write accepts an org member with an on-call role who hasn't signed in to OpenWind yet; an id outside the org, or a member without one of those roles who hasn't signed in → `422`
+✓ A schedule write accepts an org member with an on-call role, signed in or not; anyone without one (signed in or not, incl. a `platform_admin`-only account) or outside the org → `422` naming the field
+✓ If the role lookup fails, the write is refused with `503`, never accepted unchecked
 ✓ If an org ever holds customer accounts, they get their own role, not `user`
 
 ### Severity-based notification routing

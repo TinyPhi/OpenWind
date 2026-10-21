@@ -23,3 +23,9 @@
   record picked members with an on-call role before the transaction, skip the lookup when no
   person changes, and still 422 an outsider or a member without an on-call role; the picker
   includes `user` and excludes a `platform_admin`-only account.
+- **Review R1 (Vijit).** The write now role-checks every picked person, not only those who
+  haven't signed in: a signed-in person without an on-call role, set through the API, gets a
+  field-level 422. A failed Zitadel role lookup logs a warning and answers 503 instead of a
+  misleading 422 (so a roster save is refused during an outage rather than accepted
+  unchecked). Empty ids are dropped; the severity guard reads as one expression. Tests cover
+  the signed-in bypass, the 503 path and the per-field errors.

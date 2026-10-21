@@ -175,7 +175,7 @@ export async function executeDispatchSeverityNotificationAction(
     config.instanceId ?? ("instanceId" in event ? event.instanceId : undefined);
   if (!instanceId) return;
 
-  let severity: string | undefined;
+  let changedSeverity: string | undefined;
 
   if (event.eventType === "entity.updated") {
     // event.changed is optional (PR #597 review, B1) -- a pre-existing
@@ -190,7 +190,7 @@ export async function executeDispatchSeverityNotificationAction(
     ) {
       return; // severity didn't change in this event
     }
-    severity = severityChange.new;
+    changedSeverity = severityChange.new;
   } else if (event.eventType !== "entity.created") {
     return;
   }
@@ -215,10 +215,8 @@ export async function executeDispatchSeverityNotificationAction(
     .limit(1);
   if (!instance) return;
 
-  if (event.eventType === "entity.created") {
-    if (!instance.severity) return;
-    severity = instance.severity;
-  }
+  const severity =
+    event.eventType === "entity.created" ? instance.severity : changedSeverity;
   if (!severity) return;
 
   const fields = instance.fields as Record<string, unknown>;

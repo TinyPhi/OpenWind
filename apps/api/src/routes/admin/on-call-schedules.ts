@@ -13,14 +13,15 @@
  * R6's "referenced_user_deleted" distinction is approximated as "no
  * tenant_users row found", not a true deactivation flag).
  *
- * tenant_users only gets a row once a person signs in, but the roster picker
- * (GET /admin/members) lists the live Zitadel org. Before each write opens its
- * transaction, resolveTenantMembers records any picked org member who hasn't
- * signed in yet, so a pickable person never 422s; an id outside the org is
- * left out and still rejected.
+ * Before each write opens its transaction, checkPickedPeople confirms every
+ * picked person holds an on-call role in the live Zitadel org (the same roles
+ * GET /admin/members lists) and records any of them who hasn't signed in yet,
+ * since tenant_users only fills on first sign-in. Anyone else gets a 422; a
+ * failed Zitadel lookup a 503.
  */
 
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { and, eq, gt, or, inArray, isNull, lte, gte, asc } from "drizzle-orm";
@@ -104,31 +105,87 @@ function isExclusionViolation(err: unknown): boolean {
   );
 }
 
-// Called with no transaction open, so a slow Zitadel lookup never holds a
-// database connection (#952). Only people holding an on-call role are
-// recorded, matching the picker; anyone else who hasn't signed in still 422s.
-async function recordPickedMembers(
+const NOT_ONCALL_MESSAGE =
+  "This person doesn't hold an on-call role (admin, agent or user)";
+
+type PeopleCheck =
+  | { status: "unavailable" }
+  | { status: "checked"; errors: { field: string; message: string }[] };
+
+// Every picked person must hold an on-call role, whether or not they have
+// signed in (spec R13a), and a picked person who hasn't signed in yet is
+// recorded. Runs with no transaction open, so the Zitadel lookups never hold
+// a database connection (#952). Without an org there is nobody to confirm,
+// so every pick is refused.
+async function checkPickedPeople(
   auth: AuthContext,
   input: {
     primaryUserId?: string | undefined;
     backupUserId?: string | undefined;
     escalationManagerUserId?: string | undefined;
   },
-): Promise<void> {
-  const ids = [
-    input.primaryUserId,
-    input.backupUserId,
-    input.escalationManagerUserId,
-  ].filter((id): id is string => typeof id === "string");
-  if (ids.length === 0 || !auth.orgId) return;
-  const rolesByUserId = await listUserRolesByUserId(auth.orgId).catch(
-    () => new Map<string, string[]>(),
+): Promise<PeopleCheck> {
+  const picks = (
+    [
+      ["primaryUserId", input.primaryUserId],
+      ["backupUserId", input.backupUserId],
+      ["escalationManagerUserId", input.escalationManagerUserId],
+    ] as const
+  ).filter((p): p is readonly [(typeof p)[0], string] => !!p[1]);
+  if (picks.length === 0) return { status: "checked", errors: [] };
+
+  let rolesByUserId = new Map<string, string[]>();
+  if (auth.orgId) {
+    try {
+      rolesByUserId = await listUserRolesByUserId(auth.orgId);
+    } catch (err: unknown) {
+      logger.warn(
+        { err, tenantId: auth.tenantId, orgId: auth.orgId },
+        "on-call schedule: zitadel role lookup failed; refusing the write",
+      );
+      return { status: "unavailable" };
+    }
+  }
+  const isOnCall = (id: string): boolean =>
+    (rolesByUserId.get(id) ?? []).some((r) => ONCALL_ROLES.includes(r));
+
+  const errors = picks
+    .filter(([, id]) => !isOnCall(id))
+    .map(([field]) => ({ field, message: NOT_ONCALL_MESSAGE }));
+  if (errors.length > 0) return { status: "checked", errors };
+
+  await resolveTenantMembers(
+    auth.tenantId,
+    picks.map(([, id]) => id),
+    auth.orgId,
   );
-  const eligible = ids.filter((id) =>
-    (rolesByUserId.get(id) ?? []).some((r) => ONCALL_ROLES.includes(r)),
-  );
-  if (eligible.length === 0) return;
-  await resolveTenantMembers(auth.tenantId, eligible, auth.orgId);
+  return { status: "checked", errors: [] };
+}
+
+function peopleCheckResponse(
+  c: Context<Vars>,
+  check: PeopleCheck,
+): Response | null {
+  if (check.status === "unavailable") {
+    return c.json(
+      {
+        error: "SERVICE_UNAVAILABLE",
+        message: "Couldn't check people's roles just now. Try again shortly.",
+      },
+      503,
+    );
+  }
+  if (check.errors.length > 0) {
+    return c.json(
+      {
+        error: "VALIDATION_ERROR",
+        message: "Validation failed",
+        fields: check.errors,
+      },
+      422,
+    );
+  }
+  return null;
 }
 
 // Runs under the caller's withTenantContext tx (not the raw db client) so
@@ -446,7 +503,11 @@ router.post(
     const input = c.req.valid("json");
 
     try {
-      await recordPickedMembers(auth, input);
+      const refused = peopleCheckResponse(
+        c,
+        await checkPickedPeople(auth, input),
+      );
+      if (refused) return refused;
       const result = await withTenantContext(auth.tenantId, async (tx) => {
         const refErrors = await validateScheduleRefs(tx, auth.tenantId, input);
         if (refErrors.length > 0) {
@@ -536,7 +597,11 @@ router.patch(
     const input = c.req.valid("json");
 
     try {
-      await recordPickedMembers(auth, input);
+      const refused = peopleCheckResponse(
+        c,
+        await checkPickedPeople(auth, input),
+      );
+      if (refused) return refused;
       const result = await withTenantContext(auth.tenantId, async (tx) => {
         const refErrors = await validateScheduleRefs(tx, auth.tenantId, input);
         if (refErrors.length > 0) {
