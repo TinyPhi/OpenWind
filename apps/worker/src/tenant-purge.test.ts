@@ -175,9 +175,13 @@ vi.mock("@platform/audit", () => ({
 vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("@platform/files", () => ({ deleteTenantFiles: vi.fn() }));
+const { mockDeleteFiles, mockDeleteHandover } = vi.hoisted(() => ({
+  mockDeleteFiles: vi.fn(),
+  mockDeleteHandover: vi.fn(),
+}));
+vi.mock("@platform/files", () => ({ deleteTenantFiles: mockDeleteFiles }));
 vi.mock("@platform/auth", () => ({
-  deleteSandboxHandoverCredentials: vi.fn(),
+  deleteSandboxHandoverCredentials: mockDeleteHandover,
 }));
 vi.mock("./queues.js", () => ({ connection: {} }));
 const { mockEnqueueFlush } = vi.hoisted(() => ({ mockEnqueueFlush: vi.fn() }));
@@ -201,6 +205,42 @@ beforeEach(() => {
   writes.plain.length = 0;
   writes.purge.length = 0;
   writes.eventLog.length = 0;
+});
+
+describe("tenant-purge retry after the DB purge committed", () => {
+  const job = { id: "job-1", attemptsMade: 1, data: { tenantId: TENANT_ID } };
+
+  it("still deletes files and handover credentials and queues the cache flush for an already purged tenant", async () => {
+    mockTenantStatus.mockReturnValue([{ status: "purged" }]);
+    await captured.processor?.(job);
+
+    expect(mockDeleteFiles).toHaveBeenCalledWith(TENANT_ID);
+    expect(mockDeleteHandover).toHaveBeenCalledWith(TENANT_ID);
+    expect(mockEnqueueFlush).toHaveBeenCalledWith(TENANT_ID, "tenant_purged");
+  });
+
+  it("does not redo the database purge or write another completion entry", async () => {
+    mockTenantStatus.mockReturnValue([{ status: "purged" }]);
+    await captured.processor?.(job);
+
+    expect(auditCall("purge.completed")).toBeUndefined();
+    expect(mockWithTenantContext).not.toHaveBeenCalled();
+  });
+
+  it("finishes the retry even when file deletion fails again", async () => {
+    mockTenantStatus.mockReturnValue([{ status: "purged" }]);
+    mockDeleteFiles.mockRejectedValueOnce(new Error("disk busy"));
+    await expect(captured.processor?.(job)).resolves.toBeUndefined();
+    expect(mockDeleteHandover).toHaveBeenCalledWith(TENANT_ID);
+  });
+
+  it("cleans nothing for a tenant in any other state", async () => {
+    mockTenantStatus.mockReturnValue([{ status: "active" }]);
+    await captured.processor?.(job);
+
+    expect(mockDeleteFiles).not.toHaveBeenCalled();
+    expect(mockDeleteHandover).not.toHaveBeenCalled();
+  });
 });
 
 describe("tenant-purge Superset cache flush (#728)", () => {
