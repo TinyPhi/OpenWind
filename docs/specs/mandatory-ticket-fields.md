@@ -29,7 +29,7 @@ their own extra fields (create page "Others" tab), which admins may make require
 | ADRs         | ADR-003 (validation), ADR-004 CF-01, ADR-016 D3 — consistent. ADR-012 needs no amendment now that unassigned is allowed (R6). ADRs are human-authored                                                  |
 | out of scope | label/config changes on the title field (system = fully immutable, accepted); DB-level CHECK constraints (app-layer first; revisit after R9 backfill); child-ticket 3-state machine itself             |
 | scope        | a workflow record: `workflowId` set, its entity type has a workflow, or a sub-task. Comments are workflow_events rows; helpdesk articles have no workflow                                              |
-| rollout      | engine check `MANDATORY_FIELDS_MODE=log` (default) logs, `enforce` rejects (422); set by api/worker at startup. Sub-task create enforces at the route at once                                          |
+| rollout      | engine check `MANDATORY_FIELDS_MODE=enforce` (default since 2.5) rejects (422), `log` only logs; set by api/worker at startup. Sub-task create enforces at the route at once                           |
 | split        | PR 1 = R1–R3 + R10 + §B fixes (#965); PR 2.1 engine check + create paths; 2.2 automation/scheduler/seeder/install owner; 2.3 edits + erasure; 2.4 template UI; 2.5 fixtures + enforce + backfill       |
 
 ## §I Interfaces
@@ -104,6 +104,12 @@ R8: Removing a user leaves their tickets unassigned (2026-10-19), visible under 
 R9: Existing records are backfilled once.
 ✓ Missing title → "Untitled ticket #<short id>"; due date → created_at + 7 days; remark → "Backfilled: no remark was recorded when this ticket was created."; severity → medium
 ✓ After the backfill, a check query finds zero workflow records missing any of the four
+✓ MANDATORY_FIELDS_MODE defaults to "enforce"; "log" stays as an emergency switch
+
+Rollout (2.5): before deploying, check the server logs for "mandatory-fields:" warnings (a
+creator still missing a value would start failing under enforce); `db:migrate` runs the
+backfill; a server `.env` that sets MANDATORY_FIELDS_MODE=log explicitly must drop it or set
+"enforce".
 
 R10: Schedule rule assigned to a user saves.
 ✓ Template `assignedTo` accepts a Zitadel user id (18-digit numeric), not only a UUID; tests use real-shaped ids
@@ -124,21 +130,21 @@ R12: A team assignment reaches a person on every workflow.
 
 ## §T Tasks
 
-| id  | task                                                                                        | phase | status                               | depends |
-| --- | ------------------------------------------------------------------------------------------- | ----- | ------------------------------------ | ------- |
-| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                            | —       |
-| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                            | —       |
-| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                            | —       |
-| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                            | —       |
-| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                            | —       |
-| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | done 2.1 #973 + 2.2                  | PR 1    |
-| T7  | R5 PATCH/bulk PATCH enforcement + engine update check + fields-edit key fix                 | 2     | done #1032                           | T6      |
-| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | defaults + config 2.2; UI 2.4 (done) | T6      |
-| T9  | R8 erasure/removal reassign — dropped 2026-10-19 (unassigned allowed)                       | 2     | dropped                              | —       |
-| T10 | R9 backfill migration + zero-missing check                                                  | 2     | todo                                 | T6–T9   |
-| T11 | R6 partner API fallback owner — dropped 2026-10-19 (unassigned allowed)                     | 2     | dropped                              | —       |
-| T12 | R3/R11 "Unassigned" in create/edit/sub-task forms + records-list filter (server-side)       | 2     | done #1032                           | T6      |
-| T13 | R12 on-call rules unscoped (seed + migration)                                               | 2     | done #1032                           | —       |
+| id  | task                                                                                        | phase | status                          | depends |
+| --- | ------------------------------------------------------------------------------------------- | ----- | ------------------------------- | ------- |
+| T1  | R10 scheduler assignedTo accepts Zitadel ids + tests                                        | 1     | done #965                       | —       |
+| T2  | R1 title protected+required: auto-seed, module seeds (+vendor title), migration, guard test | 1     | done #965                       | —       |
+| T3  | R1 blank title rejected (engine text validation for `title`)                                | 1     | done #965                       | —       |
+| T4  | R2 UI shows system fields; `config.readOnly` rendering; tender seed + migration             | 1     | done #965                       | —       |
+| T5  | R3 ticket Edit: no unassign, no clear due date, future-only when changed, severity, TZ fix  | 1     | done #965                       | —       |
+| T6  | R4 engine create-time enforcement + all create paths supply the five; team_id strip fix     | 2     | done 2.1 #973 + 2.2             | PR 1    |
+| T7  | R5 PATCH/bulk PATCH enforcement + engine update check + fields-edit key fix                 | 2     | done #1032                      | T6      |
+| T8  | R7 automation template (UI + config schema) + "needs template" flag + defaults              | 2     | defaults + config 2.2; UI #1059 | T6      |
+| T9  | R8 erasure/removal reassign — dropped 2026-10-19 (unassigned allowed)                       | 2     | dropped                         | —       |
+| T10 | R9 backfill migration + zero-missing check; MANDATORY_FIELDS_MODE defaults to enforce       | 2     | 2.5                             | T6–T9   |
+| T11 | R6 partner API fallback owner — dropped 2026-10-19 (unassigned allowed)                     | 2     | dropped                         | —       |
+| T12 | R3/R11 "Unassigned" in create/edit/sub-task forms + records-list filter (server-side)       | 2     | done #1032                      | T6      |
+| T13 | R12 on-call rules unscoped (seed + migration)                                               | 2     | done #1032                      | —       |
 
 phase gate: PR 1 merged and on the server before PR 2 starts. Owner overrode this on 2026-10-16: PR 2 stacks on #965.
 

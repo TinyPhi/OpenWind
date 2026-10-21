@@ -359,9 +359,10 @@ const EnvSchema = z
         },
       ),
     // docs/specs/mandatory-ticket-fields.md: a workflow record missing title, due date,
-    // remark, severity or an assignee/team is only logged under "log" while every creator
-    // is brought in line, and rejected (422) under "enforce".
-    MANDATORY_FIELDS_MODE: z.enum(["log", "enforce"]).default("log"),
+    // remark or severity is rejected (422) under "enforce", the default since every creator
+    // supplies them and the backfill migration filled older records. "log" only reports it;
+    // keep it as an emergency switch.
+    MANDATORY_FIELDS_MODE: z.enum(["log", "enforce"]).default("enforce"),
     // S2S auth for the outbound handoff (docs/notification-outbound-contract.md's
     // auth section) — a DEDICATED Zitadel machine user/key, deliberately
     // separate from ZITADEL_SERVICE_ACCOUNT_KEY/ZITADEL_KEY_JSON (which
