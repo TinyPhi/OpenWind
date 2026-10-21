@@ -641,11 +641,11 @@ set). The issuer URL in its database is `http://` but the page is served over
 HTTPS — browsers block HTTP requests from HTTPS pages.
 
 **Fix:** Wipe Zitadel and reinitialise with `ZITADEL_EXTERNALSECURE=true` set
-_before_ running setup again. See [Step 3](#step-3--set-the-deployment-env-vars)
-in the production section.
+_before_ running setup again. See the first-time setup warning in the
+[OpenBao secrets runbook](runbooks/openbao-secrets.md#first-time-setup).
 
 ```bash
-export ZITADEL_EXTERNALSECURE=true   # plus the rest of Step 3's env vars
+export ZITADEL_EXTERNALSECURE=true   # plus the rest of the deployment env vars
 (cd ../zitadel && docker compose down -v)
 rm .env.local
 ./setup.sh
