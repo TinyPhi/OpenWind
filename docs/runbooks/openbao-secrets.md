@@ -331,7 +331,8 @@ cutover.
    ```
 
    Do the same for every service you start: `worker`, `superset`, `superset-init`, `bootstrap`
-   and `novu`, each into `rollback-<service>.env`. A `.env` file holds one value per line, so
+   and `novu`, each into `rollback-<service>.env`. `novu-api` and `novu-worker` share one
+   `rollback-novu.env`: export it once and use it for both. A `.env` file holds one value per line, so
    check that no value spans lines (base64 values such as `ZITADEL_KEY_JSON` are fine).
 
 2. Check, then start **with the production override still in place** plus the rollback override
