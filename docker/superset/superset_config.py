@@ -7,6 +7,7 @@ in production — see packages/config/src/env.ts.
 Spec: docs/specs/superset-embedded-dashboarding.md
 """
 
+import ast
 import hashlib
 import hmac
 import logging
@@ -185,8 +186,6 @@ _POOLED_ENTRYPOINTS = ("get_sqla_engine", "get_raw_connection")
 
 def _nullpool_default_is_true(func):
     """True when `func` has a `nullpool` parameter whose default is the constant True."""
-    import ast
-
     a = func.args
     positional = a.posonlyargs + a.args
     defaults = [None] * (len(positional) - len(a.defaults)) + list(a.defaults)
@@ -200,10 +199,10 @@ def _sets_poolclass_to_nullpool(tree):
     """True when some `if nullpool:` block assigns `...["poolclass"] = NullPool`.
 
     Read from the parsed syntax tree, so the one-liner form, comments between the
-    `if` and its body, and any formatting all count the same.
+    `if` and its body, and any formatting all count the same. The class may be written bare
+    (`NullPool`) or qualified (`pool.NullPool`, `sqlalchemy.pool.NullPool`), so a change of
+    import style in a later Superset release does not stop startup.
     """
-    import ast
-
     for node in ast.walk(tree):
         if not (isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "nullpool"):
             continue
@@ -211,8 +210,10 @@ def _sets_poolclass_to_nullpool(tree):
             for sub in ast.walk(stmt):
                 if (
                     isinstance(sub, ast.Assign)
-                    and isinstance(sub.value, ast.Name)
-                    and sub.value.id == "NullPool"
+                    and (
+                        (isinstance(sub.value, ast.Name) and sub.value.id == "NullPool")
+                        or (isinstance(sub.value, ast.Attribute) and sub.value.attr == "NullPool")
+                    )
                     and any(
                         isinstance(t, ast.Subscript)
                         and isinstance(t.slice, ast.Constant)
@@ -248,7 +249,6 @@ def assert_connections_not_pooled(superset_dir: "str | os.PathLike | None" = Non
     package, about 0.2 to 0.6 s on Superset 6.1.0 (1,176 files, measured on a developer
     machine, warm cache), once per process start.
     """
-    import ast
     import importlib.util
     from pathlib import Path
 
