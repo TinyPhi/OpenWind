@@ -1336,21 +1336,38 @@ if _OAUTH_CLIENT_ID:
             the caller, and Superset's export checks access to the database, not
             who owns the query, so a forged id naming another tenant's query
             would otherwise copy that tenant's SQL into this tenant's audit row.
-            Returns None when there is no such query *of theirs*; the caller
-            records that nothing was withheld silently.
+            Returns None when there is no such query *of theirs*, or when the
+            lookup fails or runs past its time limit (#813); the caller records
+            that nothing was withheld silently.
+
+            Runs on its own short connection, not Superset's request session: a
+            time limit set on that session would apply to the rest of the
+            request, and a timeout would leave the session unusable.
             """
             uid = getattr(user, "id", None)
             if not client_id or uid is None:
                 return None
+            from sqlalchemy import text as _text
             from superset import db as _db
-            from superset.models.sql_lab import Query
 
-            query = (
-                _db.session.query(Query)
-                .filter_by(client_id=client_id, user_id=uid)
-                .first()
-            )
-            return None if query is None else (query.sql or "")
+            try:
+                with _db.engine.connect() as conn, conn.begin():
+                    if conn.dialect.name == "postgresql":
+                        # LOCAL: ends with this transaction, so the pooled
+                        # connection goes back without the limit.
+                        conn.execute(_text("SET LOCAL statement_timeout = '2s'"))
+                    row = conn.execute(
+                        _text(
+                            "SELECT sql FROM query"
+                            " WHERE client_id = :client_id AND user_id = :user_id"
+                            " LIMIT 1"
+                        ),
+                        {"client_id": client_id, "user_id": uid},
+                    ).first()
+            except Exception:  # noqa: BLE001
+                logger.warning("export SQL lookup failed or timed out; SQL withheld")
+                return None
+            return None if row is None else (row.sql or "")
 
         def build_audit_payload(self, action, record, kwargs, user):
             """The `metadata` of one audit row. No database access of its own."""
@@ -1414,6 +1431,10 @@ if _OAUTH_CLIENT_ID:
             )
             if database is None:
                 return
+            # The readable name beside the id (#812), only when the id is this
+            # database's: never a guess about another one.
+            if payload.get("database_id") == database.id:
+                payload["database_name"] = database.database_name
             with database.get_sqla_engine() as engine:
                 with engine.begin() as conn:
                     conn.execute(
