@@ -69,6 +69,9 @@ export const TicketSummarySchema = z.object({
   title: z.string(),
   dueDate: z.string().nullable(),
   isOverdue: z.boolean(),
+  // Only on the org views (docs/specs/my-org-view.md R8) -- My View omits both.
+  assignedTo: z.string().nullable().optional(),
+  assignedToName: z.string().nullable().optional(),
 });
 
 export const TicketsSectionSchema = z.object({
@@ -129,3 +132,15 @@ export const MyViewResponseSchema = z.object({
 });
 
 export type MyViewResponse = z.infer<typeof MyViewResponseSchema>;
+
+// docs/specs/my-org-view.md R7 -- one row per member of the caller's org subtree.
+export const TeamMemberSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  ticketCount: z.number().int().nonnegative(),
+  overdueCount: z.number().int().nonnegative(),
+});
+
+export const TeamMembersSectionSchema = z.object({
+  items: z.array(TeamMemberSchema),
+});
