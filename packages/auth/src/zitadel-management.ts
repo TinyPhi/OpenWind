@@ -1196,7 +1196,7 @@ export async function getUserById(
 // docs/specs/org-directory.md T2 -- read-only primitive the org-directory importer
 // (packages/org-directory) calls once per user during a sync. Deliberately separate
 // from getUserById's identity fields: metadata is a distinct Zitadel API surface
-// (user.v2.UserService/ListMetadata) and callers that don't care about org-directory
+// (user.v2.UserService/ListUserMetadata) and callers that don't care about org-directory
 // shouldn't pay for an extra request.
 
 const _orgMetadataCache = new Map<
@@ -1248,7 +1248,7 @@ async function _fetchOrgMetadataForUser(
   }
 
   try {
-    const url = `${internalBase()}/zitadel.user.v2.UserService/ListMetadata`;
+    const url = `${internalBase()}/zitadel.user.v2.UserService/ListUserMetadata`;
     const result = await httpPost(
       url,
       issuerHost(),
