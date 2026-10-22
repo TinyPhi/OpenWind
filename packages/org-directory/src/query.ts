@@ -137,6 +137,28 @@ export async function getReportsByLevel(
   return levels;
 }
 
+/**
+ * Everyone below `userId` at any depth, flattened (excludes `userId` itself). `ids` are the
+ * Zitadel user ids (what tickets and JWTs carry); `members` are the same people as nodes, so
+ * callers get names without a second lookup. Empty when the user isn't in the tree or has no
+ * reports. docs/specs/my-org-view.md R1/R6.
+ */
+export async function getSubtreeMembers(
+  tenantId: string,
+  userId: string,
+): Promise<{ ids: string[]; members: OrgNode[] }> {
+  const levels = await getReportsByLevel(tenantId, userId);
+  const seen = new Set<string>();
+  const members: OrgNode[] = [];
+  for (const node of levels.flat()) {
+    // A cycle that survived the sync's cycle-breaking could list the user themself.
+    if (node.userId === userId || seen.has(node.userId)) continue;
+    seen.add(node.userId);
+    members.push(node);
+  }
+  return { ids: members.map((m) => m.userId), members };
+}
+
 export async function getSyncStatus(tenantId: string): Promise<SyncStatus> {
   const [running] = await withTenantContext(tenantId, (tx) =>
     tx

@@ -29,5 +29,6 @@ export {
   getOrgTree,
   getChainToRoot,
   getReportsByLevel,
+  getSubtreeMembers,
   getSyncStatus,
 } from "./query.js";

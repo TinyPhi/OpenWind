@@ -208,6 +208,10 @@ export function App(): React.ReactElement {
               {/* All authenticated users */}
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              {/* "View as subordinate" (docs/specs/my-org-view.md R9): a manager reads a report's
+                  dashboard, read-only. Authorization is re-checked by the API on every request;
+                  this route existing grants nothing. */}
+              <Route path="/dashboard/team/:userId" element={<Dashboard />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/reporting" element={<ReportingPage />} />
               <Route path="/records" element={<AdminRecords />} />
