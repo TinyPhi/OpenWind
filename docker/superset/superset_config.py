@@ -1451,3 +1451,329 @@ if _OAUTH_CLIENT_ID:
                     )
 
     EVENT_LOGGER = PlatformAuditEventLogger()
+
+
+# ── Erasure of a user's or a tenant's personal data (#728) ───────────────────
+#
+# Superset keeps its own database, which the platform's erasure never reaches:
+# a user erased from OpenWind kept their queries, saved queries, activity log,
+# name and an active account here. This erases them, as decided in
+# docs/specs/superset-gdpr-erasure.md (§I "What erase does in Superset").
+#
+# Users are matched only by their subject and tenant roles, never by a name: a
+# username or email can collide, a role set at login from verified claims
+# cannot. Admin and the service account are never erased.
+#
+# Each `ab_user` reference is classified once below. ERASURE_HANDLED is what
+# erase removes; ERASURE_EXEMPT is what it keeps and why. The coverage test
+# fails if Superset grows a reference that is in neither.
+
+ERASURE_OWNED = (  # the user's own data: deleted
+    ("tab_state", "user_id"),  # first: it points at query and saved_query
+    ("query", "user_id"),
+    ("saved_query", "user_id"),
+    ("logs", "user_id"),
+    ("favstar", "user_id"),
+    ("user_attribute", "user_id"),
+    ("user_favorite_tag", "user_id"),
+    ("tasks", "user_id"),
+    ("database_user_oauth2_tokens", "user_id"),
+)
+ERASURE_LINKS = (  # the user's links to shared objects: deleted, the objects stay
+    ("ab_user_group", "user_id"),
+    ("dashboard_user", "user_id"),
+    ("slice_user", "user_id"),
+    ("sqlatable_user", "user_id"),
+    ("report_schedule_user", "user_id"),
+    ("task_subscribers", "user_id"),
+    ("ab_user_role", "user_id"),  # last: matching reads it until the end
+)
+ERASURE_HANDLED = {
+    **{f"{t}.{c}": "delete" for t, c in ERASURE_OWNED + ERASURE_LINKS},
+    # Only the user's cached filter state and Explore form data; shared
+    # permalinks (other resources) are kept so links others hold keep working.
+    "key_value.created_by_fk": "delete (superset_metastore_cache rows only)",
+    "key_value.changed_by_fk": "delete (superset_metastore_cache rows only)",
+}
+# Author pointers (`created_by_fk`, `changed_by_fk`, `last_saved_by_fk`) on
+# shared objects are kept: they point at the anonymised row, so name no one.
+ERASURE_EXEMPT_COLUMNS = {
+    "created_by_fk": "author pointer to the anonymised user",
+    "changed_by_fk": "author pointer to the anonymised user",
+    "last_saved_by_fk": "author pointer to the anonymised user",
+}
+ERASURE_PROTECTED_ROLES = ("Admin", "ReportingServiceAccount")
+ERASURE_CALLER_ROLE = "ReportingServiceAccount"
+_ERASURE_BATCH = 5000
+_ERASURE_BUDGET_SECONDS = 20
+
+
+def _erasure_targets(conn, tenant_id, subject):
+    """Ids of the Superset users to erase: by subject + tenant, or the whole tenant."""
+    from sqlalchemy import text as _text
+
+    tenant_role = f"tenant:{tenant_id}"
+    if subject is None:
+        sql = (
+            "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
+            " WHERE r.name = :tenant_role"
+        )
+        params = {"tenant_role": tenant_role}
+    else:
+        # `owsub:` is on every login since #799; `owuser:` carries the same
+        # subject for non-staff who have not logged in since.
+        sql = (
+            "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
+            " WHERE r.name IN (:owsub, :owuser)"
+            " INTERSECT"
+            " SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
+            " WHERE r.name = :tenant_role"
+        )
+        params = {
+            "owsub": f"owsub:{subject}",
+            "owuser": f"owuser:{subject}",
+            "tenant_role": tenant_role,
+        }
+    ids = [row[0] for row in conn.execute(_text(sql), params)]
+    if not ids:
+        return []
+    protected = {
+        row[0]
+        for row in conn.execute(
+            _text(
+                "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
+                " WHERE ur.user_id = ANY(:ids) AND r.name = ANY(:protected)"
+            ),
+            {"ids": ids, "protected": list(ERASURE_PROTECTED_ROLES)},
+        )
+    }
+    return sorted(set(ids) - protected)
+
+
+def erase_superset_data(engine, tenant_id, subject=None, *, budget_seconds=None, batch=None):
+    """Erase one user (`subject`) or every user of a tenant from Superset's database.
+
+    Bounded work per call: rows are deleted in batches, each committed, until the
+    time budget is spent; the result then says `more` and the caller calls again.
+    The user rows are anonymised and blocked only by the call that finishes, so
+    an interrupted erasure is always picked up again by the same match. A second
+    run after a finished one matches nobody and succeeds. Counts only, no names.
+    """
+    import time as _time
+
+    from sqlalchemy import text as _text
+
+    if not _TENANT_ID_RE.match(tenant_id or ""):
+        raise ValueError("tenant id is not a uuid")
+    if subject is not None and not (isinstance(subject, str) and _PRINCIPAL_ID_RE.match(subject)):
+        raise ValueError("subject is not a valid principal id")
+    budget = _ERASURE_BUDGET_SECONDS if budget_seconds is None else budget_seconds
+    size = _ERASURE_BATCH if batch is None else batch
+    started = _time.monotonic()
+    deleted = 0
+
+    with engine.connect() as conn:
+        ids = _erasure_targets(conn, tenant_id, subject)
+        if not ids:
+            return {"matchedUsers": 0, "deletedRows": 0, "more": False}
+
+        steps = [
+            (t, f"{c} = ANY(:ids)") for t, c in ERASURE_OWNED + ERASURE_LINKS[:-1]
+        ] + [(
+            "key_value",
+            "resource = 'superset_metastore_cache'"
+            " AND (created_by_fk = ANY(:ids) OR changed_by_fk = ANY(:ids))",
+        )]
+        worked = False
+        for table, where in steps:
+            while True:
+                # Checked only once a batch has deleted something, so every call
+                # makes progress however small the budget (a call restarts at the
+                # first table, and finding an emptied table is not progress).
+                if worked and _time.monotonic() - started > budget:
+                    return {"matchedUsers": len(ids), "deletedRows": deleted, "more": True}
+                with conn.begin():
+                    conn.execute(_text("SET LOCAL statement_timeout = '10s'"))
+                    n = conn.execute(
+                        _text(
+                            f"DELETE FROM {table} WHERE ctid IN"  # noqa: S608 (names are constants above)
+                            f" (SELECT ctid FROM {table} WHERE {where} LIMIT :n)"
+                        ),
+                        {"ids": ids, "n": size},
+                    ).rowcount
+                deleted += n
+                worked = worked or n > 0
+                if n < size:
+                    break
+
+        # Finishing call: the per-user roles, the links, then the user rows.
+        with conn.begin():
+            conn.execute(_text("SET LOCAL statement_timeout = '10s'"))
+            role_names = [
+                row[0]
+                for row in conn.execute(
+                    _text(
+                        "SELECT DISTINCT r.name FROM ab_role r JOIN ab_user_role ur"
+                        " ON ur.role_id = r.id WHERE ur.user_id = ANY(:ids)"
+                        " AND (r.name LIKE 'owsub:%' OR r.name LIKE 'owuser:%'"
+                        "      OR (:whole_tenant AND r.name = :tenant_role))"
+                    ),
+                    {
+                        "ids": ids,
+                        "whole_tenant": subject is None,
+                        "tenant_role": f"tenant:{tenant_id}",
+                    },
+                )
+            ]
+            deleted += conn.execute(
+                _text("DELETE FROM ab_user_role WHERE user_id = ANY(:ids)"), {"ids": ids}
+            ).rowcount
+            if role_names:
+                # Only roles nobody outside this erasure still holds: a per-subject
+                # role is one user's, but a tenant role can still be held by a
+                # protected account. rls_filter_roles has a NO ACTION key to
+                # ab_role, so its rows for those roles go first.
+                unheld = (
+                    "SELECT id FROM ab_role WHERE name = ANY(:names) AND NOT EXISTS"
+                    " (SELECT 1 FROM ab_user_role ur WHERE ur.role_id = ab_role.id)"
+                )
+                conn.execute(
+                    _text(f"DELETE FROM rls_filter_roles WHERE role_id IN ({unheld})"),
+                    {"names": role_names},
+                )
+                conn.execute(
+                    _text(f"DELETE FROM ab_role WHERE id IN ({unheld})"),
+                    {"names": role_names},
+                )
+            # Unique placeholders: username and email are both unique here.
+            conn.execute(
+                _text(
+                    "UPDATE ab_user SET username = 'erased-' || id,"
+                    " email = 'erased-' || id || '@erased.invalid',"
+                    " first_name = 'erased', last_name = '-', password = NULL,"
+                    " active = false, changed_on = now()"
+                    " WHERE id = ANY(:ids)"
+                ),
+                {"ids": ids},
+            )
+    logger.info(
+        "superset erasure: tenant=%s subject=%s users=%d rows=%d",
+        tenant_id, "yes" if subject else "whole-tenant", len(ids), deleted,
+    )
+    return {"matchedUsers": len(ids), "deletedRows": deleted, "more": False}
+
+
+def flush_superset_cache(redis_url=None):
+    """Remove every key under Superset's two cache prefixes, in its own Redis db only.
+
+    The keys are opaque hashes, not namespaced by user or tenant, so an erasure
+    clears every tenant's cached results; the cost is a re-query.
+    """
+    import redis as _redis
+
+    client = _redis.Redis.from_url(redis_url or _REDIS_URL)
+    removed = 0
+    for prefix in ("superset_", "superset_data_"):
+        batch = []
+        for key in client.scan_iter(match=f"{prefix}*", count=1000):
+            batch.append(key)
+            if len(batch) >= 1000:
+                removed += client.unlink(*batch)
+                batch = []
+        if batch:
+            removed += client.unlink(*batch)
+    return removed
+
+
+def _erasure_blueprint():
+    """POST /openwind/erasure/{user,tenant,cache}, for the service account only.
+
+    The caller logs in as the service account and sends its access token plus
+    a CSRF token and session cookie, as `superset-client.ts` already does. The
+    role is checked, not the username: this container is not told the service
+    account's name. Any other caller, Admin included, gets 403.
+    """
+    from flask import Blueprint, jsonify, request
+
+    bp = Blueprint("openwind_erasure", __name__, url_prefix="/openwind/erasure")
+
+    def _caller_may_erase():
+        from flask_jwt_extended import current_user, verify_jwt_in_request
+
+        try:
+            verify_jwt_in_request()
+        except Exception:  # noqa: BLE001
+            return None
+        user = current_user
+        if user is None or not getattr(user, "is_active", False):
+            return None
+        return any(r.name == ERASURE_CALLER_ROLE for r in user.roles)
+
+    def _run(subject_required):
+        allowed = _caller_may_erase()
+        if allowed is None:
+            return jsonify({"message": "unauthorized"}), 401
+        if not allowed:
+            return jsonify({"message": "forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        tenant_id = str(body.get("tenantId") or "")
+        subject = body.get("subject") if subject_required else None
+        if subject_required and not (isinstance(subject, str) and subject):
+            return jsonify({"message": "subject is required"}), 400
+        from superset import db as _db
+
+        try:
+            result = erase_superset_data(_db.engine, tenant_id, subject)
+        except ValueError as err:
+            return jsonify({"message": str(err)}), 400
+        # Flushed once, by the finishing call, and only when someone was erased:
+        # the flush clears every tenant's cached results.
+        done = result["matchedUsers"] and not result["more"]
+        result["cacheKeysRemoved"] = flush_superset_cache() if done else 0
+        return jsonify(result), 200
+
+    @bp.route("/user", methods=["POST"])
+    def erase_user():
+        return _run(subject_required=True)
+
+    @bp.route("/tenant", methods=["POST"])
+    def erase_tenant():
+        return _run(subject_required=False)
+
+    @bp.route("/cache", methods=["POST"])
+    def erase_cache():
+        allowed = _caller_may_erase()
+        if allowed is None:
+            return jsonify({"message": "unauthorized"}), 401
+        if not allowed:
+            return jsonify({"message": "forbidden"}), 403
+        return jsonify({"cacheKeysRemoved": flush_superset_cache()}), 200
+
+    return bp
+
+
+def _register_erasure_command(app):
+    """`superset openwind-erase --tenant <uuid> [--subject <id>]`: the operator
+    fallback for a job that keeps failing. Runs until finished."""
+    import click
+
+    @app.cli.command("openwind-erase")
+    @click.option("--tenant", "tenant_id", required=True)
+    @click.option("--subject", default=None)
+    def openwind_erase(tenant_id, subject):
+        from superset import db as _db
+
+        total = {"matchedUsers": 0, "deletedRows": 0}
+        while True:
+            result = erase_superset_data(_db.engine, tenant_id, subject)
+            total["matchedUsers"] = max(total["matchedUsers"], result["matchedUsers"])
+            total["deletedRows"] += result["deletedRows"]
+            if not result["more"]:
+                break
+        total["cacheKeysRemoved"] = flush_superset_cache()
+        click.echo(json.dumps(total))
+
+
+def FLASK_APP_MUTATOR(app):  # noqa: N802  (name fixed by Superset's config contract)
+    app.register_blueprint(_erasure_blueprint())
+    _register_erasure_command(app)
