@@ -15,7 +15,7 @@ import type { OrgNode, OrgTree, SyncStatus } from "./types.js";
  * themselves.
  */
 
-interface EmployeeRow {
+export interface EmployeeRow {
   id: string;
   userId: string | null;
   parentId: string | null;
@@ -56,21 +56,32 @@ async function fetchAllRows(tenantId: string): Promise<EmployeeRow[]> {
   );
 }
 
-export async function getOrgTree(tenantId: string): Promise<OrgTree | null> {
-  const rows = await fetchAllRows(tenantId);
+// Exported for unit testing; the DB read stays in getOrgTree.
+export function buildOrgTreeFromRows(rows: EmployeeRow[]): OrgTree | null {
   const rootRow = rows.find((r) => r.isRoot);
   if (!rootRow) return null;
+
+  // Parents are keyed by the same identifier a node exposes as `userId` (its auth-provider
+  // id, or the row id for the synthetic root) -- not the row's surrogate id -- so the UI can
+  // find a node's children with `node.userId`.
+  const keyByRowId = new Map(rows.map((r) => [r.id, r.userId ?? r.id]));
 
   const nodesByParentId: Record<string, OrgNode[]> = {};
   for (const row of rows) {
     if (row.isRoot) continue;
-    const parentKey = row.parentId ?? "";
+    const parentKey = row.parentId
+      ? (keyByRowId.get(row.parentId) ?? row.parentId)
+      : "";
     const bucket = nodesByParentId[parentKey] ?? [];
-    bucket.push(toNode(row));
+    bucket.push({ ...toNode(row), parentId: parentKey || null });
     nodesByParentId[parentKey] = bucket;
   }
 
   return { root: toNode(rootRow), nodesByParentId };
+}
+
+export async function getOrgTree(tenantId: string): Promise<OrgTree | null> {
+  return buildOrgTreeFromRows(await fetchAllRows(tenantId));
 }
 
 /**
