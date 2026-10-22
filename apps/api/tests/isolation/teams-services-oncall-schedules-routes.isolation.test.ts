@@ -10,7 +10,7 @@
  * requests against a real Postgres instance (run with docker compose up -d).
  */
 
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import { inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
@@ -32,6 +32,21 @@ const TENANT_B = "bbbbbbbb-9999-4000-b000-000000000002";
 const USER_A = "aaaaaaaa-9999-4000-a000-000000000900";
 const USER_B = "bbbbbbbb-9999-4000-b000-000000000900";
 
+// Schedule writes confirm every picked person's on-call role with Zitadel (spec R13a) and
+// refuse the pick when they can't, so this suite stands in for Zitadel at that boundary: both
+// test users hold the admin role. Everything else (the router, the database, RLS) is real.
+vi.mock("../../src/lib/zitadel-management.js", () => ({
+  listUserRolesByUserId: () =>
+    Promise.resolve(
+      new Map<string, string[]>([
+        ["aaaaaaaa-9999-4000-a000-000000000900", ["admin"]],
+        ["bbbbbbbb-9999-4000-b000-000000000900", ["admin"]],
+      ]),
+    ),
+  // Reached only for a picked person with no tenant_users row yet; none here, so an empty org.
+  listOrgUsers: () => Promise.resolve([]),
+}));
+
 function makeApp(tenantId: string, userId: string, roles: string[]) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
   app.use(
@@ -42,6 +57,8 @@ function makeApp(tenantId: string, userId: string, roles: string[]) {
         userId,
         roles,
         email: "test@example.com",
+        // Without an org there is nobody to confirm roles against, so the route refuses picks.
+        orgId: "isolation-test-org",
       });
       await next();
     },

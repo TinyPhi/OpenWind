@@ -3,14 +3,46 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
-  mockAuth: {
-    tenantId: "t-aaa",
-    userId: "u-bbb",
-    roles: ["admin"] as string[],
-    email: "test@example.com",
+const { mockAuth, mockWriteAuditEntry, mockResolveTenantMembers, callOrder } =
+  vi.hoisted(() => ({
+    mockAuth: {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      orgId: "org-1",
+      roles: ["admin"] as string[],
+      email: "test@example.com",
+    },
+    mockWriteAuditEntry: vi.fn(),
+    mockResolveTenantMembers:
+      vi.fn<
+        (
+          tenantId: string,
+          ids: string[],
+          orgId: string | undefined,
+        ) => Promise<Set<string>>
+      >(),
+    callOrder: [] as string[],
+  }));
+
+let orgRoles = new Map<string, string[]>();
+let rolesLookupFails = false;
+
+vi.mock("../../lib/zitadel-management.js", () => ({
+  listUserRolesByUserId: () =>
+    rolesLookupFails
+      ? Promise.reject(new Error("zitadel unavailable"))
+      : Promise.resolve(orgRoles),
+}));
+
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  resolveTenantMembers: (
+    tenantId: string,
+    ids: string[],
+    orgId: string | undefined,
+  ) => {
+    callOrder.push("resolveTenantMembers");
+    return mockResolveTenantMembers(tenantId, ids, orgId);
   },
-  mockWriteAuditEntry: vi.fn(),
 }));
 
 vi.mock("@platform/auth", () => ({
@@ -100,6 +132,7 @@ vi.mock("@platform/db", () => ({
     deletedAt: "deletedAt",
   },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
+    callOrder.push("withTenantContext");
     const tx = {
       select: () => tx,
       from: () => tx,
@@ -178,6 +211,135 @@ beforeEach(() => {
   mockAuth.roles = ["admin"];
   overlapConflict = false;
   getReturnsRow = true;
+  callOrder.length = 0;
+  mockResolveTenantMembers.mockReset();
+  mockResolveTenantMembers.mockResolvedValue(new Set());
+  rolesLookupFails = false;
+  orgRoles = new Map([
+    ["u-bbb", ["admin"]],
+    ["u-backup", ["user"]],
+    ["u-manager", ["agent"]],
+  ]);
+});
+
+describe("on-call schedule writes — people who haven't signed in yet", () => {
+  it("records the picked people from the org before the write transaction opens", async () => {
+    const res = await makeApp().request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...validCreateBody,
+        backupUserId: "u-backup",
+        escalationManagerUserId: "u-manager",
+      }),
+    });
+    expect(res.status).toBe(422); // the mocked tenant_users only knows u-bbb
+    expect(mockResolveTenantMembers).toHaveBeenCalledWith(
+      "t-aaa",
+      ["u-bbb", "u-backup", "u-manager"],
+      "org-1",
+    );
+    expect(callOrder.slice(0, 2)).toEqual([
+      "resolveTenantMembers",
+      "withTenantContext",
+    ]);
+  });
+
+  it("does the same on edit, and skips the lookup when no person changes", async () => {
+    await makeApp().request(`/admin/on-call-schedules/${mockScheduleRow.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backupUserId: "u-bbb" }),
+    });
+    expect(mockResolveTenantMembers).toHaveBeenCalledWith(
+      "t-aaa",
+      ["u-bbb"],
+      "org-1",
+    );
+
+    mockResolveTenantMembers.mockClear();
+    const res = await makeApp().request(
+      `/admin/on-call-schedules/${mockScheduleRow.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: "Renamed" }),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+  });
+
+  it("refuses a person without an on-call role (platform admin or no role), naming each field", async () => {
+    orgRoles = new Map([
+      ["u-bbb", ["admin"]],
+      ["u-platform", ["platform_admin"]],
+    ]);
+    const res = await makeApp().request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...validCreateBody,
+        backupUserId: "u-platform",
+        escalationManagerUserId: "u-norole",
+      }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.fields).toEqual([
+      { field: "backupUserId", message: expect.stringMatching(/on-call role/) },
+      {
+        field: "escalationManagerUserId",
+        message: expect.stringMatching(/on-call role/),
+      },
+    ]);
+    expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+    expect(callOrder).not.toContain("withTenantContext");
+  });
+
+  it("refuses a signed-in person whose role isn't an on-call role (direct API call)", async () => {
+    // u-bbb is in tenant_users (the mocked lookup) but now holds no on-call role.
+    orgRoles = new Map([["u-bbb", ["platform_admin"]]]);
+    const res = await makeApp().request(
+      `/admin/on-call-schedules/${mockScheduleRow.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryUserId: "u-bbb" }),
+      },
+    );
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.fields).toEqual([
+      expect.objectContaining({ field: "primaryUserId" }),
+    ]);
+  });
+
+  it("answers 503 when Zitadel can't be asked, without recording or writing", async () => {
+    rolesLookupFails = true;
+    const res = await makeApp().request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validCreateBody),
+    });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe("SERVICE_UNAVAILABLE");
+    expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+    expect(callOrder).not.toContain("withTenantContext");
+  });
+
+  it("still rejects a person who isn't in the org (422)", async () => {
+    const res = await makeApp().request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validCreateBody, primaryUserId: "u-outsider" }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.fields).toEqual([
+      expect.objectContaining({ field: "primaryUserId" }),
+    ]);
+  });
 });
 
 describe("GET /admin/on-call-schedules — role enforcement", () => {

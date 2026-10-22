@@ -319,6 +319,13 @@ R13: Only `admin` role can write teams, services, and schedules; agents get read
 ✓ `agent` role `POST /admin/teams` → `403`
 ✓ `agent` role `GET /admin/teams` → `200` (needed for ticket-form dropdowns)
 
+R13a: Any employee can be an on-call contact (owner, 2026-10-21).
+Roles: `admin`; `user` = an employee without admin rights, never a customer; `platform_admin` = platform operator, outside every tenant. `agent` remains accepted where the code already allows it.
+✓ The roster's person picker (`GET /admin/members`) lists `admin`, `agent` and `user` members, never a `platform_admin`-only account
+✓ A schedule write accepts an org member with an on-call role, signed in or not; anyone without one (signed in or not, incl. a `platform_admin`-only account) or outside the org → `422` naming the field
+✓ If the role lookup fails, the write is refused with `503`, never accepted unchecked
+✓ If an org ever holds customer accounts, they get their own role, not `user`
+
 ### Severity-based notification routing
 
 R14: Admins configure notification policies mapping (severity × optional team × optional workflow type) → channel list.
@@ -437,8 +444,11 @@ phase gate: all unit + integration + isolation tests pass before advancing to ne
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed | root cause | promoted to §V? |
-| --- | ----------- | ---------- | --------------- |
+| id  | what failed                                                                      | root cause                                                                                             | promoted to §V? |
+| --- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------- |
+| B1  | No severity alert when a ticket is created with a severity                       | dispatch read `event.fields.severity`; severity is its own column and never in the event's fields      | no              |
+| B2  | Saving a roster entry for someone picked from the list but never signed in → 422 | the picker lists the live Zitadel org; the write checked only `tenant_users` (filled on first sign-in) | no              |
+| B3  | A sandbox's roster could only pick its admin                                     | the picker left out `user`, read as the customer role; sandboxes seed their staff as `user`            | no (R13a)       |
 
 ---
 
