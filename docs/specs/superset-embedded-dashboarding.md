@@ -43,8 +43,8 @@ access from UI").
 **D3 — deployment configures Superset; reporting is always-on for every tenant** (updated
 2026-09-09 — there is no per-tenant enable/disable switch, R8 removed). Connection details are env
 vars via `@platform/config` (`.env.local` locally — note `.env` is tracked in git — and the same
-names at deploy time). There is no store for user-entered credentials, so **one Superset instance
-per deployment**; tenants are separated by the row filter on each request, not by separate
+names at deploy time, loaded from OpenBao at container startup in production, ADR-023). There is
+no store for user-entered credentials, so **one Superset instance per deployment**; tenants are separated by the row filter on each request, not by separate
 instances. The Connectors screen (T31) is status-only, never a credentials form and never an
 enable/disable toggle.
 
