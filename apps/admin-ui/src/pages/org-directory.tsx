@@ -1,4 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import ReactFlow, {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Handle,
+  MiniMap,
+  Position,
+  ReactFlowProvider,
+  useReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from "reactflow";
+import "reactflow/dist/style.css";
+import dagre from "@dagrejs/dagre";
 import { userManager } from "../authProvider.js";
 import {
   getOrgTree,
@@ -157,81 +172,179 @@ function OrgCard({
   );
 }
 
-function OrgNodeView({
-  node,
+const CARD_W = 220;
+const CARD_H = 96;
+
+interface OrgFlowNodeData {
+  node: OrgNode;
+  highlighted: boolean;
+  hasChildren: boolean;
+  isExpanded: boolean;
+  onToggle: (userId: string) => void;
+}
+
+const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+  opacity: 0,
+  pointerEvents: "none",
+};
+
+function OrgFlowNode({ data }: NodeProps<OrgFlowNodeData>): React.ReactElement {
+  const { node, highlighted, hasChildren, isExpanded, onToggle } = data;
+  return (
+    <div style={{ position: "relative" }}>
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={HIDDEN_HANDLE_STYLE}
+      />
+      <OrgCard node={node} highlighted={highlighted} />
+      {hasChildren && (
+        <button
+          type="button"
+          className="nodrag nopan"
+          onClick={() => onToggle(node.userId)}
+          aria-label={isExpanded ? "Collapse" : "Expand"}
+          style={{
+            position: "absolute",
+            bottom: "-10px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            border: "1px solid var(--border-color)",
+            background: "var(--bg-primary)",
+            color: "var(--text-secondary)",
+            fontSize: "12px",
+            fontWeight: 700,
+            lineHeight: 1,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1,
+          }}
+        >
+          {isExpanded ? "−" : "+"}
+        </button>
+      )}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={HIDDEN_HANDLE_STYLE}
+      />
+    </div>
+  );
+}
+
+const NODE_TYPES = { org: OrgFlowNode };
+
+// Lays out only the currently-expanded part of the tree, top-down.
+function layoutVisibleTree(
+  tree: OrgTree,
+  expanded: Set<string>,
+  highlightedUserId: string | null,
+  onToggle: (userId: string) => void,
+): { nodes: Node<OrgFlowNodeData>[]; edges: Edge[] } {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "TB", nodesep: 24, ranksep: 56 });
+
+  const visible: OrgNode[] = [];
+  const edges: Edge[] = [];
+  function walk(node: OrgNode): void {
+    visible.push(node);
+    g.setNode(node.userId, { width: CARD_W, height: CARD_H });
+    if (!expanded.has(node.userId)) return;
+    for (const child of tree.nodesByParentId[node.userId] ?? []) {
+      g.setEdge(node.userId, child.userId);
+      edges.push({
+        id: `${node.userId}->${child.userId}`,
+        source: node.userId,
+        target: child.userId,
+        type: "smoothstep",
+        style: { stroke: "var(--border-color)", strokeWidth: 1.5 },
+      });
+      walk(child);
+    }
+  }
+  walk(tree.root);
+
+  dagre.layout(g as Parameters<typeof dagre.layout>[0]);
+
+  const nodes = visible.map((node): Node<OrgFlowNodeData> => {
+    const pos = g.node(node.userId) as { x: number; y: number };
+    return {
+      id: node.userId,
+      type: "org",
+      position: { x: pos.x - CARD_W / 2, y: pos.y - CARD_H / 2 },
+      draggable: false,
+      data: {
+        node,
+        highlighted: highlightedUserId === node.userId,
+        hasChildren: (tree.nodesByParentId[node.userId] ?? []).length > 0,
+        isExpanded: expanded.has(node.userId),
+        onToggle,
+      },
+    };
+  });
+  return { nodes, edges };
+}
+
+function OrgFlow({
   tree,
   expanded,
   onToggle,
   highlightedUserId,
+  height,
 }: {
-  node: OrgNode;
   tree: OrgTree;
   expanded: Set<string>;
   onToggle: (userId: string) => void;
   highlightedUserId: string | null;
+  height: string;
 }): React.ReactElement {
-  const children = tree.nodesByParentId[node.userId] ?? [];
-  const isExpanded = expanded.has(node.userId);
-  const hasChildren = children.length > 0;
+  const { fitView } = useReactFlow();
+  const { nodes, edges } = useMemo(
+    () => layoutVisibleTree(tree, expanded, highlightedUserId, onToggle),
+    [tree, expanded, highlightedUserId, onToggle],
+  );
+
+  // Bring a search match into view; expanding/collapsing deliberately does not
+  // move the camera.
+  useEffect(() => {
+    if (!highlightedUserId) return;
+    const t = setTimeout(() => {
+      void fitView({
+        nodes: [{ id: highlightedUserId }],
+        maxZoom: 1,
+        duration: 300,
+      });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [highlightedUserId, fitView]);
 
   return (
-    <div
-      style={{ display: "flex", flexDirection: "column", alignItems: "center" }}
-    >
-      <div style={{ position: "relative" }}>
-        <OrgCard node={node} highlighted={highlightedUserId === node.userId} />
-        {hasChildren && (
-          <button
-            type="button"
-            onClick={() => onToggle(node.userId)}
-            aria-label={isExpanded ? "Collapse" : "Expand"}
-            style={{
-              position: "absolute",
-              bottom: "-10px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: "20px",
-              height: "20px",
-              borderRadius: "50%",
-              border: "1px solid var(--border-color)",
-              background: "var(--bg-primary)",
-              color: "var(--text-secondary)",
-              fontSize: "12px",
-              fontWeight: 700,
-              lineHeight: 1,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {isExpanded ? "−" : "+"}
-          </button>
-        )}
-      </div>
-      {hasChildren && isExpanded && (
-        <>
-          <div
-            style={{
-              width: "1px",
-              height: "20px",
-              background: "var(--border-color)",
-            }}
-          />
-          <div style={{ display: "flex", gap: "24px", paddingTop: "0" }}>
-            {children.map((child) => (
-              <OrgNodeView
-                key={child.userId}
-                node={child}
-                tree={tree}
-                expanded={expanded}
-                onToggle={onToggle}
-                highlightedUserId={highlightedUserId}
-              />
-            ))}
-          </div>
-        </>
-      )}
+    <div style={{ height, width: "100%" }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={NODE_TYPES}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        panOnScroll={false}
+        zoomOnScroll
+        minZoom={0.1}
+        maxZoom={2}
+        fitView
+        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+        <Controls showInteractive={false} />
+        <MiniMap pannable zoomable />
+      </ReactFlow>
     </div>
   );
 }
@@ -247,6 +360,16 @@ function formatSyncStatus(status: SyncStatus | null): string {
 }
 
 export function OrgDirectoryPage(): React.ReactElement {
+  return <OrgChartPanel />;
+}
+
+// Shared by the /org-directory page and the modal on /users. `embedded`
+// drops the page wrapper and title (the modal supplies its own header).
+export function OrgChartPanel({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}): React.ReactElement {
   const [tree, setTree] = useState<OrgTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -317,14 +440,14 @@ export function OrgDirectoryPage(): React.ReactElement {
     });
   }, [match, parentByUserId]);
 
-  function toggle(userId: string): void {
+  const toggle = useCallback((userId: string): void => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(userId)) next.delete(userId);
       else next.add(userId);
       return next;
     });
-  }
+  }, []);
 
   async function handleSync(): Promise<void> {
     setSyncing(true);
@@ -339,7 +462,7 @@ export function OrgDirectoryPage(): React.ReactElement {
   }
 
   return (
-    <div className="dash-page">
+    <div className={embedded ? undefined : "dash-page"}>
       <div
         style={{
           display: "flex",
@@ -351,17 +474,19 @@ export function OrgDirectoryPage(): React.ReactElement {
         }}
       >
         <div>
-          <h2
-            style={{
-              fontSize: "21px",
-              fontWeight: 800,
-              fontFamily: "var(--font-heading)",
-              color: "var(--text-primary)",
-              margin: 0,
-            }}
-          >
-            Org Chart
-          </h2>
+          {!embedded && (
+            <h2
+              style={{
+                fontSize: "21px",
+                fontWeight: 800,
+                fontFamily: "var(--font-heading)",
+                color: "var(--text-primary)",
+                margin: 0,
+              }}
+            >
+              Org Chart
+            </h2>
+          )}
           <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
             {formatSyncStatus(syncStatus)}
           </div>
@@ -420,22 +545,16 @@ export function OrgDirectoryPage(): React.ReactElement {
           {"No org chart yet — an admin needs to run the first sync."}
         </div>
       ) : (
-        <div
-          className="data-panel"
-          style={{
-            padding: "24px",
-            overflowX: "auto",
-            display: "flex",
-            justifyContent: "center",
-          }}
-        >
-          <OrgNodeView
-            node={tree.root}
-            tree={tree}
-            expanded={expanded}
-            onToggle={toggle}
-            highlightedUserId={match?.userId ?? null}
-          />
+        <div className="data-panel" style={{ padding: 0, overflow: "hidden" }}>
+          <ReactFlowProvider>
+            <OrgFlow
+              tree={tree}
+              expanded={expanded}
+              onToggle={toggle}
+              highlightedUserId={match?.userId ?? null}
+              height={embedded ? "70vh" : "calc(100vh - 200px)"}
+            />
+          </ReactFlowProvider>
         </div>
       )}
     </div>
