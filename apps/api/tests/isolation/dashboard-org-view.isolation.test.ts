@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import {
@@ -26,7 +26,10 @@ import {
   type OrgSourceImporter,
   type OrgSourceRecord,
 } from "@platform/org-directory";
-import { orgViewHandler } from "../../src/routes/dashboard/org-view.js";
+import {
+  orgViewHandler,
+  orgViewHasReportsHandler,
+} from "../../src/routes/dashboard/org-view.js";
 import { teamMemberViewHandler } from "../../src/routes/dashboard/team-member-view.js";
 
 const TENANT_A = "aaaaaaaa-0000-4000-a000-000000000071";
@@ -65,7 +68,12 @@ function importer(records: OrgSourceRecord[]): OrgSourceImporter {
 async function ticket(
   tenantId: string,
   title: string,
-  who: { createdBy?: string; assignedTo?: string },
+  who: {
+    createdBy?: string;
+    assignedTo?: string;
+    accessUsers?: string[];
+    deletedAt?: Date;
+  },
 ): Promise<string> {
   const [row] = await db
     .insert(entityInstances)
@@ -73,9 +81,13 @@ async function ticket(
       tenantId,
       entityTypeId,
       currentState: "open",
-      fields: { title },
+      fields: {
+        title,
+        ...(who.accessUsers ? { __accessUsers: who.accessUsers } : {}),
+      },
       createdBy: who.createdBy ?? "someone-unrelated",
       assignedTo: who.assignedTo ?? null,
+      deletedAt: who.deletedAt,
     })
     .returning({ id: entityInstances.id });
   if (!row) throw new Error("ticket insert failed");
@@ -136,6 +148,13 @@ beforeAll(async () => {
   ids.strangerTicket = await ticket(TENANT_A, "stranger's", {
     assignedTo: "ov-stranger",
   });
+  ids.accessGrant = await ticket(TENANT_A, "shared with lead", {
+    accessUsers: [LEAD],
+  });
+  ids.softDeleted = await ticket(TENANT_A, "deleted lead ticket", {
+    assignedTo: LEAD,
+    deletedAt: new Date(),
+  });
   ids.bTicket = await ticket(TENANT_B, "tenant b ticket", {
     assignedTo: B_EMP_SAME_ID,
   });
@@ -171,6 +190,7 @@ function makeApp(tenantId: string, userId: string): Hono {
     },
   );
   app.get("/org-view", ...orgViewHandler);
+  app.get("/org-view/has-reports", ...orgViewHasReportsHandler);
   app.get("/team-member-view/:userId", ...teamMemberViewHandler);
   return app as unknown as Hono;
 }
@@ -187,6 +207,43 @@ interface OrgViewBody {
 }
 
 describe("GET /dashboard/org-view", () => {
+  it("probes report availability within the caller's tenant and ignores null-user rows", async () => {
+    const bossProbe = await makeApp(TENANT_A, BOSS).request(
+      "/org-view/has-reports",
+    );
+    expect(await bossProbe.json()).toEqual({ data: { hasReports: true } });
+
+    const [employee] = await db
+      .select({ id: orgEmployees.id })
+      .from(orgEmployees)
+      .where(
+        and(eq(orgEmployees.tenantId, TENANT_A), eq(orgEmployees.userId, EMP)),
+      );
+    if (!employee) throw new Error("employee row missing");
+    const [invalid] = await db
+      .insert(orgEmployees)
+      .values({
+        tenantId: TENANT_A,
+        userId: null,
+        parentId: employee.id,
+        name: "Invalid null user",
+        isRoot: false,
+      })
+      .returning({ id: orgEmployees.id });
+    try {
+      const leafProbe = await makeApp(TENANT_A, EMP).request(
+        "/org-view/has-reports",
+      );
+      expect(await leafProbe.json()).toEqual({
+        data: { hasReports: false },
+      });
+    } finally {
+      if (invalid) {
+        await db.delete(orgEmployees).where(eq(orgEmployees.id, invalid.id));
+      }
+    }
+  });
+
   it("includes the caller's own tickets and every report's, at any depth", async () => {
     const res = await makeApp(TENANT_A, BOSS).request("/org-view");
     const { data } = (await res.json()) as OrgViewBody;
@@ -221,6 +278,15 @@ describe("GET /dashboard/org-view", () => {
     expect(item).toMatchObject({ assignedTo: null, assignedToName: null });
   });
 
+  it("includes a real Postgres __accessUsers grant and excludes soft-deleted tickets", async () => {
+    const res = await makeApp(TENANT_A, BOSS).request("/org-view");
+    const { data } = (await res.json()) as OrgViewBody;
+    const got = data.tickets.items.map((t) => t.entityId);
+
+    expect(got).toContain(ids.accessGrant);
+    expect(got).not.toContain(ids.softDeleted);
+  });
+
   it("never includes another tenant's ticket, even for a user id that exists in both tenants", async () => {
     const res = await makeApp(TENANT_A, BOSS).request("/org-view");
     const { data } = (await res.json()) as OrgViewBody;
@@ -237,6 +303,54 @@ describe("GET /dashboard/org-view", () => {
     const got = data.tickets.items.map((t) => t.entityId);
     expect(got).toContain(ids.empAssigned);
     expect(got).not.toContain(ids.bossOwn);
+  });
+
+  it("does not duplicate or expose the caller when a residual cycle reaches the API", async () => {
+    const rows = await db
+      .select({
+        id: orgEmployees.id,
+        userId: orgEmployees.userId,
+        parentId: orgEmployees.parentId,
+        isRoot: orgEmployees.isRoot,
+      })
+      .from(orgEmployees)
+      .where(eq(orgEmployees.tenantId, TENANT_A));
+    const boss = rows.find((row) => row.userId === BOSS);
+    const lead = rows.find((row) => row.userId === LEAD);
+    const root = rows.find((row) => row.isRoot);
+    if (!boss || !lead || !root) throw new Error("org rows missing");
+
+    await db
+      .update(orgEmployees)
+      .set({ parentId: lead.id })
+      .where(eq(orgEmployees.id, boss.id));
+    try {
+      const res = await makeApp(TENANT_A, BOSS).request("/org-view");
+      const { data } = (await res.json()) as OrgViewBody;
+      const memberIds = data.teamMembers.items.map((member) => member.userId);
+
+      expect(memberIds).not.toContain(BOSS);
+      expect(new Set(memberIds).size).toBe(memberIds.length);
+      expect(memberIds).toEqual(expect.arrayContaining([LEAD, EMP]));
+    } finally {
+      await db
+        .update(orgEmployees)
+        .set({ parentId: root.id })
+        .where(eq(orgEmployees.id, boss.id));
+    }
+  });
+
+  it("keeps Tenant A tickets out of Tenant B's org view", async () => {
+    const res = await makeApp(TENANT_B, B_ONLY_USER).request("/org-view");
+    const { data } = (await res.json()) as OrgViewBody;
+    const got = data.tickets.items.map((ticket) => ticket.entityId);
+
+    expect(got).toContain(ids.bTicket);
+    for (const tenantAId of Object.values(ids).filter(
+      (id) => id !== ids.bTicket,
+    )) {
+      expect(got).not.toContain(tenantAId);
+    }
   });
 
   it("reports hasReports:false for a leaf, and for a user who is not in the tree", async () => {
@@ -290,5 +404,21 @@ describe("GET /dashboard/team-member-view/:userId", () => {
     );
 
     expect(res.status).toBe(404);
+  });
+
+  it("shows Tenant B's reused user id without leaking Tenant A tickets", async () => {
+    const res = await makeApp(TENANT_B, B_ONLY_USER).request(
+      `/team-member-view/${B_EMP_SAME_ID}`,
+    );
+    const body = (await res.json()) as OrgViewBody;
+    const got = body.data.tickets.items.map((ticket) => ticket.entityId);
+
+    expect(res.status).toBe(200);
+    expect(got).toEqual([ids.bTicket]);
+    for (const tenantAId of Object.values(ids).filter(
+      (id) => id !== ids.bTicket,
+    )) {
+      expect(got).not.toContain(tenantAId);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import {
   withTenantContext,
   orgEmployees,
@@ -85,6 +85,43 @@ export async function getOrgTree(tenantId: string): Promise<OrgTree | null> {
 }
 
 /**
+ * Cheap dashboard capability probe. Having any descendant implies having a direct report, so
+ * two indexed existence lookups answer the question without loading the tenant's whole tree.
+ * Invalid non-root rows without an auth-provider user id do not count as reports.
+ */
+export async function hasDirectReports(
+  tenantId: string,
+  userId: string,
+): Promise<boolean> {
+  return withTenantContext(tenantId, async (tx) => {
+    const [manager] = await tx
+      .select({ id: orgEmployees.id })
+      .from(orgEmployees)
+      .where(
+        and(
+          eq(orgEmployees.tenantId, tenantId),
+          eq(orgEmployees.userId, userId),
+        ),
+      )
+      .limit(1);
+    if (!manager) return false;
+
+    const [report] = await tx
+      .select({ id: orgEmployees.id })
+      .from(orgEmployees)
+      .where(
+        and(
+          eq(orgEmployees.tenantId, tenantId),
+          eq(orgEmployees.parentId, manager.id),
+          isNotNull(orgEmployees.userId),
+        ),
+      )
+      .limit(1);
+    return report !== undefined;
+  });
+}
+
+/**
  * Upward chain of command from `userId` to the root, inclusive of `userId`'s
  * own node, exclusive of the synthetic root card itself (callers that need
  * the root's display name can read tree.root separately). Returns [] if
@@ -133,7 +170,9 @@ export async function getReportsByLevel(
   }
 
   const levels: OrgNode[][] = [];
-  let frontier = childrenByParentId.get(start.id) ?? [];
+  let frontier = (childrenByParentId.get(start.id) ?? []).filter(
+    (row) => row.userId !== null,
+  );
   const seen = new Set<string>([start.id]);
   while (frontier.length > 0) {
     levels.push(frontier.map(toNode));
@@ -141,7 +180,11 @@ export async function getReportsByLevel(
     for (const row of frontier) {
       if (seen.has(row.id)) continue; // guard against any residual cycle
       seen.add(row.id);
-      next.push(...(childrenByParentId.get(row.id) ?? []));
+      next.push(
+        ...(childrenByParentId.get(row.id) ?? []).filter(
+          (child) => child.userId !== null,
+        ),
+      );
     }
     frontier = next;
   }

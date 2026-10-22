@@ -8,7 +8,7 @@ vi.mock("@platform/db", () => ({
   orgDirectorySyncRuns: {},
 }));
 
-const { getSubtreeMembers } = await import("./query.js");
+const { getSubtreeMembers, hasDirectReports } = await import("./query.js");
 
 const base = { title: "", department: "", email: "", isRoot: false };
 
@@ -86,5 +86,75 @@ describe("getSubtreeMembers", () => {
     const result = await getSubtreeMembers("t1", "mgr");
 
     expect(result.ids).toEqual(["lead"]);
+  });
+
+  it("excludes a null-user row and its invalid descendant branch", async () => {
+    mockWithTenantContext.mockResolvedValue([
+      ...rows,
+      {
+        ...base,
+        id: "r-null",
+        userId: null,
+        parentId: "r-m",
+        name: "Invalid row",
+      },
+      {
+        ...base,
+        id: "r-hidden",
+        userId: "hidden",
+        parentId: "r-null",
+        name: "Hidden descendant",
+      },
+    ]);
+
+    const result = await getSubtreeMembers("t1", "mgr");
+
+    expect(result.ids).not.toContain("r-null");
+    expect(result.ids).not.toContain("hidden");
+  });
+});
+
+describe("hasDirectReports", () => {
+  it("returns true after two bounded indexed existence lookups", async () => {
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: "manager-row" }])
+      .mockResolvedValueOnce([{ id: "report-row" }]);
+    const query = {
+      from: vi.fn(),
+      where: vi.fn(),
+      limit,
+    };
+    query.from.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    const tx = { select: vi.fn(() => query) };
+    mockWithTenantContext.mockImplementationOnce(
+      async (_tenantId: string, callback: (arg: typeof tx) => unknown) =>
+        callback(tx),
+    );
+
+    await expect(hasDirectReports("t1", "mgr")).resolves.toBe(true);
+    expect(limit).toHaveBeenCalledTimes(2);
+    expect(limit).toHaveBeenNthCalledWith(1, 1);
+    expect(limit).toHaveBeenNthCalledWith(2, 1);
+  });
+
+  it("returns false without running the report lookup when the caller is absent", async () => {
+    const limit = vi.fn().mockResolvedValueOnce([]);
+    const query = {
+      from: vi.fn(),
+      where: vi.fn(),
+      limit,
+    };
+    query.from.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    const tx = { select: vi.fn(() => query) };
+    mockWithTenantContext.mockImplementationOnce(
+      async (_tenantId: string, callback: (arg: typeof tx) => unknown) =>
+        callback(tx),
+    );
+
+    await expect(hasDirectReports("t1", "ghost")).resolves.toBe(false);
+    expect(limit).toHaveBeenCalledTimes(1);
   });
 });

@@ -34,6 +34,7 @@ const onOpenRecord = vi.fn();
 
 const BASE_VIEW = {
   hasReports: true,
+  truncated: false,
   unavailable: false,
   workflows: [],
   tickets: { items: [], totalQualifying: 0 },
@@ -72,6 +73,20 @@ describe("OrgDashboardBody", () => {
     );
 
     expect(screen.getByLabelText(/loading org view/i)).toBeDefined();
+  });
+
+  it("warns when ticket totals and roster counts come from a truncated scope", () => {
+    render(
+      <OrgDashboardBody
+        view={{ ...BASE_VIEW, truncated: true }}
+        loading={false}
+        onOpenRecord={onOpenRecord}
+      />,
+    );
+
+    expect(
+      screen.getByText(/most recently created 2,000 tickets/i),
+    ).toBeDefined();
   });
 
   it("renders team tickets/KPIs and the team roster when data is available", async () => {

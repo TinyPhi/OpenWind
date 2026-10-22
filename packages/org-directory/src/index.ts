@@ -30,5 +30,6 @@ export {
   getChainToRoot,
   getReportsByLevel,
   getSubtreeMembers,
+  hasDirectReports,
   getSyncStatus,
 } from "./query.js";

@@ -36,19 +36,28 @@ GET /dashboard/org-view                      (apps/api/src/routes/dashboard/org-
   auth: requireAuth(); target user = c.get("auth").userId, never a param
   200 { data: {
           hasReports: boolean,
+          truncated: boolean,
           workflows[], tickets{items,totalQualifying}, dueDates{...}, slaRisk{...},   // same shapes as /dashboard/my-view
           teamMembers{ items: [{ userId, name, ticketCount, overdueCount }] }          // one row per report, never self
         } }
   hasReports=false → all sections empty; frontend hides toggle
+  truncated=true → newest 2,000 scoped tickets only; UI warns that totals/counts may be low
+
+GET /dashboard/org-view/has-reports          (apps/api/src/routes/dashboard/org-view.ts)
+  auth: requireAuth(); target user = c.get("auth").userId, never a param
+  200 { data: { hasReports: boolean } }
+  indexed existence probe only; never loads the subtree or reads tickets
   tickets.items[] += assignedTo, assignedToName (name from tree, falls back to raw id)
 
 GET /dashboard/team-member-view/:userId      (apps/api/src/routes/dashboard/team-member-view.ts)
   auth: requireAuth(); :userId must be in caller's subtree (verified every request) else 404
   200 { data: { targetUser{userId,name}, workflows, tickets, dueDates, slaRisk,
+                truncated,
                 adminWorkflows: [], savedViews: [], pendingApprovals: {items:[],totalQualifying:0} } }
 
 org-directory (packages/org-directory, new export, same package, no new dependency edge):
-  getSubtreeMembers(tenantId, userId) → { ids: string[], members: OrgNode[] }   // all levels flattened, excl. self
+  getSubtreeMembers(tenantId, userId) → { ids: string[], members: OrgNode[] }   // all valid levels flattened, excl. self/null-user branches
+  hasDirectReports(tenantId, userId) → boolean                                 // bounded indexed existence probe
     built on getReportsByLevel; [] when userId not in tree
 
 admin-ui:
@@ -62,12 +71,14 @@ R1: Org View gated only on having reports.
 ✓ user with 0 reports, any role incl. admin → `hasReports:false`, toggle hidden
 ✓ user with ≥1 report, any role incl. admin/customer → toggle shown, route works
 ✓ user absent from the tree (never synced) → `hasReports:false`, no error
+✓ ordinary dashboard load calls only `/has-reports`; full org data is lazy-loaded on selection
 
 R2: Org View scopes tickets with the existing predicate over self + whole subtree.
 ✓ `resolveUserScopedEntityIds` / `buildUserScopeFilter` reused, no new predicate
 ✓ ticket included iff creator, assignee or `__accessUsers` member ∈ `[me, ...all descendants]` at any depth
 ✓ ticket created by a report but assigned outside the subtree still included; ticket of someone outside the subtree and unrelated to it never included
 ✓ DASHBOARD_SCOPE_LIMIT (2000) bound applies
+✓ more than 2,000 matches returns `truncated:true`; exactly 2,000 does not
 
 R3: Org View failure never affects My View.
 ✓ `GET /dashboard/my-view` unchanged in behaviour/response whether or not org-view works
@@ -76,7 +87,9 @@ R3: Org View failure never affects My View.
 
 R4: Toggle, not a merged page.
 ✓ My View UI has no org-aware code paths besides the toggle + `useOrgView` probe
-✓ switching tabs reuses one `/dashboard/org-view` fetch (no second request)
+✓ switching tabs reuses one lazy `/dashboard/org-view` fetch (no second request)
+✓ full-load failure retains the positive probe/toggle and shows the unavailable state
+✓ if reports disappear between probe and full fetch, the UI hides the toggle and returns to My View
 ✓ toggle absent while viewing-as a subordinate
 
 R5: Self-only target.
@@ -92,6 +105,7 @@ R7: Team roster.
 ✓ one row per subtree member: `ticketCount` = scoped tickets with `assignedTo` = member; `overdueCount` = those with due date < now
 ✓ name from the tree; row never dropped
 ✓ roster paginated in UI
+✓ when the scope is truncated, UI warns that roster counts may be lower than actual values
 
 R8: Team tickets list.
 ✓ flat list of scoped tickets with `assignedToName`; paginated; same filter tabs as My View
@@ -135,6 +149,7 @@ R11: Freshness.
 | T9  | admin-ui: "My View / Org View" pill toggle in `dashboard.tsx` (only if `hasReports`), `/dashboard/team/:userId` route + read-only banner, roster → view-as link                                                                          | 3     | done                     | T5,T8     |
 | T10 | admin-ui tests (toggle visibility, tab switch single fetch, roster pagination, view-as banner/read-only)                                                                                                                                 | 3     | done                     | T8,T9     |
 | T11 | `/security-review` (new read path over other users' tickets) + docs: spec status, specs README row, week-log, roadmap-tracker                                                                                                            | 3     | in progress              | T6,T7,T10 |
+| T12 | #1072 follow-ups: indexed `has-reports` probe + lazy full load; explicit truncation signal/warning; null-user filtering; isolation gaps (`__accessUsers`, soft delete, residual cycle, bidirectional tenant checks)                      | 3     | done                     | T11       |
 
 phase gate: all unit + integration tests pass before advancing to next phase
 
@@ -147,7 +162,7 @@ Open items (decide before/while building):
 | O3  | Manager sees subtree tickets regardless of normal sharing (R2). Confirm no ticket type needs exclusion (e.g. HR/reimbursement) — would need a per-workflow flag, i.e. a separate feature            |
 | O4  | `/dashboard/team/:userId` reuses `Dashboard` (fork approach); confirm core's `dashboard.tsx` (1850 lines, diverged) can take a `viewAs` prop without disturbing the v1.1 sections                   |
 | O5  | `OrgNode.name` falls back to raw id? Tree always has a name (`org_employees.name` not null); fallback only matters for a stale id                                                                   |
-| O6  | The roster counts and totals come from at most 2,000 scoped tickets (newest first), so a very large org's per-person counts are undercounted. Raise the cap or count in SQL if orgs reach that size |
+| O6  | Mitigated in #1072: the 2,000-ticket bound remains, but API returns `truncated:true` and the UI warns that totals/counts may be low. Compute counts in SQL if large-org exactness becomes required. |
 
 ## §B Bugs / Backprop Log
 
