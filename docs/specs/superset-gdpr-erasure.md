@@ -83,15 +83,15 @@ They are out of scope here, each with where it goes:
 
 ## §C Constraints
 
-| constraint                    | value                                                                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| where Superset data is erased | **inside Superset**, which already reaches its own DB and Redis. The platform only asks. No Superset DB credential goes to the API or worker.                                                                                             |
-| match key                     | the `owsub:<subject>` role added at every login **and** the `tenant:<uuid>` role must match the request. Never username, email or display name.                                                                                           |
-| payloads and logs             | ids only. No name, email or SQL in a job, log line, response or audit metadata written by this feature.                                                                                                                                   |
-| Superset DB shape             | rows wholly the user's are deleted; `ab_user` is anonymised (51 author-pointer columns reference it).                                                                                                                                     |
-| delivery process              | spec → `/spec-tasks` → human `approve-plan` before any edit under `apps/`, `packages/`, `modules/` (`agent-behaviour.md`).                                                                                                                |
-| worker credentials            | **no new secret.** The worker reuses the existing `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and `SUPERSET_SERVICE_ACCOUNT_PASSWORD`; `docker-compose.yml` passes them to the worker exactly as it already does to the API. |
-| never autonomous              | `.github/workflows/` and ADR edits. CI jobs are proposed as patches; ADR-019 is updated by a human.                                                                                                                                       |
+| constraint                    | value                                                                                                                                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| where Superset data is erased | **inside Superset**, which already reaches its own DB and Redis. The platform only asks. No Superset DB credential goes to the API or worker.                                                                                                                 |
+| match key                     | the `owsub:<subject>` role added at every login, **and** either the request's `tenant:<uuid>` role or no `tenant:` role at all. An account holding only another tenant's role is never matched; it is counted as held. Never username, email or display name. |
+| payloads and logs             | ids only. No name, email or SQL in a job, log line, response or audit metadata written by this feature.                                                                                                                                                       |
+| Superset DB shape             | rows wholly the user's are deleted; `ab_user` is anonymised (51 author-pointer columns reference it).                                                                                                                                                         |
+| delivery process              | spec → `/spec-tasks` → human `approve-plan` before any edit under `apps/`, `packages/`, `modules/` (`agent-behaviour.md`).                                                                                                                                    |
+| worker credentials            | **no new secret.** The worker reuses the existing `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and `SUPERSET_SERVICE_ACCOUNT_PASSWORD`; `docker-compose.yml` passes them to the worker exactly as it already does to the API.                     |
+| never autonomous              | `.github/workflows/` and ADR edits. CI jobs are proposed as patches; ADR-019 is updated by a human.                                                                                                                                                           |
 
 ## §D Decisions
 
@@ -131,7 +131,7 @@ data on request. These questions decide how long the rest is kept when nobody ha
   service account's username, so it is not matched by name. Any other authenticated caller, including `Admin`, gets 403. CSRF protection stays on: the caller fetches a CSRF
   token and its session cookie first, as `superset-client.ts` already does, and a request without them is refused
   (400) before authentication. Each call does a bounded amount of work (about 20 s, well under the server's 120 s
-  request limit) and returns counts only: `{matchedUsers, deletedRows, cacheKeysRemoved, more}`. The worker calls
+  request limit) and returns counts only: `{matchedUsers, heldUsers, deletedRows, cacheKeysRemoved, more}`. The worker calls
   again while `more` is true; the user row is anonymised only in the call that finishes. Fallback if the CSRF flow
   ever fails: list the endpoint in `WTF_CSRF_EXEMPT_LIST` as `superset_config.<function>` (tested).
 - Operator fallback: a `superset openwind-erase --tenant <uuid> --subject <id>` command registered from
@@ -168,10 +168,24 @@ data on request. These questions decide how long the rest is kept when nobody ha
   only). Needs a migration extending `audit_log_action_check` (as 0115 did) and the exhaustiveness maps in
   `packages/audit`. The migration is numbered and written at build time, after rebasing: open PRs #803–#805 also
   rewrite this constraint, and each rewrite lists every action, so the later one must include the other's.
+- Who asked is **not** recorded again on these rows. The platform already writes it when the erasure is
+  requested: `deleted` on `user` (`DELETE /users/:userId`) or on `tenant` (`scheduleTenantDeletion`), with the
+  admin as actor. The Superset rows only record that the follow-up ran and when. They carry the same `tenantId`,
+  `resourceType` and `resourceId` as that request row (`auditResourceId(subject)` for a user, the tenant id for a
+  tenant), so one search by resource shows the request and its Superset outcome together. No actor field is
+  added to the job payloads.
+- The operator command (`superset openwind-erase`) writes no audit row. Only someone with shell access to the
+  server can run it, and that access is recorded by the server, not by the platform. The runbook (T28) limits it
+  to a job that keeps failing and asks the operator to note who ran it and why in the incident ticket.
 - Metrics and alerts: a failed job; an erasure request with no `completed` row after 7 days (an
   operational default, a setting, not a legal deadline).
 
-**What "erase" does in Superset:** find users holding `owsub:<subject>` and `tenant:<tenantId>` (refuse
+**What "erase" does in Superset:** find users holding `owsub:<subject>` and `tenant:<tenantId>`, or
+`owsub:<subject>` and no `tenant:` role at all (a login that resolved to no tenant; it belongs to no other
+tenant, and the platform deletes the person's Zitadel login in the same erasure). An account of the subject
+that holds only another tenant's role is not erased, since that would remove the person's records in that
+tenant: it is counted as `heldUsers`, logged as a warning, and the count goes into the `completed` audit row
+so the erasure is never reported as whole in silence. A tenant erase matches by the tenant role only (refuse
 `admin` and the service account) → delete the `delete`-class rows in bounded batches, including the user's
 `key_value` cache rows → clear any `rls_filter_roles` reference to the roles about to go (the foreign key is
 `NO ACTION`; none exist today) → delete the user's `owsub:`/`owuser:` roles (a tenant purge also deletes the
@@ -192,6 +206,8 @@ R2: Tenant purge removes every Superset user of that tenant.
 R3: Matching never trusts a name.
 ✓ a username equal to another tenant's id or another user's login name is not matched; right subject
 with wrong tenant role is not matched; `admin` and the service account are never erased.
+✓ the subject's account with no tenant role is erased; the subject's account holding only another tenant's
+role is left untouched and counted in `heldUsers`; a tenant erase never touches an account with no tenant role.
 
 R4: A Superset failure never blocks the Postgres erasure and is never silent.
 ✓ Superset unreachable: the route still succeeds, Postgres rows are gone, the job is queued.
