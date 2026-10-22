@@ -247,6 +247,10 @@ class Erasure(unittest.TestCase):
         self.assert_untouched(outsider, before)
         self.assertIsNone(self.sql("SELECT id FROM ab_role WHERE name = :n", n=f"tenant:{tenant}"))
         self.assertIsNotNone(self.sql("SELECT id FROM ab_role WHERE name = :n", n=f"tenant:{other_tenant}"))
+        # The other tenant's user keeps their own subject role and its link.
+        self.assertEqual(self.sql(
+            "SELECT count(*) FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
+            " WHERE ur.user_id = :u AND r.name = :n", u=outsider, n=f"owsub:{b}"), 1)
 
     # ── R3: matching never trusts a name ────────────────────────────────────────
     def test_the_right_subject_in_the_wrong_tenant_is_not_matched(self):
@@ -255,6 +259,33 @@ class Erasure(unittest.TestCase):
         before = self.counts(uid)
         self.assertEqual(self.erase(str(uuid.uuid4()), subject)[0], 0)
         self.assert_untouched(uid, before)
+
+    def test_the_subjects_account_with_no_tenant_role_is_erased(self):
+        # A login that resolved to no tenant keeps only `owsub:`. It belongs to
+        # no other tenant, so a per-user erase takes it rather than leaving it.
+        tenant, (subject,) = self.tenant_and_subjects()
+        uid = self.user([f"owsub:{subject}"])
+        result = self.config.erase_superset_data(self.engine, tenant, subject)
+        self.assertEqual((result["matchedUsers"], result["heldUsers"]), (1, 0))
+        self.assert_erased(uid)
+
+    def test_the_subjects_account_now_in_another_tenant_is_held_not_erased(self):
+        # The person moved org: erasing would remove their records in the other
+        # tenant, so the account is left as it is and counted, never silent.
+        tenant, (subject,) = self.tenant_and_subjects()
+        uid = self.user([f"owsub:{subject}", f"tenant:{uuid.uuid4()}"])
+        before = self.counts(uid)
+        result = self.config.erase_superset_data(self.engine, tenant, subject)
+        self.assertEqual((result["matchedUsers"], result["heldUsers"], result["more"]), (0, 1, False))
+        self.assert_untouched(uid, before)
+
+    def test_a_tenant_erase_leaves_accounts_with_no_tenant_role_alone(self):
+        tenant, (subject,) = self.tenant_and_subjects()
+        loose = self.user([f"owsub:{subject}"])
+        before = self.counts(loose)
+        result = self.config.erase_superset_data(self.engine, tenant)
+        self.assertEqual(result["heldUsers"], 0)
+        self.assert_untouched(loose, before)
 
     def test_a_username_equal_to_the_subject_is_not_matched(self):
         tenant, (subject,) = self.tenant_and_subjects()
@@ -304,6 +335,73 @@ class Erasure(unittest.TestCase):
         self.assertEqual(self.sql("SELECT count(*) FROM rls_filter_roles WHERE role_id = :r", r=role), 0)
         self.assertIsNone(self.sql("SELECT id FROM ab_role WHERE id = :r", r=role))
 
+    def test_a_role_with_dashboard_permission_and_group_links_still_goes(self):
+        # The finishing step deletes the roles nobody holds any more in one
+        # transaction with the anonymisation. A link that blocked the delete
+        # would roll all of it back on every retry, so each kind of link is set.
+        tenant, _ = self.tenant_and_subjects()
+        uid = self.user([f"tenant:{tenant}"])
+        role = self.role(f"tenant:{tenant}")
+        dash = self.sql("INSERT INTO dashboards DEFAULT VALUES RETURNING id")
+        self.sql("INSERT INTO dashboard_roles (role_id, dashboard_id) VALUES (:r, :d)", r=role, d=dash)
+        perm = self.sql("INSERT INTO ab_permission (id, name) VALUES (nextval('ab_permission_id_seq'), :n)"
+                        " RETURNING id", n=_rand("perm-"))
+        view = self.sql("INSERT INTO ab_view_menu (id, name) VALUES (nextval('ab_view_menu_id_seq'), :n)"
+                        " RETURNING id", n=_rand("view-"))
+        pv = self.sql("INSERT INTO ab_permission_view (id, permission_id, view_menu_id)"
+                      " VALUES (nextval('ab_permission_view_id_seq'), :p, :v) RETURNING id", p=perm, v=view)
+        self.sql("INSERT INTO ab_permission_view_role (id, permission_view_id, role_id)"
+                 " VALUES (nextval('ab_permission_view_role_id_seq'), :pv, :r)", pv=pv, r=role)
+        group = self.sql("INSERT INTO ab_group (id, name) VALUES (nextval('ab_group_id_seq'), :n) RETURNING id",
+                         n=_rand("group-"))
+        self.sql("INSERT INTO ab_group_role (id, group_id, role_id)"
+                 " VALUES (nextval('ab_group_role_id_seq'), :g, :r)", g=group, r=role)
+
+        self.assertEqual(self.erase(tenant)[0], 1)
+        self.assert_erased(uid)
+        self.assertIsNone(self.sql("SELECT id FROM ab_role WHERE id = :r", r=role))
+        for table in ("dashboard_roles", "ab_permission_view_role", "ab_group_role"):
+            with self.subTest(table=table):
+                self.assertEqual(self.sql(f"SELECT count(*) FROM {table} WHERE role_id = :r", r=role), 0)
+        # Only the links go: the dashboard, permission and group themselves stay.
+        self.assertIsNotNone(self.sql("SELECT id FROM dashboards WHERE id = :d", d=dash))
+        self.assertIsNotNone(self.sql("SELECT id FROM ab_permission_view WHERE id = :p", p=pv))
+        self.assertIsNotNone(self.sql("SELECT id FROM ab_group WHERE id = :g", g=group))
+
+    # ── a reference to a role that would block its delete ───────────────────────
+    ROLE_REFERENCES = (
+        "SELECT c.conrelid::regclass::text, c.confdeltype FROM pg_constraint c"
+        " WHERE c.contype = 'f' AND c.confrelid = 'ab_role'::regclass"
+    )
+    # Cleared by the erase before it deletes the role (see erase_superset_data).
+    ROLE_LINKS_CLEARED_FIRST = {"rls_filter_roles"}
+
+    def blocking_role_references(self, conn):
+        from sqlalchemy import text
+
+        # 'c' (cascade), 'n' (set null) and 'd' (set default) let the delete
+        # through; 'a' (no action) and 'r' (restrict) refuse it.
+        return sorted(
+            table for table, on_delete in conn.execute(text(self.ROLE_REFERENCES))
+            if on_delete in ("a", "r") and table not in self.ROLE_LINKS_CLEARED_FIRST
+        )
+
+    def test_no_reference_to_a_role_can_block_its_delete(self):
+        with self.engine.connect() as conn:
+            self.assertEqual(self.blocking_role_references(conn), [],
+                             "Superset has a reference to ab_role that would block the erase's role delete")
+
+    def test_a_new_blocking_reference_to_a_role_is_caught(self):
+        from sqlalchemy import text
+
+        with self.engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text("CREATE TABLE erasure_role_guard_probe (role_id integer REFERENCES ab_role(id))"))
+                self.assertEqual(self.blocking_role_references(conn), ["erasure_role_guard_probe"])
+            finally:
+                trans.rollback()
+
     # ── R5: safe to repeat, bounded per call ────────────────────────────────────
     def test_a_second_run_matches_nobody(self):
         tenant, (subject,) = self.tenant_and_subjects()
@@ -319,6 +417,19 @@ class Erasure(unittest.TestCase):
         self.assertTrue(self.account(uid)["active"], "anonymised before the erase finished")
         _, _, calls = self.erase(tenant, subject, budget_seconds=0, batch=1)
         self.assertGreater(calls, 1)
+        self.assert_erased(uid)
+
+    def test_data_written_between_calls_is_erased_too(self):
+        # The user logs in again while the worker is between calls: their roles
+        # are still in place (they go last), so the next call matches them again
+        # and takes the new rows with the rest.
+        tenant, (subject,) = self.tenant_and_subjects()
+        uid = self.user([f"owsub:{subject}", f"tenant:{tenant}"])
+        first = self.config.erase_superset_data(self.engine, tenant, subject, budget_seconds=0, batch=1)
+        self.assertTrue(first["more"])
+        self.sql("INSERT INTO logs (user_id, action, dttm) VALUES (:u, 'welcome', now())", u=uid)
+        self.sql("INSERT INTO favstar (user_id, class_name, obj_id) VALUES (:u, 'Slice', 2)", u=uid)
+        self.erase(tenant, subject, budget_seconds=0, batch=1)
         self.assert_erased(uid)
 
     # ── the cache flush ─────────────────────────────────────────────────────────

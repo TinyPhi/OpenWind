@@ -72,7 +72,7 @@ class ErasureEndpoint(unittest.TestCase):
     def call(self, path, caller, body=None, erase_result=None, no_token=False):
         """POST as `caller`; returns (status, json, erase mock, flush mock)."""
         verify = mock.Mock(side_effect=RuntimeError("no token") if no_token else None)
-        erase = mock.Mock(return_value=erase_result or {"matchedUsers": 1, "deletedRows": 9, "more": False})
+        erase = mock.Mock(return_value=erase_result or {"matchedUsers": 1, "heldUsers": 0, "deletedRows": 9, "more": False})
         flush = mock.Mock(return_value=4)
         with mock.patch("flask_jwt_extended.verify_jwt_in_request", verify), \
                 mock.patch("flask_jwt_extended.current_user", caller), \
@@ -120,7 +120,8 @@ class ErasureEndpoint(unittest.TestCase):
         status, body, erase, flush = self.call(
             "/openwind/erasure/user", self.SERVICE, {"tenantId": TENANT, "subject": "393014046795759618"})
         self.assertEqual(status, 200)
-        self.assertEqual(body, {"matchedUsers": 1, "deletedRows": 9, "more": False, "cacheKeysRemoved": 4})
+        self.assertEqual(body, {"matchedUsers": 1, "heldUsers": 0, "deletedRows": 9, "more": False,
+                                "cacheKeysRemoved": 4})
         self.assertEqual(erase.call_args.args[1:], (TENANT, "393014046795759618"))
         flush.assert_called_once()
 
@@ -147,6 +148,19 @@ class ErasureEndpoint(unittest.TestCase):
                 mock.patch("superset.db", mock.MagicMock()):
             res = self.app.test_client().post("/openwind/erasure/user", json={"tenantId": "x", "subject": "1"})
         self.assertEqual(res.status_code, 400)
+
+    def test_a_failing_erase_is_logged_with_the_tenant_and_answers_500(self):
+        erase = mock.Mock(side_effect=RuntimeError("database went away"))
+        with mock.patch("flask_jwt_extended.verify_jwt_in_request", mock.Mock()), \
+                mock.patch("flask_jwt_extended.current_user", self.SERVICE), \
+                mock.patch("superset.db", mock.MagicMock()), \
+                mock.patch.object(self.config, "erase_superset_data", erase), \
+                self.assertLogs(self.config.logger, "ERROR") as logs:
+            res = self.app.test_client().post(
+                "/openwind/erasure/user", json={"tenantId": TENANT, "subject": "1"})
+        self.assertEqual((res.status_code, res.get_json()), (500, {"message": "erasure failed"}))
+        self.assertIn(TENANT, logs.output[0])
+        self.assertNotIn("database went away", res.get_data(as_text=True))
 
     def test_no_flush_until_the_erase_is_finished(self):
         _, body, _, flush = self.call(

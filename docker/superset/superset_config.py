@@ -1509,34 +1509,58 @@ _ERASURE_BUDGET_SECONDS = 20
 
 
 def _erasure_targets(conn, tenant_id, subject):
-    """Ids of the Superset users to erase: by subject + tenant, or the whole tenant."""
+    """The Superset users to erase, and how many were held back.
+
+    Returns `(ids, held)`. A whole-tenant erase takes every holder of the tenant
+    role and holds nobody back. A per-user erase takes the subject's account
+    when it holds this tenant's role, or no tenant role at all (a login that
+    resolved to no tenant: it belongs to no other tenant, and the platform
+    deletes the person's login with the erasure). An account of the subject now
+    bound to another tenant only is not erased, since that would remove the
+    person's records there; it is counted in `held` so the erasure is not
+    reported as complete in silence.
+    """
     from sqlalchemy import text as _text
 
     tenant_role = f"tenant:{tenant_id}"
+    held = []
     if subject is None:
-        sql = (
-            "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
-            " WHERE r.name = :tenant_role"
-        )
-        params = {"tenant_role": tenant_role}
+        ids = [
+            row[0]
+            for row in conn.execute(
+                _text(
+                    "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
+                    " WHERE r.name = :tenant_role"
+                ),
+                {"tenant_role": tenant_role},
+            )
+        ]
     else:
         # `owsub:` is on every login since #799; `owuser:` carries the same
         # subject for non-staff who have not logged in since.
-        sql = (
-            "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
-            " WHERE r.name IN (:owsub, :owuser)"
-            " INTERSECT"
-            " SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
-            " WHERE r.name = :tenant_role"
-        )
-        params = {
-            "owsub": f"owsub:{subject}",
-            "owuser": f"owuser:{subject}",
-            "tenant_role": tenant_role,
-        }
-    ids = [row[0] for row in conn.execute(_text(sql), params)]
-    if not ids:
-        return []
+        rows = conn.execute(
+            _text(
+                "WITH subject_users AS ("
+                "  SELECT DISTINCT ur.user_id FROM ab_user_role ur"
+                "  JOIN ab_role r ON r.id = ur.role_id WHERE r.name IN (:owsub, :owuser))"
+                " SELECT s.user_id,"
+                "  bool_or(r.name = :tenant_role) AS in_tenant,"
+                "  bool_or(r.name LIKE 'tenant:%') AS any_tenant"
+                " FROM subject_users s"
+                " JOIN ab_user_role ur ON ur.user_id = s.user_id"
+                " JOIN ab_role r ON r.id = ur.role_id"
+                " GROUP BY s.user_id"
+            ),
+            {
+                "owsub": f"owsub:{subject}",
+                "owuser": f"owuser:{subject}",
+                "tenant_role": tenant_role,
+            },
+        ).all()
+        ids = [uid for uid, in_tenant, any_tenant in rows if in_tenant or not any_tenant]
+        held = [uid for uid, in_tenant, any_tenant in rows if not in_tenant and any_tenant]
+    if not ids and not held:
+        return [], 0
     protected = {
         row[0]
         for row in conn.execute(
@@ -1544,10 +1568,10 @@ def _erasure_targets(conn, tenant_id, subject):
                 "SELECT ur.user_id FROM ab_user_role ur JOIN ab_role r ON r.id = ur.role_id"
                 " WHERE ur.user_id = ANY(:ids) AND r.name = ANY(:protected)"
             ),
-            {"ids": ids, "protected": list(ERASURE_PROTECTED_ROLES)},
+            {"ids": ids + held, "protected": list(ERASURE_PROTECTED_ROLES)},
         )
     }
-    return sorted(set(ids) - protected)
+    return sorted(set(ids) - protected), len(set(held) - protected)
 
 
 def erase_superset_data(engine, tenant_id, subject=None, *, budget_seconds=None, batch=None):
@@ -1573,9 +1597,14 @@ def erase_superset_data(engine, tenant_id, subject=None, *, budget_seconds=None,
     deleted = 0
 
     with engine.connect() as conn:
-        ids = _erasure_targets(conn, tenant_id, subject)
+        ids, held = _erasure_targets(conn, tenant_id, subject)
         if not ids:
-            return {"matchedUsers": 0, "deletedRows": 0, "more": False}
+            if held:
+                logger.warning(
+                    "superset erasure: tenant=%s held=%d (account bound to another tenant)",
+                    tenant_id, held,
+                )
+            return {"matchedUsers": 0, "heldUsers": held, "deletedRows": 0, "more": False}
 
         steps = [
             (t, f"{c} = ANY(:ids)") for t, c in ERASURE_OWNED + ERASURE_LINKS[:-1]
@@ -1591,7 +1620,8 @@ def erase_superset_data(engine, tenant_id, subject=None, *, budget_seconds=None,
                 # makes progress however small the budget (a call restarts at the
                 # first table, and finding an emptied table is not progress).
                 if worked and _time.monotonic() - started > budget:
-                    return {"matchedUsers": len(ids), "deletedRows": deleted, "more": True}
+                    return {"matchedUsers": len(ids), "heldUsers": held,
+                            "deletedRows": deleted, "more": True}
                 with conn.begin():
                     conn.execute(_text("SET LOCAL statement_timeout = '10s'"))
                     n = conn.execute(
@@ -1656,11 +1686,11 @@ def erase_superset_data(engine, tenant_id, subject=None, *, budget_seconds=None,
                 ),
                 {"ids": ids},
             )
-    logger.info(
-        "superset erasure: tenant=%s subject=%s users=%d rows=%d",
-        tenant_id, "yes" if subject else "whole-tenant", len(ids), deleted,
+    (logger.warning if held else logger.info)(
+        "superset erasure: tenant=%s subject=%s users=%d held=%d rows=%d",
+        tenant_id, "yes" if subject else "whole-tenant", len(ids), held, deleted,
     )
-    return {"matchedUsers": len(ids), "deletedRows": deleted, "more": False}
+    return {"matchedUsers": len(ids), "heldUsers": held, "deletedRows": deleted, "more": False}
 
 
 def flush_superset_cache(redis_url=None):
@@ -1726,6 +1756,14 @@ def _erasure_blueprint():
             result = erase_superset_data(_db.engine, tenant_id, subject)
         except ValueError as err:
             return jsonify({"message": str(err)}), 400
+        except Exception:  # noqa: BLE001
+            # Ids only in the log, as everywhere in this feature. The caller
+            # retries; the operator needs to know which erasure is failing.
+            logger.exception(
+                "superset erasure failed: tenant=%s subject=%s",
+                tenant_id, "yes" if subject else "whole-tenant",
+            )
+            return jsonify({"message": "erasure failed"}), 500
         # Flushed once, by the finishing call, and only when someone was erased:
         # the flush clears every tenant's cached results.
         done = result["matchedUsers"] and not result["more"]
@@ -1763,10 +1801,11 @@ def _register_erasure_command(app):
     def openwind_erase(tenant_id, subject):
         from superset import db as _db
 
-        total = {"matchedUsers": 0, "deletedRows": 0}
+        total = {"matchedUsers": 0, "heldUsers": 0, "deletedRows": 0}
         while True:
             result = erase_superset_data(_db.engine, tenant_id, subject)
             total["matchedUsers"] = max(total["matchedUsers"], result["matchedUsers"])
+            total["heldUsers"] = max(total["heldUsers"], result["heldUsers"])
             total["deletedRows"] += result["deletedRows"]
             if not result["more"]:
                 break
