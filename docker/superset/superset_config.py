@@ -668,7 +668,17 @@ def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contr
     source,
 ):
     """Stamp the caller's tenant onto the connection, so platform RLS applies."""
-    tenant_id = str(username) if username else ""
+    # The username is the tenant only on the embedded path, where it is the
+    # guest pass the API minted. For a signed-in Stage 2 user Superset passes
+    # their own login name here, which comes from Zitadel and can be anything,
+    # including another tenant's id: trusting it stamped that tenant, with a
+    # valid binding signature (ST17 T8). A signed-in user's tenant comes only
+    # from the `tenant:` role bound at login, below.
+    signed_in = _session_user()
+    if signed_in is not None and not getattr(signed_in, "is_guest_user", False):
+        tenant_id = ""
+    else:
+        tenant_id = str(username) if username else ""
 
     if not _TENANT_ID_RE.match(tenant_id):
         # Not every query arrives carrying the viewer's identity. Superset runs
@@ -1128,6 +1138,14 @@ if _OAUTH_CLIENT_ID:
             if provider != "zitadel":
                 return {}
             me = self.appbuilder.sm.oauth_remotes[provider].get("oidc/v1/userinfo")
+            # A token Zitadel refuses (forged, edited or expired) yields no
+            # identity at all. Its error body must not be read as claims: login
+            # then failed only because Flask-AppBuilder happens to refuse an
+            # empty username, not because this code refused it.
+            if getattr(me, "status_code", None) != 200:
+                logger.warning("userinfo refused with status %s; login denied",
+                               getattr(me, "status_code", None))
+                return {}
             data = me.json()
             # Zitadel namespaces both claims; neither has a short alias, so the
             # full URNs are the contract here.
