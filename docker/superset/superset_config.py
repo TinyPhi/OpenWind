@@ -592,6 +592,21 @@ def _tenant_from_user_roles():
     return found[0]
 
 
+def _carries_tenant_role(user):
+    """Whether the account holds any `tenant:` role, valid or not.
+
+    Any such role, even a malformed one or two of them, means the account is
+    bound to a tenant at login, so its tenant must come from that binding
+    alone. A lookup that fails counts as bound: that only ever narrows.
+    """
+    try:
+        return any(
+            r.name.startswith("tenant:") for r in getattr(user, "roles", []) or []
+        )
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _own_rows_subject():
     """The subject id a logged-in session is narrowed to, if it is narrowed.
 
@@ -675,12 +690,14 @@ def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contr
     # valid binding signature (ST17 T8). A signed-in user's tenant comes only
     # from the `tenant:` role bound at login, below.
     signed_in = _session_user()
+    bound_by_role = False
     if signed_in is not None and not getattr(signed_in, "is_guest_user", False):
         tenant_id = ""
+        bound_by_role = _carries_tenant_role(signed_in)
     else:
         tenant_id = str(username) if username else ""
 
-    if not _TENANT_ID_RE.match(tenant_id):
+    if not _TENANT_ID_RE.match(tenant_id) and not bound_by_role:
         # Not every query arrives carrying the viewer's identity. Superset runs
         # a dashboard-level query — a native filter loading its dropdown values
         # — as the *dashboard owner* rather than the guest, so `username` here
@@ -694,6 +711,11 @@ def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contr
         # the token's signature against GUEST_TOKEN_JWT_SECRET before returning
         # anything, so a forged or edited token yields nothing rather than a
         # tenant of the caller's choosing.
+        #
+        # Skipped for a signed-in user bound to a tenant: the header is the
+        # caller's to set, so an analyst of tenant A sending a pass minted for
+        # tenant B would otherwise be stamped B and could write any SQL against
+        # B's rows. Their tenant is their role, below, and nothing else.
         tenant_id = _tenant_from_guest_token(security_manager) or ""
 
     if not _TENANT_ID_RE.match(tenant_id):

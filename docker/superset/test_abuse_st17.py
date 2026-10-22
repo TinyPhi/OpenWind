@@ -10,7 +10,8 @@ attempt fails closed (docs/specs/superset-gdpr-erasure-tasks.md T5-T8):
 - T7 export attribution: an audit row written by tenant B's session is tenant B,
   and asking the writer for tenant A is refused.
 - T8 username collision: a username equal to another tenant's id is never what
-  stamps the connection; only the tenant role is.
+  stamps the connection; only the tenant role is. Nor is a guest pass a
+  signed-in analyst sends with their request.
 
 T5 and T8 need only Flask (the Superset image). T6 and T7 need a real platform
 database with migrations applied and data for two tenants:
@@ -173,6 +174,23 @@ class LoginAndStamp(unittest.TestCase):
         # the tenant comes from the verified guest token on the request.
         owner = User("service_account", ["ReportingServiceAccount"])
         self.assertIn(f"app.tenant_id={TENANT_B}", self.stamp(owner, guest_token_tenant=TENANT_B))
+
+    def test_a_guest_pass_for_another_tenant_does_not_move_a_signed_in_analyst(self):
+        # The header is the caller's to set: an analyst of tenant B sending a
+        # pass minted for tenant A stays on tenant B.
+        analyst = User("ana", ["ReportingAnalyst", f"tenant:{TENANT_B}"])
+        options = self.stamp(analyst, guest_token_tenant=TENANT_A)
+        self.assertIn(f"app.tenant_id={TENANT_B}", options)
+        self.assertNotIn(TENANT_A, options)
+
+    def test_a_guest_pass_never_settles_an_ambiguous_tenant_binding(self):
+        # Two tenant roles, or a malformed one, stamp nothing; a pass on the
+        # request must not pick a tenant for them.
+        for roles in ([f"tenant:{TENANT_A}", f"tenant:{TENANT_B}"], ["tenant:not-a-uuid"]):
+            with self.subTest(roles=roles):
+                options = self.stamp(User("ana", ["ReportingAnalyst", *roles]),
+                                     guest_token_tenant=TENANT_A)
+                self.assertNotIn("app.tenant_id=", options)
 
     def test_a_username_equal_to_another_tenants_id_does_not_stamp_that_tenant(self):
         options = self.stamp(User(TENANT_A, ["ReportingAnalyst", f"tenant:{TENANT_B}"]))
