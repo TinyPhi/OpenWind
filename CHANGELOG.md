@@ -3,6 +3,17 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — org-view follow-ups (#1072)]
+
+### Changed
+
+- The dashboard now uses a cheap report-availability probe and loads the full Org View only when
+  selected, avoiding the subtree and ticket queries on ordinary My View loads.
+- Org and subordinate dashboards now warn when their totals are calculated from the newest 2,000
+  matching tickets, instead of silently presenting capped counts as complete.
+- Invalid org-directory rows without an auth-provider user id no longer appear as team members or
+  authorize subordinate dashboard access.
+
 ## [Unreleased — configurable platform-admin MFA timings (#929)]
 
 ### Added

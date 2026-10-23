@@ -7,6 +7,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { resolveUserScopedEntityIds } from "../entities/scoped-access.js";
 import {
   DASHBOARD_SCOPE_LIMIT,
+  boundDashboardScope,
   buildScopedDashboardSections,
 } from "./view-builder.js";
 
@@ -33,9 +34,9 @@ export const teamMemberViewHandler = factory.createHandlers(
     const now = new Date();
 
     try {
-      const { ids, members } = await getSubtreeMembers(tenantId, userId);
+      const { members } = await getSubtreeMembers(tenantId, userId);
       const target = members.find((m) => m.userId === targetUserId);
-      if (!target || !ids.includes(targetUserId)) {
+      if (!target) {
         return c.json(NOT_FOUND, 404);
       }
 
@@ -46,16 +47,18 @@ export const teamMemberViewHandler = factory.createHandlers(
       };
       const targetUser = { userId: targetUserId, name: target.name };
 
-      const scopedIds = await resolveUserScopedEntityIds(
+      const resolvedIds = await resolveUserScopedEntityIds(
         tenantId,
         [targetUserId],
-        { limit: DASHBOARD_SCOPE_LIMIT },
+        { limit: DASHBOARD_SCOPE_LIMIT + 1 },
       );
+      const { ids: scopedIds, truncated } = boundDashboardScope(resolvedIds);
 
       if (scopedIds.length === 0) {
         return c.json({
           data: {
             targetUser,
+            truncated,
             workflows: [],
             tickets: { items: [], totalQualifying: 0 },
             dueDates: { items: [], totalQualifying: 0 },
@@ -75,6 +78,7 @@ export const teamMemberViewHandler = factory.createHandlers(
       return c.json({
         data: {
           targetUser,
+          truncated,
           workflows,
           tickets,
           dueDates,

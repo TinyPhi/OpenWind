@@ -99,6 +99,7 @@ type TargetUser = { userId: string; name: string };
 
 type MyView = {
   targetUser?: TargetUser;
+  truncated?: boolean;
   workflows: WorkflowBreakdown[];
   tickets: {
     items: TicketSummary[];
@@ -1028,11 +1029,20 @@ export function Dashboard(): React.ReactElement {
     NotificationItem[]
   >([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  // My Org View toggle (docs/specs/my-org-view.md R1/R4). One shared fetch with its own
-  // state, so a failure here never touches My View's loading or data. Gated on having
-  // reports, never on role. Off entirely while viewing-as (that page has no toggle).
-  const { view: orgView, loading: orgViewLoading } = useOrgView(!isViewingAs);
+  // My Org View toggle (docs/specs/my-org-view.md R1/R4). A cheap capability probe gates
+  // the toggle; the full payload is loaded only after selection. This state remains isolated
+  // from My View failures and is disabled entirely while viewing as a subordinate.
   const [activeTab, setActiveTab] = useState<"my" | "org">("my");
+  const { view: orgView, loading: orgViewLoading } = useOrgView(
+    !isViewingAs,
+    activeTab === "org",
+  );
+
+  useEffect(() => {
+    if (activeTab === "org" && !orgView.hasReports && !orgViewLoading) {
+      setActiveTab("my");
+    }
+  }, [activeTab, orgView.hasReports, orgViewLoading]);
 
   useEffect(() => {
     const endpoint = viewAsUserId
@@ -1231,6 +1241,24 @@ export function Dashboard(): React.ReactElement {
           <Button variant="secondary" onClick={() => navigate("/dashboard")}>
             ← Back to my dashboard
           </Button>
+        </div>
+      )}
+
+      {isViewingAs && view.truncated && (
+        <div
+          role="status"
+          style={{
+            padding: "10px 14px",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            border: "1px solid hsla(35,90%,50%,.35)",
+            background: "hsla(35,90%,50%,.1)",
+            color: "var(--text-secondary)",
+            fontSize: "13px",
+          }}
+        >
+          This view includes only the most recently created 2,000 tickets.
+          Totals may be lower than the actual values.
         </div>
       )}
 

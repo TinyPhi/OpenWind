@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useHoverStyle } from "@platform/ui";
@@ -68,6 +68,7 @@ export interface TeamMember {
 
 export interface OrgView {
   hasReports: boolean;
+  truncated: boolean;
   /** Client-side only: the request failed, so the org data could not be loaded. */
   unavailable: boolean;
   workflows: WorkflowBreakdown[];
@@ -79,6 +80,7 @@ export interface OrgView {
 
 export const EMPTY_ORG_VIEW: OrgView = {
   hasReports: false,
+  truncated: false,
   unavailable: false,
   workflows: [],
   tickets: { items: [], totalQualifying: 0 },
@@ -87,28 +89,81 @@ export const EMPTY_ORG_VIEW: OrgView = {
   teamMembers: { items: [] },
 };
 
-// Single shared fetch — dashboard.tsx uses this to gate the toggle AND to
-// render the body, so switching tabs never triggers a second network call.
-// `enabled: false` (used by the "view as subordinate" page, R9) skips the
-// fetch entirely — that page never shows the Org View toggle, so probing
-// hasReports there would just be a wasted request.
-export function useOrgView(enabled = true): {
+// The ordinary dashboard load performs only the cheap has-reports probe. The full payload is
+// fetched once, lazily, on the first Org View selection and then retained across tab switches.
+// `enabled: false` (used by the "view as subordinate" page, R9) skips both requests.
+export function useOrgView(
+  enabled = true,
+  selected = false,
+): {
   view: OrgView;
   loading: boolean;
 } {
   const [view, setView] = useState<OrgView>(EMPTY_ORG_VIEW);
-  const [loading, setLoading] = useState(enabled);
+  const [loading, setLoading] = useState(false);
+  const fullRequested = useRef(false);
+  const fullRequestGeneration = useRef(0);
+
+  useEffect(
+    () => () => {
+      fullRequestGeneration.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      fullRequestGeneration.current += 1;
+      setView(EMPTY_ORG_VIEW);
+      fullRequested.current = false;
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    fetchWithAuth(`${API_URL}/dashboard/org-view/has-reports`)
+      .then((res) => {
+        if (cancelled) return;
+        const data = (res as { data?: { hasReports?: boolean } }).data;
+        setView({
+          ...EMPTY_ORG_VIEW,
+          hasReports: data?.hasReports === true,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setView(EMPTY_ORG_VIEW);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled || !selected || !view.hasReports || fullRequested.current)
+      return;
+
+    const generation = fullRequestGeneration.current;
+    fullRequested.current = true;
+    setLoading(true);
     fetchWithAuth(`${API_URL}/dashboard/org-view`)
       .then((res) => {
+        if (generation !== fullRequestGeneration.current) return;
         const data = (res as { data?: OrgView }).data;
         setView(data ?? EMPTY_ORG_VIEW);
       })
-      .catch(() => setView({ ...EMPTY_ORG_VIEW, unavailable: true }))
-      .finally(() => setLoading(false));
-  }, [enabled]);
+      .catch(() => {
+        if (generation === fullRequestGeneration.current) {
+          setView((current) => ({
+            ...EMPTY_ORG_VIEW,
+            hasReports: current.hasReports,
+            unavailable: true,
+          }));
+        }
+      })
+      .finally(() => {
+        if (generation === fullRequestGeneration.current) setLoading(false);
+      });
+  }, [enabled, selected, view.hasReports]);
 
   return { view, loading };
 }
@@ -442,6 +497,24 @@ export function OrgDashboardBody({
 
   return (
     <div>
+      {view.truncated && (
+        <div
+          role="status"
+          style={{
+            padding: "10px 14px",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            border: "1px solid hsla(35,90%,50%,.35)",
+            background: "hsla(35,90%,50%,.1)",
+            color: "var(--text-secondary)",
+            fontSize: "13px",
+          }}
+        >
+          This view includes only the most recently created 2,000 tickets.
+          Totals and team-member counts may be lower than the actual values.
+        </div>
+      )}
+
       {/* ── KPI strip — same tiles/colors/icons as My View ─────────────────── */}
       <div
         className="dash-kpi"
