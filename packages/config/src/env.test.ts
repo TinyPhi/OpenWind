@@ -296,19 +296,19 @@ describe("OPS_ALERT_EMAIL", () => {
 });
 
 describe("MANDATORY_FIELDS_MODE", () => {
-  it("defaults to log", () => {
+  it("defaults to enforce", () => {
     expect(EnvSchema.parse(MINIMAL_VALID_ENV).MANDATORY_FIELDS_MODE).toBe(
-      "log",
+      "enforce",
     );
   });
 
-  it("accepts enforce and rejects anything else", () => {
+  it("accepts log as an emergency switch and rejects anything else", () => {
     expect(
       EnvSchema.parse({
         ...MINIMAL_VALID_ENV,
-        MANDATORY_FIELDS_MODE: "enforce",
+        MANDATORY_FIELDS_MODE: "log",
       }).MANDATORY_FIELDS_MODE,
-    ).toBe("enforce");
+    ).toBe("log");
     expect(() =>
       EnvSchema.parse({
         ...MINIMAL_VALID_ENV,
