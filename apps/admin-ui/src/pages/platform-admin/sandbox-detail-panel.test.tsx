@@ -24,6 +24,7 @@ const SANDBOX: SandboxView = {
   createdAt: "2026-10-01T00:00:00Z",
   trialStatus: "expired",
   trialEndsAt: new Date(Date.now() - 2 * 86_400_000 - 3_600_000).toISOString(),
+  logo: null,
 };
 
 function renderPanel(sandbox: SandboxView = SANDBOX): {

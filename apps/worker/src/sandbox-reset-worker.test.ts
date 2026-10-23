@@ -405,6 +405,10 @@ describe("processSandboxResetJob", () => {
     }
   });
 
+  it("never resets the tenants row, so a sandbox keeps its name and logo (R12)", () => {
+    expect(RESET_TENANT_TABLES).not.toContain("tenants");
+  });
+
   it("completes the reset when the platform-admin audit record fails (PR #859 review [C])", async () => {
     mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
 
