@@ -719,7 +719,9 @@ export function CustomerRecordCreate(): React.ReactElement {
           ? "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket."
           : undefined;
 
-      if (routeState.returnTo) {
+      // returnTo must be an in-app path: "//host" and "/\host" are read by browsers as another
+      // site (GHSA-wrjc-x8rr-h8h6), so anything else falls back to the new record's page.
+      if (routeState.returnTo && /^\/(?![/\\])/.test(routeState.returnTo)) {
         // Only the record page renders a navigation notice, and returnTo can be any page, so
         // the warning goes through the global alert there instead of being lost.
         if (notice) showAlert(notice);
