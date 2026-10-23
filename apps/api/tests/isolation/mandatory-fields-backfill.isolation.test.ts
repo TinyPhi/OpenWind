@@ -25,10 +25,7 @@ const MIGRATIONS = fileURLToPath(
 const BACKFILL_FILE = readdirSync(MIGRATIONS).find((f) =>
   f.endsWith("_backfill_mandatory_ticket_fields.sql"),
 );
-const BACKFILL_SQL = readFileSync(
-  join(MIGRATIONS, BACKFILL_FILE ?? ""),
-  "utf8",
-);
+let BACKFILL_SQL = "";
 
 const TENANT = randomUUID();
 const REMARK =
@@ -68,7 +65,11 @@ async function load(key: string): Promise<typeof entityInstances.$inferSelect> {
 }
 
 beforeAll(async () => {
-  expect(BACKFILL_FILE).toBeDefined();
+  if (!BACKFILL_FILE)
+    throw new Error(
+      "backfill migration file not found — check migrations directory",
+    );
+  BACKFILL_SQL = readFileSync(join(MIGRATIONS, BACKFILL_FILE), "utf8");
   await db.insert(tenants).values({
     id: TENANT,
     name: `backfill ${TENANT}`,
