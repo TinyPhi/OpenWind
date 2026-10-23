@@ -190,7 +190,8 @@ of this.
 
 1. Run `pnpm setup:superset-oauth`. It creates (or updates) Superset's Zitadel app and prints
    `SUPERSET_OAUTH_CLIENT_ID` and `SUPERSET_OAUTH_CLIENT_SECRET`. Put both in `.env.local` — never
-   in `.env`, which is committed.
+   in `.env`, which is committed. In production, store both in OpenBao at the `superset` and
+   `superset-init` paths instead (ADR-023, `docs/runbooks/openbao-secrets.md`).
 2. Set `SUPERSET_OAUTH_INTERNAL_ISSUER` in `.env.local`. This is how the Superset container reaches
    Zitadel, and it must be a domain your Zitadel instance answers to: Zitadel picks the instance
    from the `Host` header, so the bare container name returns 404. Use the instance's generated

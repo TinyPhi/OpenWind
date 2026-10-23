@@ -1,8 +1,8 @@
 # ADR-019: Reporting Tenant Isolation — Embedded and Standalone Superset
 
-**Status:** Proposed. Stage 2 is pending a security review, tracked privately (OQ-6): Stage 2 must
-stay disabled (`SUPERSET_OAUTH_CLIENT_ID` unset) on every deployment until that review closes and
-this ADR records the outcome.  
+**Status:** Proposed. Stage 2 stays disabled (`SUPERSET_OAUTH_CLIENT_ID` unset) on every
+deployment until the Stage 2 gate criteria below are signed off. The Stage 2 security review
+(OQ-6) closed on 2026-09-30; its outcome is recorded in Decisions 2 and 6.  
 **Date:** 2026-09-28.  
 **Deciders:** Engineering Lead (isolation approach owned by Bikash, decided 2026-09-09).  
 **Related to:** ADR-001 (multitenancy — RLS, `analytics_user` grants), ADR-013 (rate limiting),
@@ -57,8 +57,8 @@ This ADR records the isolation design. Stages 1–2 are already merged (#663–#
 
 Superset (pinned at 6.1.0) is the BI engine. Stage 1 exposes fixed, provisioned dashboards only;
 it opens no query-writing surface. Stage 2 (standalone + Zitadel SSO) needs the stronger data
-boundary in Decisions 2–6; whether that boundary holds against user-written SQL is the subject of
-the pending review (OQ-6).
+boundary in Decisions 2–6; whether that boundary holds against user-written SQL was the subject of
+the Stage 2 security review (OQ-6), now closed; see Decision 2.
 
 **Not chosen:** Metabase. Its free tier embeds static dashboards only; per-tenant filtered
 embedding is a paid feature.
@@ -79,12 +79,22 @@ whole defence against injecting further startup options. Subject ids used for ow
 match the anchored `_PRINCIPAL_ID_RE` in the same file.
 
 Two properties this relies on, both verified against the image's source. They cover the chart and
-embedded paths; for Stage 2 SQL Lab the outcome is recorded after the pending review (OQ-6):
+embedded paths; for Stage 2 SQL Lab they are not enough on their own (see the binding signature
+below):
 
 1. **No connection is reused across tenants.** Superset uses `NullPool` by default — a fresh
    physical connection per query, closed after.
 2. **`analytics_user` cannot bypass RLS.** Migration 0112 sets `NOBYPASSRLS`, and reporting
    views are `security_invoker`, so the caller's privileges and policies apply through them.
+
+**Binding signature (Stage 2 review outcome, GHSA-28jx-36cp-g34h).** The stamped settings alone
+are not enough, because a SQL Lab session can change them with `SET`. Each reporting session also
+carries `app.reporting_binding_sig`, an HMAC-SHA256 over tenant, scope and user id, keyed by
+`REPORTING_BINDING_SECRET`. The database verifies it through `reporting_bound_tenant()` (migration
+0128), and a restrictive policy on every table `analytics_user` can read requires a verified
+tenant. A changed setting no longer matches its signature, so the session sees no rows. With
+Stage 2 on, Superset's chart-data cache is off (`NullCache`), because its cache key has no tenant
+in it. Fix: `1047f03`.
 
 **Not chosen:**
 
@@ -147,8 +157,9 @@ policy instead of offering another way in. The mutator stamps these for any non-
 session. If a session's own-rows binding is unusable — more than one `owuser:` role, or a subject
 that fails `_PRINCIPAL_ID_RE` — it is stamped with `app.reporting_user_id=-`, a subject no ticket
 can have, so the session sees nothing rather than falling back to tenant-wide
-(the own-rows branch of `DB_CONNECTION_MUTATOR` in `superset_config.py`). As with Decision 2, the Stage 2 outcome is recorded after the
-pending review (OQ-6).
+(the own-rows branch of `DB_CONNECTION_MUTATOR` in `superset_config.py`). Scope and user id are
+covered by the same binding signature as the tenant (Decision 2), so a session cannot widen its
+own rows by changing them.
 
 When the scope setting is absent the policy is tenant-wide; the embedded path and staff
 (`admin`, `agent`, `superadmin`) rely on that. On the embedded path a customer asking for the
@@ -212,9 +223,11 @@ reporting database (`allow_dml`, `allow_ctas`, `allow_cvas` all off).
 
 ### Negative and mitigations
 
-- **Stage 2 is pending a security review and must stay disabled.** The review is tracked
-  privately (OQ-6). Mitigation: Stage 2 is off unless `SUPERSET_OAUTH_CLIENT_ID` is set; no
-  deployment sets it until the review closes. Stage 1 remains the production path.
+- **Stage 2 must stay disabled until the gate is signed off.** Mitigation: Stage 2 is off unless
+  `SUPERSET_OAUTH_CLIENT_ID` is set; no deployment sets it until the gate criteria below are met.
+  Stage 1 remains the production path.
+- **`REPORTING_BINDING_SECRET` is required for all reporting, Stage 1 included.** Without it,
+  dashboards are empty (fail closed) and production migrations refuse to run.
 - **The per-connection stamp relies on a direct connection with no pooling.** Superset connects
   to Postgres directly, not through PgBouncer (PgBouncer is configured for `app_user` only).
   Routing reporting through the pinned PgBouncer fails closed either way: checked 2026-09-28
@@ -254,8 +267,8 @@ options`), and adding the parameter to `ignore_startup_parameters` would drop it
   Verified 2026-09-28: a `ReportingAnalyst` downloads chart CSV through `can_csv` and SQL Lab
   streaming CSV through `can_read` on SQLLab (the endpoint declares `@permission_name("read")`);
   only the plain SQL Lab export (`can_export_csv`) is withheld. Exports are bounded by the same
-  scoping as queries (Decisions 2 and 6). Mitigation: Stage 2 stays disabled pending OQ-6, and
-  export-specific rate limiting (standalone T12) is pending.
+  scoping as queries (Decisions 2 and 6). Mitigation: Stage 2 stays disabled until the gate is
+  signed off, and export-specific rate limiting (standalone T12) is pending.
   Unlike the audit gap in Decision 7, this is accepted rather than a defect.
 - **A 60 s pass cannot be revoked.** Mitigation: the lifetime is the revocation window by design
   and is enforced on both sides.
@@ -285,7 +298,7 @@ options`), and adding the parameter to `ignore_startup_parameters` would drop it
 | OQ-3 | Is Superset (metadata DB, result cache, export volume) covered by backups and by ADR-015's retention/erasure sweeps? | `scripts/backup.sh` does not mention Superset today. ADR-015's sweeps are Postgres row-level; the Redis result cache (300 s TTL) is not swept, so erasure cannot be declared complete until it expires.                                         |
 | OQ-4 | Should roles be re-checked when a pass is minted, rather than only at sign-in?                                       | Known gap; bounded by the 60 s pass lifetime.                                                                                                                                                                                                   |
 | OQ-5 | Single-logout and MFA for Stage 2 sessions?                                                                          | Session lifetime is capped (480 min); single-logout and MFA are open in `superset-standalone-with-zitadel.md`.                                                                                                                                  |
-| OQ-6 | Does the Stage 2 boundary (Decisions 2 and 6) hold against user-written SQL?                                         | Pending a security review, tracked privately. Stage 2 stays disabled until it closes; Decisions 2 and 6 then record the outcome. SQL Lab returns no rows for Stage 2 users (#716); Stage 1 is unaffected.                                       |
+| OQ-6 | ~~Does the Stage 2 boundary (Decisions 2 and 6) hold against user-written SQL?~~ **Resolved 2026-09-30.**            | The private review closed with advisory GHSA-28jx-36cp-g34h; the fix (`1047f03`) adds the binding signature recorded in Decisions 2 and 6. The separate SQL Lab 0-row bug (#716) was fixed in #798 (2026-10-07).                                |
 
 ---
 
@@ -298,17 +311,16 @@ not enable anything.
 **Gate owner: PrabhuVijit** (named 2026-10-19). The owner tracks the three items below, confirms
 each is met, and decides when Stage 2 is enabled.
 
-- **Security review (OQ-6).** Owner: PrabhuVijit. Criteria: the
-  review confirms Decisions 2 and 6 hold against user-written SQL, and its outcome is recorded in
-  those decisions. Tracking: the private review, linked from OQ-6.
+- **Security review (OQ-6).** Done: closed 2026-09-30 (GHSA-28jx-36cp-g34h, fix `1047f03`),
+  recorded in Decisions 2 and 6. The gate owner confirms it at sign-off.
 - **Erasure (OQ-3).** The Redis result-cache flush and the Superset metadata-database erasure are
   implemented and tested (`docs/specs/superset-gdpr-erasure.md`, #728).
 - **Connection guard.** The `NullPool` startup assertion and its CI check are in place (done;
   follow-ups #795–#797).
-- **Enablement.** Once the three items above are signed off, set `SUPERSET_OAUTH_CLIENT_ID` in the
-  deployment's environment (`.env` / `.env.local`; Superset's own secrets are not in OpenBao) and
-  restart the Superset container. No ADR amendment is needed: this ADR already covers the Stage 2
-  design.
+- **Enablement.** Once the three items above are signed off, store `SUPERSET_OAUTH_CLIENT_ID` and
+  `SUPERSET_OAUTH_CLIENT_SECRET` in OpenBao at the `superset` and `superset-init` paths
+  (`secret/openwind/<env>/…`, loaded at startup, ADR-023), then restart both. Locally, set them in
+  `.env.local`. No ADR amendment is needed: this ADR already covers the Stage 2 design.
 
 ---
 
@@ -317,11 +329,11 @@ each is met, and decides when Stage 2 is enabled.
 1. No implementation is gated on this ADR: Stages 1–2 are merged (#663–#671, migrations 0112–0124).
 2. ~~Correct ADR-001's database-user table.~~ Done in #702: ADR-001 now lists `analytics_user` as
    "Column-scoped SELECT, subject to RLS | Superset reporting (see ADR-019)".
-3. #709: correct the `PlatformAuditEventLogger` action mapping to
+3. ~~#709: correct the `PlatformAuditEventLogger` action mapping to
    Superset 6.1.0's action names, with a test that a real query and a real export each write a
-   `reporting.*` row (standalone spec T11 is marked done but writes nothing today).
-4. Close OQ-6: once the private Stage 2 review closes, record its outcome in Decisions 2 and 6 and
-   lift the Stage 2 note in Status.
+   `reporting.*` row.~~ Done in #799.
+4. ~~Close OQ-6: once the private Stage 2 review closes, record its outcome in Decisions 2 and 6 and
+   lift the Stage 2 note in Status.~~ Done, see OQ-6.
 5. Update the standalone spec's status line, which says export is "deliberately ungranted pending
    T12": chart CSV and SQL Lab streaming export are available; only T12's limits are pending.
 6. Reconcile the stale option-C wording in `docs/specs/superset-embedded-dashboarding.md` (§V, T3,

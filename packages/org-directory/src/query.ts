@@ -15,7 +15,7 @@ import type { OrgNode, OrgTree, SyncStatus } from "./types.js";
  * themselves.
  */
 
-interface EmployeeRow {
+export interface EmployeeRow {
   id: string;
   userId: string | null;
   parentId: string | null;
@@ -56,21 +56,32 @@ async function fetchAllRows(tenantId: string): Promise<EmployeeRow[]> {
   );
 }
 
-export async function getOrgTree(tenantId: string): Promise<OrgTree | null> {
-  const rows = await fetchAllRows(tenantId);
+// Exported for unit testing; the DB read stays in getOrgTree.
+export function buildOrgTreeFromRows(rows: EmployeeRow[]): OrgTree | null {
   const rootRow = rows.find((r) => r.isRoot);
   if (!rootRow) return null;
+
+  // Parents are keyed by the same identifier a node exposes as `userId` (its auth-provider
+  // id, or the row id for the synthetic root) -- not the row's surrogate id -- so the UI can
+  // find a node's children with `node.userId`.
+  const keyByRowId = new Map(rows.map((r) => [r.id, r.userId ?? r.id]));
 
   const nodesByParentId: Record<string, OrgNode[]> = {};
   for (const row of rows) {
     if (row.isRoot) continue;
-    const parentKey = row.parentId ?? "";
+    const parentKey = row.parentId
+      ? (keyByRowId.get(row.parentId) ?? row.parentId)
+      : "";
     const bucket = nodesByParentId[parentKey] ?? [];
-    bucket.push(toNode(row));
+    bucket.push({ ...toNode(row), parentId: parentKey || null });
     nodesByParentId[parentKey] = bucket;
   }
 
   return { root: toNode(rootRow), nodesByParentId };
+}
+
+export async function getOrgTree(tenantId: string): Promise<OrgTree | null> {
+  return buildOrgTreeFromRows(await fetchAllRows(tenantId));
 }
 
 /**
@@ -135,6 +146,28 @@ export async function getReportsByLevel(
     frontier = next;
   }
   return levels;
+}
+
+/**
+ * Everyone below `userId` at any depth, flattened (excludes `userId` itself). `ids` are the
+ * Zitadel user ids (what tickets and JWTs carry); `members` are the same people as nodes, so
+ * callers get names without a second lookup. Empty when the user isn't in the tree or has no
+ * reports. docs/specs/my-org-view.md R1/R6.
+ */
+export async function getSubtreeMembers(
+  tenantId: string,
+  userId: string,
+): Promise<{ ids: string[]; members: OrgNode[] }> {
+  const levels = await getReportsByLevel(tenantId, userId);
+  const seen = new Set<string>();
+  const members: OrgNode[] = [];
+  for (const node of levels.flat()) {
+    // A cycle that survived the sync's cycle-breaking could list the user themself.
+    if (node.userId === userId || seen.has(node.userId)) continue;
+    seen.add(node.userId);
+    members.push(node);
+  }
+  return { ids: members.map((m) => m.userId), members };
 }
 
 export async function getSyncStatus(tenantId: string): Promise<SyncStatus> {
