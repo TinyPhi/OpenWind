@@ -7,16 +7,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("@refinedev/core", () => ({
   useOne: () => ({
-    data: {
-      data: {
-        id: "et-1",
-        name: "ticket",
-        plural: "Tickets",
-        icon: null,
-        moduleId: null,
-      },
+    result: {
+      id: "et-1",
+      name: "ticket",
+      plural: "Tickets",
+      icon: null,
+      moduleId: null,
     },
-    isLoading: false,
+    query: { isLoading: false },
   }),
 }));
 
