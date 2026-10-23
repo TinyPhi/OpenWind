@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./client.js";
+import { tenants } from "./schema/platform.js";
 import {
   recordPlatformAdminAction,
   type PlatformAdminAction,
@@ -30,6 +31,7 @@ export interface PlatformAdminSandboxView {
   createdAt: string;
   trialStatus: "none" | "active" | "expired";
   trialEndsAt: string | null;
+  logo: string | null;
 }
 
 /** The only columns toPlatformAdminSandboxView reads -- matches the GRANT in 0135_platform_admin_sandbox_columns.sql exactly. */
@@ -39,6 +41,7 @@ export interface PlatformAdminSandboxRow {
   isSandbox: boolean;
   trialEndsAt: Date | null;
   createdAt: Date;
+  logo: string | null;
 }
 
 function trialStatus(
@@ -58,6 +61,7 @@ export function toPlatformAdminSandboxView(
     createdAt: row.createdAt.toISOString(),
     trialStatus: trialStatus(row.trialEndsAt),
     trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
+    logo: row.logo,
   };
 }
 
@@ -135,6 +139,67 @@ export async function endSandboxTrial(
     sql`SELECT platform_admin_end_sandbox_trial(${tenantId}::uuid) AS trial_ends_at`,
   );
 }
+
+export interface SandboxBrandingChange {
+  /** Omitted leaves the name alone; otherwise 1-100 characters after trimming. */
+  name?: string | undefined;
+  /** Omitted leaves the logo alone; a data URL sets it; null clears it. */
+  logo?: string | null | undefined;
+}
+
+/**
+ * R12: sets a sandbox's display name and/or logo through 0155's SECURITY DEFINER function, which
+ * only touches active `is_sandbox` rows and re-checks the name length. The audit row goes first,
+ * in the same transaction, and a false result (nothing changed) rolls it back -- the same shape
+ * as runSandboxTrialFunction. Returns the sandbox's row as it stands after the change, read in the
+ * same transaction so a delete racing in afterwards can't turn a saved change into a 404, or null
+ * when no active sandbox matched or nothing was asked.
+ */
+export async function setSandboxBranding(
+  tenantId: string,
+  change: SandboxBrandingChange,
+  actorSub: string,
+): Promise<PlatformAdminSandboxRow | null> {
+  const name = change.name ?? null;
+  const setLogo = change.logo !== undefined;
+  const logo = change.logo ?? null;
+  try {
+    return await db.transaction(async (tx) => {
+      await recordPlatformAdminAction(
+        {
+          actorSub,
+          action: "sandbox.branding_changed",
+          targetTenantId: tenantId,
+        },
+        tx,
+      );
+      await tx.execute(sql`SET LOCAL ROLE platform_admin_role`);
+      const rows = await tx.execute<{ changed: boolean }>(
+        sql`SELECT platform_admin_set_sandbox_branding(${tenantId}::uuid, ${name}, ${logo}, ${setLogo}) AS changed`,
+      );
+      if (rows[0]?.changed !== true) throw new SandboxBrandingNotUpdated();
+      const [row] = await tx
+        .select({
+          id: tenants.id,
+          name: tenants.name,
+          isSandbox: tenants.isSandbox,
+          trialEndsAt: tenants.trialEndsAt,
+          createdAt: tenants.createdAt,
+          logo: tenants.logo,
+        })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      if (!row) throw new SandboxBrandingNotUpdated();
+      return row;
+    });
+  } catch (err) {
+    if (err instanceof SandboxBrandingNotUpdated) return null;
+    throw err;
+  }
+}
+
+class SandboxBrandingNotUpdated extends Error {}
 
 export interface SandboxQuotaCheck {
   allowed: boolean;

@@ -48,6 +48,23 @@ function chain(result: unknown): unknown {
   return proxy;
 }
 
+// Values the lifecycle connection's tenants update was asked to set (the 'purged' tombstone).
+const lifecycleSets: unknown[] = [];
+const lifecycleTx = new Proxy(
+  {},
+  {
+    get: (_t, p) =>
+      p === "update"
+        ? () => ({
+            set: (values: unknown) => {
+              lifecycleSets.push(values);
+              return chain([]);
+            },
+          })
+        : () => chain([]),
+  },
+);
+
 const PLAIN_DB = { kind: "plain-db" };
 const TENANT_TX = { kind: "tenant-tx" };
 const PURGE_TX = { kind: "purge-tx" };
@@ -148,7 +165,8 @@ vi.mock("@platform/db", () => {
     db,
     withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
       mockWithTenantContext(...args),
-    withTenantLifecycleContext: (fn: (tx: unknown) => unknown) => fn(chain([])),
+    withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
+      fn(lifecycleTx),
     withEventLogMaintenanceContext: (
       ...args: Parameters<typeof mockWithEventLogMaintenanceContext>
     ) => mockWithEventLogMaintenanceContext(...args),
@@ -205,6 +223,7 @@ beforeEach(() => {
   writes.plain.length = 0;
   writes.purge.length = 0;
   writes.eventLog.length = 0;
+  lifecycleSets.length = 0;
 });
 
 describe("tenant-purge retry after the DB purge committed", () => {
@@ -252,6 +271,20 @@ describe("tenant-purge Superset cache flush (#728)", () => {
     });
     expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
     expect(mockEnqueueFlush).toHaveBeenCalledWith(TENANT_ID, "tenant_purged");
+  });
+});
+
+describe("tenant-purge tombstone (R12)", () => {
+  it("clears the sandbox logo when it marks the tenant purged", async () => {
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 0,
+      data: { tenantId: TENANT_ID },
+    });
+
+    expect(lifecycleSets).toEqual([
+      expect.objectContaining({ status: "purged", logo: null }),
+    ]);
   });
 });
 
