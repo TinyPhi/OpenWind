@@ -82,6 +82,14 @@ def load_config(superset_root: Path | None):
     # `superset` module object whose submodules aren't attached to it.
     sys.modules.pop("superset_config", None)
     stub = None
+    # Every `superset` module as it was, so the fake tree below can be swapped
+    # out again afterwards. Popping them on the way out left a later real-install
+    # test with no `superset` in sys.modules, and its next import built a second
+    # package beside the one Flask already holds (test_audit_realdb then failed
+    # with "generator ignored GeneratorExit" when run after this file).
+    real_superset = {
+        k: v for k, v in sys.modules.items() if k == "superset" or k.startswith("superset.")
+    } if superset_root is not None else None
     if superset_root is not None:
         sys.modules.pop("superset", None)
         stub = types.ModuleType("superset.config")
@@ -100,9 +108,11 @@ def load_config(superset_root: Path | None):
         if superset_root is not None:
             sys.path.remove(str(superset_root.parent))
         sys.modules.pop("superset_config", None)
-        if stub is not None:
-            sys.modules.pop("superset", None)
-            sys.modules.pop("superset.config", None)
+        if real_superset is not None:
+            for name in [k for k in sys.modules if k == "superset" or k.startswith("superset.")]:
+                if name not in real_superset:
+                    del sys.modules[name]
+            sys.modules.update(real_superset)
 
 
 class NullPoolGuard(unittest.TestCase):

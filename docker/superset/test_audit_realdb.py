@@ -161,6 +161,11 @@ class AuditAgainstRealDatabase(unittest.TestCase):
         config = self.config
 
         class FakeDatabase:
+            # The fields the audit writer reads off the real row (#812): without
+            # them it raised, wrote no row, and this file failed on main.
+            id = 2
+            database_name = "OpenWind Platform"
+
             @contextlib.contextmanager
             def get_sqla_engine(self_inner):
                 _, params = config.DB_CONNECTION_MUTATOR(
