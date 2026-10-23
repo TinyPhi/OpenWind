@@ -137,7 +137,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
       <button
         type="button"
         className="portal-back-link"
-        onClick={() => navigate("/admin/schedule-rules")}
+        onClick={() => void navigate("/admin/schedule-rules")}
       >
         ← Schedule Rules
       </button>

@@ -55,9 +55,8 @@ const PLUGIN_ROWS = [
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseList.mockReturnValue({
-    data: { data: PLUGIN_ROWS },
-    isLoading: false,
-    refetch: mockRefetch,
+    result: { data: PLUGIN_ROWS, total: PLUGIN_ROWS.length },
+    query: { isLoading: false, refetch: mockRefetch },
   });
 });
 
@@ -120,9 +119,8 @@ describe("Plugins page", () => {
 
   it("shows a loading state while the list is loading", () => {
     mockUseList.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      refetch: mockRefetch,
+      result: { data: [], total: undefined },
+      query: { isLoading: true, refetch: mockRefetch },
     });
     render(<Plugins />);
     expect(screen.getByText("Loading plugins…")).toBeDefined();

@@ -1963,7 +1963,7 @@ export function WorkflowDetail(): React.ReactElement {
     setDeleteWorkflowError(null);
     try {
       await fetchWithAuth(`${API_URL}/workflows/${id}`, { method: "DELETE" });
-      navigate("/workflows");
+      void navigate("/workflows");
     } catch (err) {
       setDeleteWorkflowError(
         err instanceof Error ? err.message : "Failed to delete workflow",
@@ -2299,7 +2299,9 @@ export function WorkflowDetail(): React.ReactElement {
             <Button
               variant="primary"
               onClick={() =>
-                navigate(`/workflows/${toWorkflowSlug(workflow.name)}/records`)
+                void navigate(
+                  `/workflows/${toWorkflowSlug(workflow.name)}/records`,
+                )
               }
             >
               <svg

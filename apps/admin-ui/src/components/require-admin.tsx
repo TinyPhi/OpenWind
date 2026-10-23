@@ -3,7 +3,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { usePermissions } from "@refinedev/core";
 
 export function RequireAdmin(): React.ReactElement {
-  const { data: roles, isLoading } = usePermissions<string[]>();
+  const { data: roles, isLoading } = usePermissions<string[]>({});
 
   if (isLoading) return <></>;
 
