@@ -723,9 +723,9 @@ export function CustomerRecordCreate(): React.ReactElement {
         // Only the record page renders a navigation notice, and returnTo can be any page, so
         // the warning goes through the global alert there instead of being lost.
         if (notice) showAlert(notice);
-        navigate(routeState.returnTo);
+        void navigate(routeState.returnTo);
       } else {
-        navigate(
+        void navigate(
           `/records/${typeSlug}/${created.id}`,
           notice ? { state: { notice } } : undefined,
         );
@@ -748,7 +748,7 @@ export function CustomerRecordCreate(): React.ReactElement {
       <button
         type="button"
         className="portal-back-link"
-        onClick={() => navigate(-1)}
+        onClick={() => void navigate(-1)}
       >
         ← {entityType?.plural ?? "Records"}
       </button>
@@ -1019,7 +1019,7 @@ export function CustomerRecordCreate(): React.ReactElement {
           <button
             type="button"
             className="portal-btn-secondary"
-            onClick={() => navigate(-1)}
+            onClick={() => void navigate(-1)}
           >
             Cancel
           </button>

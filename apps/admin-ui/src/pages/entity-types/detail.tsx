@@ -176,7 +176,10 @@ function EnumOptionsList({
 
 export function EntityTypeDetail(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useOne<EntityType>({
+  const {
+    result: entityType,
+    query: { isLoading },
+  } = useOne<EntityType>({
     resource: "entity-types",
     id: id ?? "missing",
   });
@@ -333,7 +336,6 @@ export function EntityTypeDetail(): React.ReactElement {
     }
   }
 
-  const entityType = data?.data;
   const sortedFields = [...fields].sort((a, b) => a.sortOrder - b.sortOrder);
   const selectFields = sortedFields.filter(
     (f) =>

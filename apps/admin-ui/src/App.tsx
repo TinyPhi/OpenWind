@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import { Refine, Authenticated } from "@refinedev/core";
-import routerProvider from "@refinedev/react-router-v6";
+import routerProvider from "@refinedev/react-router";
 import {
   BrowserRouter,
   Routes,

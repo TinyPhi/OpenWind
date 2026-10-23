@@ -924,7 +924,7 @@ export function Analytics(): React.ReactElement {
         !r.includes("agent");
       setIsCustomer(customer);
       setRolesReady(true);
-      if (customer) navigate("/records", { replace: true });
+      if (customer) void navigate("/records", { replace: true });
     });
   }, [navigate]);
 
@@ -1140,7 +1140,7 @@ export function Analytics(): React.ReactElement {
             <Button
               variant="primary"
               size="sm"
-              onClick={() => navigate("/workflows/new")}
+              onClick={() => void navigate("/workflows/new")}
             >
               + New Workflow
             </Button>
@@ -1148,7 +1148,7 @@ export function Analytics(): React.ReactElement {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => navigate("/modules")}
+            onClick={() => void navigate("/modules")}
           >
             Browse Modules
           </Button>
@@ -1171,7 +1171,7 @@ export function Analytics(): React.ReactElement {
           sub={`${activeWorkflows} active`}
           icon="⟳"
           color="hsl(211,100%,45%)"
-          onClick={() => navigate("/workflows")}
+          onClick={() => void navigate("/workflows")}
         />
         <KpiCard
           label="Total Records"
@@ -1181,7 +1181,7 @@ export function Analytics(): React.ReactElement {
           }
           icon="📋"
           color="hsl(265,84%,60%)"
-          onClick={() => navigate("/records")}
+          onClick={() => void navigate("/records")}
           {...(loading ? {} : { spark: sparkTotal })}
         />
         <KpiCard
@@ -1198,7 +1198,7 @@ export function Analytics(): React.ReactElement {
           color={
             needsAttention.length > 0 ? "hsl(350,80%,60%)" : "hsl(35,90%,50%)"
           }
-          onClick={() => navigate("/records")}
+          onClick={() => void navigate("/records")}
         />
         <KpiCard
           label="Installed Modules"
@@ -1206,7 +1206,7 @@ export function Analytics(): React.ReactElement {
           sub={`of ${modules.length} available`}
           icon="🧩"
           color="hsl(150,75%,40%)"
-          onClick={() => navigate("/modules")}
+          onClick={() => void navigate("/modules")}
         />
       </div>
 
@@ -1247,7 +1247,7 @@ export function Analytics(): React.ReactElement {
                     padding: "4px 10px",
                     fontSize: "12px",
                   }}
-                  onClick={() => navigate("/workflows")}
+                  onClick={() => void navigate("/workflows")}
                 >
                   View all →
                 </Button>
@@ -1266,7 +1266,7 @@ export function Analytics(): React.ReactElement {
                 No workflows yet.{" "}
                 <span
                   style={{ color: "var(--accent-primary)", cursor: "pointer" }}
-                  onClick={() => navigate("/workflows/new")}
+                  onClick={() => void navigate("/workflows/new")}
                 >
                   Create one →
                 </span>
@@ -1333,7 +1333,9 @@ export function Analytics(): React.ReactElement {
                     stat={s}
                     index={i}
                     onClick={() =>
-                      navigate(`/workflows/${slugify(s.workflow.name)}/records`)
+                      void navigate(
+                        `/workflows/${slugify(s.workflow.name)}/records`,
+                      )
                     }
                   />
                 ))}
@@ -1359,7 +1361,7 @@ export function Analytics(): React.ReactElement {
                     padding: "4px 10px",
                     fontSize: "12px",
                   }}
-                  onClick={() => navigate("/records")}
+                  onClick={() => void navigate("/records")}
                 >
                   View all →
                 </Button>
@@ -1385,7 +1387,7 @@ export function Analytics(): React.ReactElement {
                     record={r}
                     isLast={idx === recentRecords.length - 1}
                     onClick={() =>
-                      navigate(`/workflows/${r.workflowSlug}/records`)
+                      void navigate(`/workflows/${r.workflowSlug}/records`)
                     }
                   />
                 ))}
@@ -1435,7 +1437,7 @@ export function Analytics(): React.ReactElement {
                   label={item.label}
                   value={item.value}
                   loading={loading}
-                  onClick={() => navigate(item.link)}
+                  onClick={() => void navigate(item.link)}
                 />
               ))}
             </div>
@@ -1485,7 +1487,7 @@ export function Analytics(): React.ReactElement {
                   key={a.path}
                   icon={a.icon}
                   label={a.label}
-                  onClick={() => navigate(a.path)}
+                  onClick={() => void navigate(a.path)}
                 />
               ))}
             </div>
@@ -1556,7 +1558,7 @@ export function Analytics(): React.ReactElement {
                   <div
                     key={o.id}
                     onClick={() =>
-                      navigate(`/workflows/${o.workflowSlug}/records`)
+                      void navigate(`/workflows/${o.workflowSlug}/records`)
                     }
                     style={{
                       display: "flex",
