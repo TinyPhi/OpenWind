@@ -6,13 +6,14 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ExtendTrialDialog } from "./extend-trial-dialog.js";
 import { StepUpMfaDialog } from "./step-up-mfa-dialog.js";
 
-type ActionKind = "reset" | "delete" | "end_trial";
+type ActionKind = "reset" | "delete" | "end_trial" | "seed_org_tree";
 
 // Path segment under /platform-admin/sandboxes/:tenantId for each confirmed action.
 const ACTION_PATH: Record<ActionKind, string> = {
   reset: "reset",
   delete: "delete",
   end_trial: "trial/end",
+  seed_org_tree: "seed-org-tree",
 };
 
 export interface SandboxRowActionsProps {
@@ -62,6 +63,17 @@ const CONFIRM_COPY: Record<
     ),
     confirmLabel: "End trial",
   },
+  seed_org_tree: {
+    title: "Seed the org chart?",
+    message: (name) => (
+      <>
+        This sets the default departments, titles and managers on every account
+        in <strong>{name}</strong> (overwriting those three fields in Zitadel)
+        and rebuilds its org chart from them. Safe to run again.
+      </>
+    ),
+    confirmLabel: "Seed org chart",
+  },
 };
 
 /**
@@ -92,7 +104,7 @@ const CONFIRM_COPY: Record<
 
 // Rough rendered height of the three-item menu, used only to decide whether it fits below
 // the button or should open upward.
-const MENU_HEIGHT_ESTIMATE = 130;
+const MENU_HEIGHT_ESTIMATE = 170;
 const MENU_GAP = 6;
 
 interface MenuPosition {
@@ -255,6 +267,14 @@ export function SandboxRowActions({
                 onClick={() => choose(() => setConfirming("reset"))}
               >
                 Reset
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                onClick={() => choose(() => setConfirming("seed_org_tree"))}
+              >
+                Seed org chart
               </button>
               <button
                 type="button"

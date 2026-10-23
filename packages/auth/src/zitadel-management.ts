@@ -771,6 +771,42 @@ export async function authorizeUser(
   );
 }
 
+// ── Org-chart metadata ───────────────────────────────────────────────────────
+
+/**
+ * Writes the org-directory metadata keys (manager_id / department / title) onto a user, so the
+ * org chart built from Zitadel metadata has real data for a freshly seeded sandbox. Only the
+ * keys in `ORG_METADATA_KEYS` are written, and null/empty values are skipped. Zitadel v2
+ * UserService.SetUserMetadata takes base64-encoded values, matching what the reader decodes.
+ */
+export async function setUserOrgMetadata(
+  userId: string,
+  metadata: Partial<OrgMetadata>,
+): Promise<boolean> {
+  const pairs: [string, string | null | undefined][] = [
+    ["manager_id", metadata.managerId],
+    ["department", metadata.department],
+    ["title", metadata.title],
+  ];
+  const entries = pairs
+    .filter((p): p is [string, string] => !!p[1])
+    .map(([key, value]) => ({
+      key,
+      value: Buffer.from(value, "utf8").toString("base64"),
+    }));
+  if (entries.length === 0) return true;
+  const ok = await provisioningPost(
+    "/zitadel.user.v2.UserService/SetUserMetadata",
+    { userId, metadata: entries },
+    { userId },
+    "setUserOrgMetadata: Zitadel set metadata failed",
+  );
+  // getOrgMetadataForUser caches a user's metadata for CACHE_TTL_MS; drop it so a read right
+  // after this write (the org sync that follows a re-seed) sees the new values, not the old.
+  _orgMetadataCache.delete(userId);
+  return ok;
+}
+
 // ── List project roles ────────────────────────────────────────────────────────
 
 export async function listProjectRoles(): Promise<string[]> {
