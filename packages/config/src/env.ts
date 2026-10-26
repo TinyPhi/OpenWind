@@ -76,6 +76,21 @@ const EnvSchema = z
     // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
     // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
     SUPERSET_REDIS_URL: z.string().url().optional(),
+    // Superset Stage 2 (standalone SSO) is on when this is set. Superset reads it itself; the API
+    // and worker read it only to know whether Superset holds user accounts to erase (#728, D8).
+    // Empty counts as unset, since compose passes unset variables through as empty strings.
+    SUPERSET_OAUTH_CLIENT_ID: z
+      .string()
+      .optional()
+      .transform((v) => (v?.trim() ? v.trim() : undefined)),
+    // Whether a user erasure or tenant purge also reaches Superset when Stage 2 is off (then it
+    // only flushes the result cache). With Stage 2 on this cannot turn the erasure off, because
+    // Superset then holds accounts that must be erased; a warning is logged if it is set to false.
+    // Strict "true"/"false" so a typo fails startup.
+    SUPERSET_ERASURE_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
     // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
     // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
     // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).
@@ -750,6 +765,21 @@ export type Env = z.infer<typeof EnvSchema>;
 // parse a minimal env object directly instead of mutating process.env before
 // this module's top-level `env.parse(process.env)` side effect has already run.
 export { EnvSchema };
+
+/**
+ * What an erasure or tenant purge does in Superset (docs/specs/superset-gdpr-erasure.md, D8).
+ * "full": Stage 2 is on, so Superset holds user accounts; erase them and flush the cache.
+ * "cache-only": Stage 2 is off; guests are not stored as Superset users, so only the cache is flushed.
+ * "off": Stage 2 is off and the setting turns Superset erasure off.
+ */
+export type SupersetErasureMode = "full" | "cache-only" | "off";
+
+export function supersetErasureMode(
+  v: Pick<Env, "SUPERSET_OAUTH_CLIENT_ID" | "SUPERSET_ERASURE_ENABLED">,
+): SupersetErasureMode {
+  if (v.SUPERSET_OAUTH_CLIENT_ID) return "full";
+  return v.SUPERSET_ERASURE_ENABLED ? "cache-only" : "off";
+}
 
 export interface PlanLimits {
   apiCallsPerDay: number;

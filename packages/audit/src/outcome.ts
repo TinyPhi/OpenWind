@@ -123,6 +123,9 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "workflow.transition_conditions_updated": true,
   "workflow.state_overridden": true,
   "workflow.override_policy_updated": true,
+  // System outcomes of a Superset erasure job, not a caller's request being denied.
+  "superset_erasure.completed": true,
+  "superset_erasure.failed": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

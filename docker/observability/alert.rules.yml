@@ -92,6 +92,32 @@ groups:
           summary: "More than 10% of schedule rule fires are failing"
           description: "Schedule rule fires failed at {{ $value | humanizePercentage }} over the last 10 minutes."
 
+      # #728 (docs/specs/superset-gdpr-erasure.md): the Superset erasure job spent every retry
+      # (about 26 hours) without finishing, so a user's or tenant's data may still be in Superset.
+      # The superset_erasure.failed audit row was written for the same job. Runbook:
+      # docs/runbooks/superset-erasure.md.
+      - alert: SupersetErasureFailed
+        expr: increase(openwind_superset_erasure_total{outcome="failed"}[1h]) > 0
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "A Superset erasure ran out of retries without completing"
+          description: '{{ $value | printf "%.0f" }} Superset erasure job(s) failed on their last retry in the last hour. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
+
+      # Backstop for the alert above: a failed superset-erasure job stays in the queue for 7 days, so this
+      # also catches one the counter cannot see (a job BullMQ failed after it stalled twice, or a counter
+      # lost to a restart). It clears when the job is removed or after the 7 days.
+      - alert: SupersetErasureJobFailedInQueue
+        expr: bullmq_queue_depth{queue_name="superset-erasure",status="failed"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "A failed Superset erasure job is waiting in the queue"
+          description: '{{ $value | printf "%.0f" }} superset-erasure job(s) are in the failed state. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
+
       - alert: ScheduleTickDurationSLOBreach
         expr: histogram_quantile(0.99, sum by (le) (rate(openwind_schedule_tick_duration_ms_bucket[5m]))) > 5000
         for: 5m

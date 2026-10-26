@@ -13,6 +13,7 @@ import { writeAuditEntry, auditResourceId } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { eraseUserFromTenant } from "../../services/user-erasure.js";
 import { enqueueSupersetCacheFlush } from "../../lib/superset-cache-flush-queue.js";
+import { eraseUserInSuperset } from "../../lib/superset-erasure-queue.js";
 import { userExportRouter } from "./user-export.js";
 
 type AppVars = { Variables: { auth: AuthContext } };
@@ -144,12 +145,11 @@ usersRouter.delete(
     const { tenantId, userId: adminUserId } = c.get("auth");
     const targetUserId = c.req.param("userId");
 
+    let wasMember = false;
     await withTenantContext(tenantId, async (tx) => {
-      const { rotatedApiKeys } = await eraseUserFromTenant(
-        tx,
-        tenantId,
-        targetUserId,
-      );
+      const erased = await eraseUserFromTenant(tx, tenantId, targetUserId);
+      const { rotatedApiKeys } = erased;
+      wasMember = erased.wasMember;
       // #688: one entry per key put on a forced rotation window, so admins
       // can find every key the erased user created and rotate it in time.
       for (const key of rotatedApiKeys) {
@@ -202,6 +202,17 @@ usersRouter.delete(
     // so they are flushed once the erasure has committed. Never throws.
     await enqueueSupersetCacheFlush(tenantId, "user_erased");
 
-    return c.json({ success: true });
+    // #728: with Superset Stage 2 on, their Superset account, queries and logs are erased by a
+    // worker job that retries until it finishes and records the outcome. Never throws. Only for a
+    // member of this tenant: Superset also matches an account of the subject that holds no tenant
+    // role, and an admin must not reach a person outside their organisation through it. The reply
+    // says what happened, so the admin can be told (a toast once the admin-ui has an erase button).
+    const superset = await eraseUserInSuperset({
+      tenantId,
+      subject: targetUserId,
+      wasMember,
+    });
+
+    return c.json({ success: true, superset });
   },
 );

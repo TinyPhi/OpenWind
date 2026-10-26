@@ -207,6 +207,13 @@ vi.mock("./superset-cache-flush.js", () => ({
   enqueueSupersetCacheFlush: mockEnqueueFlush,
 }));
 
+const { mockEnqueueErasure } = vi.hoisted(() => ({
+  mockEnqueueErasure: vi.fn(),
+}));
+vi.mock("./superset-erasure.js", () => ({
+  enqueueSupersetErasure: mockEnqueueErasure,
+}));
+
 await import("./tenant-purge.js");
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -271,6 +278,34 @@ describe("tenant-purge Superset cache flush (#728)", () => {
     });
     expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
     expect(mockEnqueueFlush).toHaveBeenCalledWith(TENANT_ID, "tenant_purged");
+  });
+});
+
+describe("tenant-purge Superset erasure (#728)", () => {
+  it("queues the tenant's Superset erasure after the purge", async () => {
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 0,
+      data: { tenantId: TENANT_ID },
+    });
+    expect(mockEnqueueErasure).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueErasure).toHaveBeenCalledWith({
+      kind: "tenant",
+      tenantId: TENANT_ID,
+    });
+  });
+
+  it("queues it again on a retry after the purge committed, so a lost enqueue is not final", async () => {
+    mockTenantStatus.mockReturnValue([{ status: "purged" }]);
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 1,
+      data: { tenantId: TENANT_ID },
+    });
+    expect(mockEnqueueErasure).toHaveBeenCalledWith({
+      kind: "tenant",
+      tenantId: TENANT_ID,
+    });
   });
 });
 

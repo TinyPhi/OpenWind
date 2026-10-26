@@ -27,6 +27,18 @@ const { mockEnqueueFlush } = vi.hoisted(() => ({ mockEnqueueFlush: vi.fn() }));
 vi.mock("../../lib/superset-cache-flush-queue.js", () => ({
   enqueueSupersetCacheFlush: mockEnqueueFlush,
 }));
+const { mockEnqueueErasure } = vi.hoisted(() => ({
+  mockEnqueueErasure: vi.fn(),
+}));
+vi.mock("../../lib/superset-erasure-queue.js", () => ({
+  eraseUserInSuperset: mockEnqueueErasure,
+}));
+// What eraseUserInSuperset (unit-tested in superset-erasure-queue.test.ts) answers here.
+const QUEUED = {
+  status: "queued",
+  switchIgnored: false,
+  message: "The user's Superset data is being erased.",
+};
 // Export routes have their own test (user-export.test.ts).
 vi.mock("./user-export.js", () => ({ userExportRouter: new Hono() }));
 vi.mock("../../services/user-erasure.js", () => ({
@@ -169,7 +181,39 @@ describe("GET /users", () => {
   describe("DELETE /users/:userId", () => {
     beforeEach(() => {
       vi.clearAllMocks();
-      mockEraseUserFromTenant.mockResolvedValue({ rotatedApiKeys: [] });
+      mockEraseUserFromTenant.mockResolvedValue({
+        rotatedApiKeys: [],
+        wasMember: true,
+      });
+      mockEnqueueErasure.mockResolvedValue(QUEUED);
+    });
+
+    it("passes the membership it read to the Superset step, and replies with what happened (#728)", async () => {
+      mockEraseUserFromTenant.mockResolvedValueOnce({
+        rotatedApiKeys: [],
+        wasMember: false,
+      });
+      const notMember = {
+        status: "not_member",
+        switchIgnored: false,
+        message:
+          "Superset data was not erased because the user was not a member of this organisation.",
+      };
+      mockEnqueueErasure.mockResolvedValueOnce(notMember);
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+      const res = await makeApp().request("/users/someone-elses-user", {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(200);
+      expect(mockEnqueueErasure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: "someone-elses-user",
+          wasMember: false,
+        }),
+      );
+      expect(await res.json()).toEqual({ success: true, superset: notMember });
+      // The cache flush is global, not personal, so it still runs.
+      expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
     });
 
     it("audits each API key put on a forced rotation window (#688)", async () => {
@@ -244,6 +288,20 @@ describe("GET /users", () => {
         expect.any(String),
         "user_erased",
       );
+      // The Zitadel user id is the subject Superset knows them by.
+      expect(mockEnqueueErasure).toHaveBeenCalledWith({
+        tenantId: tenantIdArg,
+        subject: "target-user-123",
+        wasMember: true,
+      });
+      expect(body.superset).toEqual(QUEUED);
+    });
+
+    it("queues no Superset erasure when the platform erasure fails (#728)", async () => {
+      mockEraseUserFromTenant.mockRejectedValueOnce(new Error("boom"));
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+      await makeApp().request("/users/target-user-123", { method: "DELETE" });
+      expect(mockEnqueueErasure).not.toHaveBeenCalled();
     });
 
     it("queues no Superset cache flush when the erasure fails (#728)", async () => {

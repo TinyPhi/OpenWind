@@ -88,6 +88,7 @@ import { deleteTenantFiles } from "@platform/files";
 import { deleteSandboxHandoverCredentials } from "@platform/auth";
 import { connection } from "./queues.js";
 import { enqueueSupersetCacheFlush } from "./superset-cache-flush.js";
+import { enqueueSupersetErasure } from "./superset-erasure.js";
 
 import {
   entityInstances,
@@ -220,6 +221,10 @@ async function cleanUpOutsideDatabase(tenantId: string): Promise<void> {
   // #728: Superset caches query results (including this tenant's) under keys that are not
   // namespaced by tenant, so the cache is flushed once after the purge. Never throws.
   await enqueueSupersetCacheFlush(tenantId, "tenant_purged");
+
+  // #728: with Stage 2 on, Superset holds this tenant's user accounts, queries and logs. The
+  // erasure retries until it finishes and records the outcome. Never throws.
+  await enqueueSupersetErasure({ kind: "tenant", tenantId });
 }
 
 export const tenantPurgeWorker = new Worker<PurgeJobData>(
