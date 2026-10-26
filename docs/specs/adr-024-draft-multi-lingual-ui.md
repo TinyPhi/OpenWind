@@ -6,7 +6,7 @@
 
 **Status:** Proposed
 **Date:** 2026-10-26
-**Deciders:** Engineering Lead
+**Deciders:** PrabhuVijit (vijit@jmv.co.in), approved 2026-10-26
 **Related to:** Issue #200, docs/specs/multi-lingual-support.md
 **Supersedes:** —
 **Superseded by:** —
