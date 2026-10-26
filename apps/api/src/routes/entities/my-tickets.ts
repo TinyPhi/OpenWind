@@ -35,7 +35,7 @@ const MY_TICKETS_LIMIT = MAX_PAGE_SIZE;
 type AccessReason = "creator" | "assigned" | "mention" | "manual";
 
 const MyTicketsQuerySchema = z.object({
-  workflowId: z.string().uuid().optional(),
+  workflowId: z.guid().optional(),
   // docs/specs/ticket-severity-and-tags.md T10c — mirrors list.ts's own
   // severity/tag/origin query params so the records page's filters work
   // identically for a plain "user" caller (this endpoint) and an

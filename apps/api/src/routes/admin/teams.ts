@@ -24,10 +24,10 @@ const router = new Hono<Vars>();
 
 router.use("*", requireAuth(db));
 
-const TeamIdParamSchema = z.object({ id: z.string().uuid() });
+const TeamIdParamSchema = z.object({ id: z.guid() });
 
 const ListTeamsQuerySchema = z.object({
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

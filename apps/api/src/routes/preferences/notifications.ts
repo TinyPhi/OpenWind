@@ -29,7 +29,7 @@ const PreferencesPatchSchema = z.object({
       sms: z.boolean().optional(),
     })
     .optional(),
-  templateOverrides: z.record(ChannelOverridesSchema).optional(),
+  templateOverrides: z.record(z.string(), ChannelOverridesSchema).optional(),
 });
 
 export const getNotificationPrefsHandler = factory.createHandlers(

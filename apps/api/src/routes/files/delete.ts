@@ -7,7 +7,7 @@ import { deleteFile, FileError } from "@platform/files";
 import { factory } from "./factory.js";
 import { emitFileDeleted } from "../../lib/emit-access-event.js";
 
-const FileIdParamSchema = z.object({ id: z.string().uuid() });
+const FileIdParamSchema = z.object({ id: z.guid() });
 
 export const deleteFileHandler = factory.createHandlers(
   requireAuth(),

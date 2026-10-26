@@ -8,7 +8,7 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 
 const ListWorkflowsQuerySchema = z.object({
-  entityTypeId: z.string().uuid().optional(),
+  entityTypeId: z.guid().optional(),
   activeOnly: z
     .string()
     .optional()

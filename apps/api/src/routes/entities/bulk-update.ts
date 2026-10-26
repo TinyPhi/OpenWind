@@ -10,8 +10,8 @@ const BulkUpdateSchema = z.object({
   items: z
     .array(
       z.object({
-        id: z.string().uuid(),
-        fields: z.record(z.unknown()).optional(),
+        id: z.guid(),
+        fields: z.record(z.string(), z.unknown()).optional(),
         assignedTo: z.string().nullable().optional(),
         // A ticket's due date can be changed, never removed (mandatory-ticket-fields R5).
         dueDate: z.string().datetime().optional(),

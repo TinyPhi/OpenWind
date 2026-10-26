@@ -150,8 +150,8 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
 );
 
 const CreateThirdPartyTicketSchema = z.object({
-  workflowId: z.string().uuid(),
-  fields: z.record(z.unknown()).default({}),
+  workflowId: z.guid(),
+  fields: z.record(z.string(), z.unknown()).default({}),
   // Mandatory platform-wide invariant on every creation path (this route,
   // entities/create.ts, third-party/children.ts) -- title, assignedTo, and
   // dueDate are required on every ticket, on every workflow, no exceptions.
@@ -172,10 +172,7 @@ const CreateThirdPartyTicketSchema = z.object({
   // unconditionally, confirmed decision, no error path for this case).
   // ADR-012 Phase D, spec R3 -- references completed attachment uploads
   // presigned without a ticketId (the create-time-attach case).
-  attachmentIds: z
-    .array(z.string().uuid())
-    .max(MAX_ATTACHMENTS_PER_TICKET)
-    .default([]),
+  attachmentIds: z.array(z.guid()).max(MAX_ATTACHMENTS_PER_TICKET).default([]),
 });
 
 /**

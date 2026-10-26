@@ -23,8 +23,8 @@ import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.
 import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 
 const CreateThirdPartyChildSchema = z.object({
-  entityTypeId: z.string().uuid(),
-  fields: z.record(z.unknown()).default({}),
+  entityTypeId: z.guid(),
+  fields: z.record(z.string(), z.unknown()).default({}),
   // Mandatory platform-wide invariant on every creation path (this route,
   // entities/create.ts, third-party/tickets.ts) -- title, assignedTo, and
   // dueDate are required on every ticket, on every workflow, no exceptions.

@@ -46,19 +46,19 @@ router.use("*", requireAuth(db));
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 const CHANNELS = ["email", "sms", "whatsapp", "call"] as const;
 
-const PolicyIdParamSchema = z.object({ id: z.string().uuid() });
+const PolicyIdParamSchema = z.object({ id: z.guid() });
 
 const ListPoliciesQuerySchema = z.object({
-  teamId: z.string().uuid().optional(),
-  workflowTypeId: z.string().uuid().optional(),
+  teamId: z.guid().optional(),
+  workflowTypeId: z.guid().optional(),
   severity: z.enum(SEVERITIES).optional(),
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 const CreatePolicySchema = z.object({
-  teamId: z.string().uuid().optional(),
-  workflowTypeId: z.string().uuid().optional(),
+  teamId: z.guid().optional(),
+  workflowTypeId: z.guid().optional(),
   severity: z.enum(SEVERITIES),
   channels: z
     .array(z.enum(CHANNELS))
@@ -74,8 +74,8 @@ const UpdatePolicySchema = CreatePolicySchema.partial();
 
 const ResolvePolicyQuerySchema = z.object({
   severity: z.enum(SEVERITIES),
-  teamId: z.string().uuid().optional(),
-  workflowTypeId: z.string().uuid().optional(),
+  teamId: z.guid().optional(),
+  workflowTypeId: z.guid().optional(),
 });
 
 function isUniqueViolation(err: unknown): boolean {

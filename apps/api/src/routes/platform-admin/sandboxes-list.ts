@@ -63,7 +63,7 @@ export const sandboxListHandler = platformAdminFactory.createHandlers(
   },
 );
 
-const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
+const TenantIdParamSchema = z.object({ tenantId: z.guid() });
 
 export const sandboxDetailHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),

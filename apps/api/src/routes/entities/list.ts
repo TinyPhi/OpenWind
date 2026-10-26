@@ -22,7 +22,7 @@ import {
 } from "../../lib/resolve-origin-display.js";
 
 const ListEntitiesQuerySchema = z.object({
-  entityTypeId: z.string().uuid(),
+  entityTypeId: z.guid(),
   state: z.string().optional(),
   assignedTo: z.string().optional(),
   // The records list's "Unassigned" filter: only records with nobody assigned.

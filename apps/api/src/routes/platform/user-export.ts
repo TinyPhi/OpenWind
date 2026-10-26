@@ -48,7 +48,7 @@ function exportIdOf(jobId: string): string | null {
   const id = jobId.startsWith(USER_DATA_EXPORT_JOB_PREFIX)
     ? jobId.slice(USER_DATA_EXPORT_JOB_PREFIX.length)
     : "";
-  return z.string().uuid().safeParse(id).success ? id : null;
+  return z.guid().safeParse(id).success ? id : null;
 }
 
 export const userExportRouter = new Hono<AppVars>();

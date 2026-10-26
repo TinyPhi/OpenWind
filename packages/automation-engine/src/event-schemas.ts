@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Some identity providers (e.g. AuthNexus) issue numeric-string user ids, not
-// UUIDs. These 5 fields previously required z.string().uuid(), which threw
+// UUIDs. These 5 fields previously required z.guid(), which threw
 // INVALID_EVENT_PAYLOAD for any non-UUID id and silently dead-lettered every
 // assignment/unassignment/creation/transition automation trigger for as long
 // as such a provider was in use. Bounded (not fully unbounded) so a
@@ -11,7 +11,7 @@ const userIdField = z.string().min(1).max(255);
 
 const baseEvent = z.object({
   version: z.literal(1),
-  tenantId: z.string().uuid(),
+  tenantId: z.guid(),
   // In-process recursion depth at the time this event was produced. Carried
   // through the outbox so apps/worker/src/automation-worker.ts can resume
   // MAX_DEPTH enforcement across the async hop instead of resetting to 0 (#120).
@@ -21,9 +21,9 @@ const baseEvent = z.object({
 
 export const WorkflowTransitionedV1Schema = baseEvent.extend({
   eventType: z.literal("workflow.transitioned"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
-  workflowId: z.string().uuid(),
+  instanceId: z.guid(),
+  entityTypeId: z.guid(),
+  workflowId: z.guid(),
   fromState: z.string().nullable(),
   toState: z.string(),
   triggeredBy: z.enum(["user", "automation", "api", "system"]),
@@ -44,14 +44,14 @@ export const WorkflowTransitionedV1Schema = baseEvent.extend({
   // let a bug accidentally populate it on an unrelated event type and pass
   // schema validation while storing a meaningless dedup key. See
   // packages/automation-engine/src/executor.ts and issue #143.
-  transitionEventId: z.string().uuid().optional(),
+  transitionEventId: z.guid().optional(),
 });
 
 export const WorkflowSlaBreachedV1Schema = baseEvent.extend({
   eventType: z.literal("workflow.sla_breached"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
-  workflowId: z.string().uuid(),
+  instanceId: z.guid(),
+  entityTypeId: z.guid(),
+  workflowId: z.guid(),
   state: z.string(),
   slaHours: z.number().positive(),
   breachedAt: z.string().datetime(),
@@ -59,16 +59,16 @@ export const WorkflowSlaBreachedV1Schema = baseEvent.extend({
 
 export const EntityCreatedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.created"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
-  fields: z.record(z.unknown()),
+  instanceId: z.guid(),
+  entityTypeId: z.guid(),
+  fields: z.record(z.string(), z.unknown()),
   createdBy: userIdField.nullable(),
 });
 
 export const EntityAssignedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.assigned"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
+  instanceId: z.guid(),
+  entityTypeId: z.guid(),
   assigneeId: userIdField,
   assignedBy: userIdField.nullable(),
 });
@@ -79,23 +79,23 @@ export const EntityAssignedV1Schema = baseEvent.extend({
 // on the same one (different audience, different wording).
 export const EntityUnassignedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.unassigned"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
+  instanceId: z.guid(),
+  entityTypeId: z.guid(),
   previousAssigneeId: userIdField,
   actorId: userIdField.nullable(),
 });
 
 export const EntityDueDateOverdueV1Schema = baseEvent.extend({
   eventType: z.literal("entity.due_date_overdue"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
+  instanceId: z.guid(),
+  entityTypeId: z.guid(),
   dueDate: z.string().datetime(),
   overdueAt: z.string().datetime(),
 });
 
 export const CommentMentionedV1Schema = baseEvent.extend({
   eventType: z.literal("comment.mentioned"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
   mentionedUserIds: z.array(z.string()).min(1),
 });
@@ -105,35 +105,35 @@ export const CommentMentionedV1Schema = baseEvent.extend({
 // add-comment.ts) — a different, more specific message than a plain mention.
 export const CommentMentionAccessGrantedV1Schema = baseEvent.extend({
   eventType: z.literal("comment.mention_access_granted"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
   mentionedUserIds: z.array(z.string()).min(1),
 });
 
 export const CommentRepliedV1Schema = baseEvent.extend({
   eventType: z.literal("comment.replied"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
   targetUserId: z.string(),
 });
 
 export const AccessGrantedV1Schema = baseEvent.extend({
   eventType: z.literal("access.granted"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
   targetUserId: z.string(),
 });
 
 export const AccessRevokedV1Schema = baseEvent.extend({
   eventType: z.literal("access.revoked"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
   targetUserId: z.string(),
 });
 
 export const SystemErrorV1Schema = baseEvent.extend({
   eventType: z.literal("system.error"),
-  context: z.record(z.unknown()),
+  context: z.record(z.string(), z.unknown()),
   reason: z.string(),
 });
 
@@ -144,9 +144,9 @@ export const SystemErrorV1Schema = baseEvent.extend({
 // gets a per-user inbox notification for the same comment.
 export const CommentCreatedV1Schema = baseEvent.extend({
   eventType: z.literal("comment.created"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
-  commentId: z.string().uuid(),
+  commentId: z.guid(),
 });
 
 // docs/specs/oncall-routing.md T13/T28 — resolve_oncall and
@@ -165,26 +165,26 @@ export const CommentCreatedV1Schema = baseEvent.extend({
 // `changed` as "nothing relevant changed".
 export const EntityUpdatedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.updated"),
-  instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid().optional(),
+  instanceId: z.guid(),
+  entityTypeId: z.guid().optional(),
   actorId: userIdField.nullable(),
   changed: z
-    .record(z.object({ old: z.unknown(), new: z.unknown() }))
+    .record(z.string(), z.object({ old: z.unknown(), new: z.unknown() }))
     .optional(),
 });
 
 export const AccessRequestCreatedV1Schema = baseEvent.extend({
   eventType: z.literal("access_request.created"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
-  requestId: z.string().uuid(),
+  requestId: z.guid(),
 });
 
 export const AccessRequestUpdatedV1Schema = baseEvent.extend({
   eventType: z.literal("access_request.updated"),
-  instanceId: z.string().uuid(),
+  instanceId: z.guid(),
   actorId: z.string(),
-  requestId: z.string().uuid(),
+  requestId: z.guid(),
   status: z.enum(["approved", "rejected"]),
 });
 

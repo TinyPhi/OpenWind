@@ -13,7 +13,7 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 const AddCommentAttachmentSchema = z.object({
-  fileId: z.string().uuid(),
+  fileId: z.guid(),
 });
 
 export const addCommentAttachmentHandler = factory.createHandlers(

@@ -57,7 +57,9 @@ overrides:
   # Bounded to <8 to prevent major upgrades breaking jsdom's internal file imports.
   # GHSA-rfgv-xxqx-mfg5 (WebSocket subprotocol DoS) + GHSA-w293-vg96-wgc3 (BalancedPool TLS
   # validation bypass), 2026-09-30: patched in 7.29.1.
-  undici: ">=7.29.1 <8"
+  # GHSA-xjj6-f33q-929c (DoS via unhandled error on excessive content-encodings): patched in
+  # 7.30.1. Only jsdom pulls it in (admin-ui and api tests), so nothing at runtime uses it.
+  undici: ">=7.30.1 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths.
   # GHSA-fxqj-rqcc-2cmp: second path-traversal variant — floor raised >=8.5.18 → >=8.5.23.

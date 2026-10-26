@@ -158,7 +158,7 @@ export function handleError(err: unknown, c: Context): Response {
       {
         error: "VALIDATION_ERROR",
         message: "Request validation failed",
-        fields: err.errors.map((e) => ({
+        fields: err.issues.map((e) => ({
           field: e.path.join("."),
           code: e.code,
           message: e.message,

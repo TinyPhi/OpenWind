@@ -31,8 +31,8 @@ export const TemplateSchema = z
       .max(255)
       .regex(/\S/, "assignedTo can't be blank")
       .optional(),
-    teamId: z.string().uuid().optional(),
-    service_id: z.string().uuid().optional(),
+    teamId: z.guid().optional(),
+    service_id: z.guid().optional(),
     // Due date has no fixed value for a recurring rule -- due_days is an
     // offset from each fire's own scheduled instant (R4). Capped at 3650
     // (10 years) -- same ceiling the pre-mandate-fields due_after_days had;

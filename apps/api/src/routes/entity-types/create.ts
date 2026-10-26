@@ -10,7 +10,7 @@ const CreateEntityTypeSchema = z.object({
   name: z.string().min(1).max(100),
   plural: z.string().min(1).max(100),
   icon: z.string().optional(),
-  moduleId: z.string().uuid().optional(),
+  moduleId: z.guid().optional(),
   allowCustomFields: z.boolean().default(true),
 });
 

@@ -765,3 +765,19 @@ describe("user data export settings (docs/specs/user-data-export.md)", () => {
     }
   });
 });
+
+// zod 4's .default() hands back the default without running .transform(), so a flag written
+// as .transform(...).default("false") came out as the string "false" -- truthy, which turned
+// the AV-scan skip and the MFA bypass on when unset. They use .prefault() so the default is
+// parsed like a real value; this pins the parsed type, not just the truthiness.
+describe("string-parsed flags read their defaults through the transform", () => {
+  it.each([
+    ["SKIP_AV_SCAN", false],
+    ["PLATFORM_ADMIN_MFA_DEV_BYPASS", false],
+    ["TELEMETRY_ENABLED", false],
+    ["RETENTION_REQUIRE_SHORTEN_CONFIRM", true],
+    ["OTEL_TRACE_SAMPLE_RATIO", 0.01],
+  ] as const)("%s defaults to %s when unset", (varName, expected) => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV)[varName]).toStrictEqual(expected);
+  });
+});

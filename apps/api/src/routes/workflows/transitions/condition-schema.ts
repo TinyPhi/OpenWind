@@ -57,10 +57,7 @@ type TransitionConditionInput =
   | z.infer<typeof ActorIsCreatorSchema>
   | z.infer<typeof ActorNotPriorActorSchema>;
 
-type DiscriminatedOptions = [
-  z.ZodDiscriminatedUnionOption<"op">,
-  ...z.ZodDiscriminatedUnionOption<"op">[],
-];
+type DiscriminatedOptions = [z.ZodObject, ...z.ZodObject[]];
 
 const LEAVES = [
   ActorNotCreatorSchema,

@@ -150,7 +150,7 @@ const EnvSchema = z
     RETENTION_REQUIRE_SHORTEN_CONFIRM: z
       .string()
       .transform((v) => v !== "false")
-      .default("true"),
+      .prefault("true"),
     RETENTION_DEFAULT_DAYS: z.coerce.number().int().min(1).default(90),
     RETENTION_COMMENT_DAYS: z.coerce.number().int().min(1).default(365),
     RETENTION_EVIDENCE_DAYS: z.coerce.number().int().min(1).default(2555),
@@ -236,7 +236,7 @@ const EnvSchema = z
     PLATFORM_ADMIN_MFA_DEV_BYPASS: z
       .string()
       .transform((v) => v === "true")
-      .default("false"),
+      .prefault("false"),
     // ADR-022 Decision 10, #865 — sandbox reset and delete are the two irreversible
     // platform_admin actions, so they need a verification this recent even though the
     // general MFA window is 12 hours. Config, not hardcoded: the bounds keep it a real
@@ -311,7 +311,7 @@ const EnvSchema = z
     // the caller's auth.tenantId matches this value — blocking a customer user
     // who has been granted 'superadmin' from accessing other tenants' lifecycle
     // routes. Unset in dev/test (where DEV_TENANT_ID already unifies tenantIds).
-    PLATFORM_ORG_ID: z.string().uuid().optional(),
+    PLATFORM_ORG_ID: z.guid().optional(),
     // Service account key JSON (raw JSON string from Zitadel console).
     // Used to call the Zitadel Management API for live role/user queries.
     // Store the full JSON string. Never commit this value.
@@ -423,7 +423,7 @@ const EnvSchema = z
     SKIP_AV_SCAN: z
       .string()
       .transform((v) => v === "true")
-      .default("false"),
+      .prefault("false"),
     // Secrets Provider: "openbao" for external vault, "local" for local AES-256-GCM encryption
     SECRETS_PROVIDER: z.enum(["openbao", "local"]).default("openbao"),
     // OpenBao — Transit envelope encryption for connector credentials
@@ -449,14 +449,14 @@ const EnvSchema = z
     TELEMETRY_ENABLED: z
       .string()
       .transform((v) => v === "true")
-      .default("false"),
+      .prefault("false"),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
     OTEL_SERVICE_NAME: z.string().optional(),
     METRICS_TOKEN: z.string().default(DEV_METRICS_TOKEN),
     OTEL_TRACE_SAMPLE_RATIO: z
       .string()
       .transform((v) => parseFloat(v))
-      .default("0.01"),
+      .prefault("0.01"),
     // Error Tracking (Stage 1)
     ERROR_TRACKING_PROVIDER: z
       .enum(["sentry", "glitchtip", "bugsink", "none"])
