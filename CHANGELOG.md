@@ -3,6 +3,28 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — Superset erasure runs automatically (#728)]
+
+### Added
+
+- Erasing a user, or purging a tenant, now also erases their data from Superset's own database
+  when Superset Stage 2 is on. A `superset-erasure` worker job calls Superset's erase endpoint
+  until it finishes and retries for about 26 hours (1 minute up to 1 hour apart) if Superset is
+  down. Migration `0156_superset_erasure_audit_actions` adds the audit actions
+  `superset_erasure.completed` and `superset_erasure.failed`; each is written by the system with the
+  same tenant and resource id as the platform's own erase row, and holds counts only.
+- `SUPERSET_OAUTH_CLIENT_ID` (empty counts as unset) and `SUPERSET_ERASURE_ENABLED` (default
+  `true`) for `ow-backend` and `ow-worker`. With Stage 2 off the erasure only flushes Superset's
+  cache, or does nothing (and logs a warning) when `SUPERSET_ERASURE_ENABLED=false`; with Stage 2 on
+  it cannot be turned off.
+- A user's Superset data is erased only when they were a member of the erasing admin's tenant.
+  `ow-worker` now receives `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and
+  `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, as `ow-backend` does.
+- `SupersetErasureFailed` alert (an erasure spent every retry), `SupersetErasureJobFailedInQueue` (a
+  failed job is waiting in the queue, which also catches a job BullMQ failed after it stalled) and the
+  [Superset erasure runbook](docs/runbooks/superset-erasure.md). Production needs the Stage 2 client
+  id and the service account password at the API's and worker's own settings; see the runbook.
+
 ## [Unreleased — org-view follow-ups (#1072)]
 
 ### Changed
