@@ -3,6 +3,18 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — erase a user from the Users page (#728)]
+
+### Added
+
+- Admins can erase a user from the Users page (`DELETE /users/:userId`, the existing GDPR erasure).
+  The Erase button never shows on the admin's own row. A confirmation dialog asks them to type the
+  user's name before Erase is enabled; afterwards the user leaves the list and a toast reports the
+  result, including the API's sentence about Superset when it sends one (#1100). A failed erasure
+  keeps the user and shows the error.
+- `ConfirmDeleteDialog` takes an optional `typeToConfirm` for deletes that cannot be undone, and
+  the admin-ui has a toast (`showToast`, mounted once in `App.tsx`).
+
 ## [Unreleased — org-view follow-ups (#1072)]
 
 ### Changed
