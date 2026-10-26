@@ -1,10 +1,11 @@
 import { requireAuth } from "@platform/auth";
-import { getSubtreeMembers } from "@platform/org-directory";
+import { getSubtreeMembers, hasDirectReports } from "@platform/org-directory";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { resolveUserScopedEntityIds } from "../entities/scoped-access.js";
 import {
   DASHBOARD_SCOPE_LIMIT,
+  boundDashboardScope,
   buildScopedDashboardSections,
   buildTeamMembersSection,
 } from "./view-builder.js";
@@ -24,6 +25,22 @@ const EMPTY_SECTIONS = {
   slaRisk: { items: [], totalQualifying: 0 },
 };
 
+// Cheap toggle probe: this route never builds the subtree and never touches tickets.
+// The target is always the authenticated caller, matching the full org-view invariant.
+export const orgViewHasReportsHandler = factory.createHandlers(
+  requireAuth(),
+  async (c) => {
+    const { tenantId, userId } = c.get("auth");
+    try {
+      return c.json({
+        data: { hasReports: await hasDirectReports(tenantId, userId) },
+      });
+    } catch (err) {
+      return handleEntityError(c, err);
+    }
+  },
+);
+
 export const orgViewHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
@@ -41,6 +58,7 @@ export const orgViewHandler = factory.createHandlers(
         return c.json({
           data: {
             hasReports: false,
+            truncated: false,
             ...EMPTY_SECTIONS,
             teamMembers: { items: [] },
           },
@@ -52,16 +70,18 @@ export const orgViewHandler = factory.createHandlers(
       );
       nameByUserId.set(userId, displayName);
 
-      const scopedIds = await resolveUserScopedEntityIds(
+      const resolvedIds = await resolveUserScopedEntityIds(
         tenantId,
         [userId, ...memberIds],
-        { limit: DASHBOARD_SCOPE_LIMIT },
+        { limit: DASHBOARD_SCOPE_LIMIT + 1 },
       );
+      const { ids: scopedIds, truncated } = boundDashboardScope(resolvedIds);
 
       if (scopedIds.length === 0) {
         return c.json({
           data: {
             hasReports: true,
+            truncated,
             ...EMPTY_SECTIONS,
             teamMembers: {
               items: memberIds.map((id) => ({
@@ -109,7 +129,13 @@ export const orgViewHandler = factory.createHandlers(
       };
 
       return c.json({
-        data: { hasReports: true, ...sections, tickets, teamMembers },
+        data: {
+          hasReports: true,
+          truncated,
+          ...sections,
+          tickets,
+          teamMembers,
+        },
       });
     } catch (err) {
       return handleEntityError(c, err);

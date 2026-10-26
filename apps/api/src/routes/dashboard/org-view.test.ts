@@ -5,6 +5,7 @@ import type { AuthContext } from "@platform/auth";
 import type * as ViewBuilder from "./view-builder.js";
 
 const mockGetSubtreeMembers = vi.fn();
+const mockHasDirectReports = vi.fn();
 const mockResolveScopedIds = vi.fn();
 const mockBuildSections = vi.fn();
 
@@ -25,6 +26,7 @@ vi.mock("@platform/auth", () => ({
 }));
 vi.mock("@platform/org-directory", () => ({
   getSubtreeMembers: (...args: unknown[]) => mockGetSubtreeMembers(...args),
+  hasDirectReports: (...args: unknown[]) => mockHasDirectReports(...args),
 }));
 vi.mock("../entities/scoped-access.js", () => ({
   resolveUserScopedEntityIds: (...args: unknown[]) =>
@@ -54,10 +56,12 @@ vi.mock("../../lib/handle-entity-error.js", () => ({
   handleEntityError: (c: Context) => c.json({ error: "INTERNAL" }, 500),
 }));
 
-const { orgViewHandler } = await import("./org-view.js");
+const { orgViewHandler, orgViewHasReportsHandler } =
+  await import("./org-view.js");
 
 function request(path = "/org-view"): Promise<Response> {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
+  app.get("/org-view/has-reports", ...orgViewHasReportsHandler);
   app.get("/org-view", ...orgViewHandler);
   return Promise.resolve(app.request(path));
 }
@@ -70,6 +74,7 @@ const MEMBERS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockHasDirectReports.mockResolvedValue(true);
   mockGetSubtreeMembers.mockResolvedValue({
     ids: ["lead", "emp"],
     members: MEMBERS,
@@ -98,6 +103,25 @@ beforeEach(() => {
 });
 
 describe("GET /dashboard/org-view", () => {
+  it("answers the cheap self-scoped has-reports probe without building the subtree or reading tickets", async () => {
+    const res = await request("/org-view/has-reports");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { hasReports: true } });
+    expect(mockHasDirectReports).toHaveBeenCalledWith("tenant-1", "me");
+    expect(mockGetSubtreeMembers).not.toHaveBeenCalled();
+    expect(mockResolveScopedIds).not.toHaveBeenCalled();
+    expect(mockBuildSections).not.toHaveBeenCalled();
+  });
+
+  it("returns hasReports:false from the cheap probe", async () => {
+    mockHasDirectReports.mockResolvedValue(false);
+
+    const res = await request("/org-view/has-reports");
+
+    expect(await res.json()).toEqual({ data: { hasReports: false } });
+  });
+
   it("reports hasReports:false, empty sections and no ticket query when the caller has no reports", async () => {
     mockGetSubtreeMembers.mockResolvedValue({ ids: [], members: [] });
 
@@ -107,6 +131,7 @@ describe("GET /dashboard/org-view", () => {
     expect(res.status).toBe(200);
     expect(body.data).toMatchObject({
       hasReports: false,
+      truncated: false,
       teamMembers: { items: [] },
       tickets: { items: [], totalQualifying: 0 },
     });
@@ -178,10 +203,15 @@ describe("GET /dashboard/org-view", () => {
 
     const res = await request();
     const body = (await res.json()) as {
-      data: { hasReports: boolean; teamMembers: { items: unknown[] } };
+      data: {
+        hasReports: boolean;
+        truncated: boolean;
+        teamMembers: { items: unknown[] };
+      };
     };
 
     expect(body.data.hasReports).toBe(true);
+    expect(body.data.truncated).toBe(false);
     expect(body.data.teamMembers.items).toHaveLength(2);
     expect(mockBuildSections).not.toHaveBeenCalled();
   });
@@ -192,5 +222,50 @@ describe("GET /dashboard/org-view", () => {
     const res = await request();
 
     expect(res.status).toBe(500);
+  });
+
+  it("marks and bounds a scope larger than the dashboard limit", async () => {
+    const ids = Array.from({ length: 2001 }, (_, index) => `ticket-${index}`);
+    mockResolveScopedIds.mockResolvedValue(ids);
+    mockBuildSections.mockResolvedValue({
+      rows: [],
+      workflows: [],
+      tickets: { items: [], totalQualifying: 2000 },
+      dueDates: { items: [], totalQualifying: 0 },
+      slaRisk: { items: [], totalQualifying: 0 },
+    });
+
+    const res = await request();
+    const body = (await res.json()) as {
+      data: { truncated: boolean };
+    };
+
+    expect(body.data.truncated).toBe(true);
+    expect(mockResolveScopedIds).toHaveBeenCalledWith(
+      "tenant-1",
+      ["me", "lead", "emp"],
+      { limit: 2001 },
+    );
+    expect(mockBuildSections.mock.calls[0]?.[1]).toEqual(ids.slice(0, 2000));
+  });
+
+  it("does not mark exactly the dashboard limit as truncated", async () => {
+    mockResolveScopedIds.mockResolvedValue(
+      Array.from({ length: 2000 }, (_, index) => `ticket-${index}`),
+    );
+    mockBuildSections.mockResolvedValue({
+      rows: [],
+      workflows: [],
+      tickets: { items: [], totalQualifying: 2000 },
+      dueDates: { items: [], totalQualifying: 0 },
+      slaRisk: { items: [], totalQualifying: 0 },
+    });
+
+    const res = await request();
+    const body = (await res.json()) as {
+      data: { truncated: boolean };
+    };
+
+    expect(body.data.truncated).toBe(false);
   });
 });

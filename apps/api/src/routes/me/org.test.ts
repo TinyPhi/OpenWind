@@ -87,6 +87,26 @@ describe("GET /me/org", () => {
     expect(await (await get()).json()).toEqual({ data: null });
   });
 
+  it("lets only the caller's own browser cache the answer, for five minutes", async () => {
+    mockRows.mockResolvedValue([
+      { name: "Acme Demo", logo: null, isSandbox: true },
+    ]);
+
+    const res = await get();
+
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=300");
+  });
+
+  it("sends the same cache header for a tenant that is not a sandbox", async () => {
+    mockRows.mockResolvedValue([
+      { name: "Real Customer", logo: null, isSandbox: false },
+    ]);
+
+    const res = await get();
+
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=300");
+  });
+
   it("looks up only the caller's own tenant", async () => {
     mockRows.mockResolvedValue([]);
 

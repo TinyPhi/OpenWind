@@ -288,7 +288,7 @@ MFA flag, not a fresh code (same tier as trial changes).
 ✓ Any user of that sandbox (admin, agent, user) sees, left of the page title beside the hamburger,
 the org logo, or when none is set a tile with the initials of the org name (same rule as
 `initials()` for people), followed by the org name, in place of the OpenWind icon and wordmark. A
-change shows on the user's next page load; no push.
+change shows within five minutes: `GET /me/org` is cached privately for 300 s (`Cache-Control: private, max-age=300`). No push.
 ✓ Non-sandbox tenants, the login page and the platform-admin dashboard keep the OpenWind brand. The
 tenant endpoint returns nothing for a non-sandbox tenant, and never an `isSandbox` flag, so the
 prospect UI can't tell it is a sandbox.
@@ -404,14 +404,11 @@ org name** is left as the creation name, so it can drift from the display name; 
 in the `tenants` row (read on every header load) instead of `@platform/files`, accepted for a 100 KB
 cap and revisited if branding is ever extended to real tenants.
 
-Deferred from the R12 reviews, all low: (d) `GET /me/org` sends up to ~140 KB on every page load with
-no cache header, bounded by the per-tenant rate limit -- add a short private cache or an ETag if it
-shows up in traffic; (e) the platform-admin list returns each row's logo (up to 100 rows by default),
+From the R12 reviews, all low: (d) _resolved in review:_ `GET /me/org` carries `Cache-Control: private, max-age=300`, so a
+logo of up to ~140 KB is not re-sent on every page load; (e) the platform-admin list returns each row's logo (up to 100 rows by default),
 so a `hasLogo` flag on the list and the image only on the detail view would shrink it; (f) a CSP, if
-one is ever added to the frontend, must allow `img-src data:` or logos stop rendering; (g) migration
-0155 is journaled after upstream's 0153 with a `when` later than #1063's 0154, so **#1063 must merge
-first** (then 0155 renumbers to follow it): a database that applies 0155 before 0154 lands would skip
-0154 (see `migration-journal.test.ts`).
+one is ever added to the frontend, must allow `img-src data:` or logos stop rendering; (g) _resolved in review:_ #1063 merged, and migration 0155 is
+journaled at idx 155, after 0154 (`migration-journal.test.ts` guards the order).
 
 ## §O Operations — OTP delivery failure and break-glass (#801)
 

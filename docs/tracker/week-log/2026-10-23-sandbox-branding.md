@@ -35,10 +35,12 @@
 - **Reviews.** Security review: no blocking or high findings. Fixed from the code review: header
   name truncation styles, no way to undo "Remove logo", and a post-commit read-back that could turn a
   saved change into a 404 (it now reads in the same transaction).
-- **Deferred (low).** No cache header on `GET /me/org` (up to ~140 KB per page load); the platform
-  list returns every row's logo; a future CSP must allow `img-src data:`. **Merge order:** #1063
-  (migration 0154) must land first; 0155 then renumbers after it, otherwise a database that applied
-  0155 would skip 0154. All recorded in the spec's Phase 4 notes.
+- **Deferred (low).** The platform list returns every row's logo (a `hasLogo` flag is the fix); a
+  future CSP must allow `img-src data:`. Recorded in the spec's Phase 4 notes.
+- **Review round 1 (2026-10-26).** #1063 merged, so `main` was merged into the branch and 0155 is
+  journaled at idx 155 after 0154 (the reviewer's blocker). `GET /me/org` now sends
+  `Cache-Control: private, max-age=300`, so a branding change shows within five minutes, not on the
+  next load.
 - **Not run locally.** Root `pnpm test`: it runs the worker isolation suites against whatever
   `DATABASE_URL` points at, which on this machine is the live dev database. It was run once by
   mistake early in the session (the live database was checked afterwards: still 155 migrations, no

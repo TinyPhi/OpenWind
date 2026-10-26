@@ -24,6 +24,16 @@ import type { z } from "zod";
 // tickets. Larger than my-tickets.ts's MY_TICKETS_LIMIT (100) because the dashboard
 // only returns aggregate counts + capped lists, not full ticket rows.
 export const DASHBOARD_SCOPE_LIMIT = 2000;
+
+export function boundDashboardScope(scopedIds: string[]): {
+  ids: string[];
+  truncated: boolean;
+} {
+  return {
+    ids: scopedIds.slice(0, DASHBOARD_SCOPE_LIMIT),
+    truncated: scopedIds.length > DASHBOARD_SCOPE_LIMIT,
+  };
+}
 // R7 -- dueDates/slaRisk are capped independently of the scope limit above.
 export const LIST_CAP = 20;
 // v1.2 -- the flat "my tickets" list gets its own, slightly larger cap: unlike

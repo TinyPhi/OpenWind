@@ -27,6 +27,9 @@ export const getOrgBrandingHandler = factory.createHandlers(
         .where(eq(tenants.id, tenantId))
         .limit(1),
     );
+    // private: the answer is per tenant, so no shared cache may keep it. 300 s keeps a logo of up
+    // to ~140 KB from being re-sent on every page load; a branding change shows within that window.
+    c.header("Cache-Control", "private, max-age=300");
     if (!row?.isSandbox) return c.json({ data: null });
     return c.json({ data: { name: row.name, logo: row.logo } });
   },
