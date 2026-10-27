@@ -3,6 +3,19 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — recurring on-call rotation]
+
+### Added
+
+- A roster can repeat every 3 to 90 days. The roster modal has a "Repeat every N days" option; a worker
+  then creates each next window by itself, moving primary and backup to the next people on the team
+  (wrapping, and never the same person twice). A manual window that overlaps the next one stops the
+  rotation and shows why, instead of being overwritten, and it resumes once the overlap is cleared.
+- The people taking over are told once, in the app and by email, when their window starts within two days.
+- The roster page shows which windows belong to a repeating roster and has a panel with the cycle, status,
+  next window and who is next, with stop, resume and end-date controls. Stopping keeps every window.
+  New endpoints: `/admin/on-call-rotations` (list, patch, delete = stop).
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added

@@ -3,7 +3,7 @@
 > Teams get members; the on-call roster picks only from the chosen team; a roster can repeat on its
 > own, rotating primary and backup through the team, with a 2-day heads-up. For team admins.
 
-status: in progress (PR A in review)
+status: in progress (PR A in review; PR B built locally, waits on PR A)
 created: 2026-10-28
 updated: 2026-10-27
 
@@ -182,7 +182,9 @@ pass.
 - A generated window is created exactly once (unique `(rotation_id, starts_at)`) and a notice is sent
   at most once per (window, person, role) (unique key): both are guarded by a constraint, not by worker
   timing.
-- The rotation worker's database role can read and advance rotations and nothing else.
+- The rotation worker's cross-tenant database role (`oncall_rotation_sweeper`) can only read the six
+  columns of `on_call_rotations` it needs to find active rotations; it writes nothing. Generation, the
+  cursor update and notices run in a normal tenant-scoped transaction.
 - A user reference is validated against the tenant in the application layer; a failure is a `422`,
   never a `403` or an existence leak.
 - Removing a member, deleting a team or stopping a rotation never deletes a schedule window.
@@ -191,6 +193,8 @@ pass.
   of one team are serialized by a lock on the team row.
 - Saving a team's members checks only the people being added against live on-call roles; someone
   already on the team never blocks an edit.
+- A generated window is inserted with its (rotation_id, starts_at) conflict target named, so any other
+  conflict (such as a manual window) raises and rolls back instead of silently skipping a cycle.
 
 ## §T Tasks
 
@@ -222,11 +226,14 @@ integration tests pass before the next phase; isolation tests in every phase tha
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed                                                                                           | root cause                                                                                                                                                                 | promoted to §V?            |
-| --- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| B1  | `user-data-export-coverage-guard` failed after `team_members.user_id` joined the erasure inventory    | the §T1 wiring list named purge and erasure only; a new user-id column also needs a section in the personal-data export (`packages/entity-engine/src/user-data-export.ts`) | no (the guard enforces it) |
-| B2  | `tenant-purge.test.ts` mock of `@platform/db` lacked `teamMembers`                                    | hand-listed table names in that mock                                                                                                                                       | no                         |
-| B3  | Review: PUT members re-checked everyone against live Zitadel, so a departed member blocked every edit | the eligibility rule applied to the whole list, not to additions                                                                                                           | yes, see §V                |
+| id  | what failed                                                                                                                                                     | root cause                                                                                                                                                                 | promoted to §V?                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| B4  | `notifications.type` is a database CHECK enum; a new notice type is rejected by the database and invisible to mocked tests                                      | found during design from migration 0104's history, not from a failure                                                                                                      | yes (worker tests run on a real database) |
+| B5  | Review: a bare `ON CONFLICT DO NOTHING` also swallows the no-overlap exclusion error, so a manual window created after the clash check silently skipped a cycle | the insert named no conflict target                                                                                                                                        | yes                                       |
+| B6  | Review: a stopped rotation of a deleted team could be resumed and then did nothing                                                                              | resume checked members but not the team                                                                                                                                    | no                                        |
+| B1  | `user-data-export-coverage-guard` failed after `team_members.user_id` joined the erasure inventory                                                              | the §T1 wiring list named purge and erasure only; a new user-id column also needs a section in the personal-data export (`packages/entity-engine/src/user-data-export.ts`) | no (the guard enforces it)                |
+| B2  | `tenant-purge.test.ts` mock of `@platform/db` lacked `teamMembers`                                                                                              | hand-listed table names in that mock                                                                                                                                       | no                                        |
+| B3  | Review: PUT members re-checked everyone against live Zitadel, so a departed member blocked every edit                                                           | the eligibility rule applied to the whole list, not to additions                                                                                                           | yes, see §V                               |
 
 ## Open items (for the human ADR addendum and review)
 

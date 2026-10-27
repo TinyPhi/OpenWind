@@ -32,6 +32,7 @@ import {
   onCallSchedules,
   teams,
   teamMembers,
+  onCallRotations,
   tenantUsers,
 } from "@platform/db";
 import type { DbOrTx } from "@platform/db";
@@ -39,6 +40,9 @@ import {
   validateCrossTenantRefs,
   lookupValidIdsInTable,
   classifyOncallUser,
+  loadTeamMemberIds,
+  ROTATION_MIN_CYCLE_DAYS,
+  ROTATION_MAX_CYCLE_DAYS,
   type FieldError,
   type CrossTenantRefCheck,
 } from "@platform/teams";
@@ -75,6 +79,17 @@ const CreateScheduleSchema = z
     primaryUserId: z.string().min(1),
     backupUserId: z.string().min(1).optional(),
     escalationManagerUserId: z.string().min(1).optional(),
+    // Repeat the roster: later windows are made by the rotation worker, each cycleDays long
+    // (docs/specs/oncall-team-rotation.md R4).
+    repeat: z
+      .object({
+        cycleDays: z
+          .number()
+          .int()
+          .min(ROTATION_MIN_CYCLE_DAYS)
+          .max(ROTATION_MAX_CYCLE_DAYS),
+      })
+      .optional(),
   })
   .refine((v) => v.startsAt < v.endsAt, {
     message: "startsAt must be before endsAt",
@@ -494,11 +509,72 @@ router.post(
         if (refErrors.length > 0) {
           return { status: "invalid" as const, refErrors };
         }
+        let rotationId: string | null = null;
+        if (input.repeat) {
+          const members = await loadTeamMemberIds(
+            tx,
+            auth.tenantId,
+            input.teamId,
+          );
+          if (members.length === 0) {
+            return {
+              status: "invalid" as const,
+              refErrors: [
+                {
+                  field: "repeat",
+                  message:
+                    "A repeating roster needs a team with at least one member",
+                },
+              ],
+            };
+          }
+          const [active] = await tx
+            .select({ id: onCallRotations.id })
+            .from(onCallRotations)
+            .where(
+              and(
+                eq(onCallRotations.tenantId, auth.tenantId),
+                eq(onCallRotations.teamId, input.teamId),
+                eq(onCallRotations.status, "active"),
+              ),
+            )
+            .limit(1);
+          if (active) return { status: "rotation_exists" as const };
+          const [rotation] = await tx
+            .insert(onCallRotations)
+            .values({
+              tenantId: auth.tenantId,
+              teamId: input.teamId,
+              cycleDays: input.repeat.cycleDays,
+              nextStartsAt: input.endsAt,
+              lastPrimaryUserId: input.primaryUserId,
+              lastBackupUserId: input.backupUserId ?? null,
+              escalationManagerUserId: input.escalationManagerUserId ?? null,
+              createdBy: auth.userId,
+            })
+            .returning();
+          if (!rotation) throw new Error("rotation insert returned no row");
+          rotationId = rotation.id;
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "on_call_rotation",
+            resourceId: rotation.id,
+            action: "created",
+            afterSnapshot: {
+              teamId: rotation.teamId,
+              cycleDays: rotation.cycleDays,
+              nextStartsAt: rotation.nextStartsAt,
+            },
+          });
+        }
         const [row] = await tx
           .insert(onCallSchedules)
           .values({
             tenantId: auth.tenantId,
             teamId: input.teamId,
+            rotationId,
             label: input.label,
             startsAt: input.startsAt,
             endsAt: input.endsAt,
@@ -540,8 +616,35 @@ router.post(
           422,
         );
       }
+      if (result.status === "rotation_exists") {
+        return c.json(
+          {
+            error: "CONFLICT",
+            message: "This team already has an active rotation",
+          },
+          409,
+        );
+      }
       return c.json({ data: result.row }, 201);
     } catch (err: unknown) {
+      // The one-active-rotation-per-team index, hit by a concurrent create.
+      if (
+        err &&
+        typeof err === "object" &&
+        "cause" in err &&
+        err.cause &&
+        typeof err.cause === "object" &&
+        "code" in err.cause &&
+        err.cause.code === "23505"
+      ) {
+        return c.json(
+          {
+            error: "CONFLICT",
+            message: "This team already has an active rotation",
+          },
+          409,
+        );
+      }
       // GIST exclusion constraint violation (R5: overlapping window for the
       // same team + tenant).
       if (isExclusionViolation(err)) {
