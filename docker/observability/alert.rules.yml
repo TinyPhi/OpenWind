@@ -92,18 +92,19 @@ groups:
           summary: "More than 10% of schedule rule fires are failing"
           description: "Schedule rule fires failed at {{ $value | humanizePercentage }} over the last 10 minutes."
 
-      # #728 (docs/specs/superset-gdpr-erasure.md): the Superset erasure job spent every retry
-      # (about 26 hours) without finishing, so a user's or tenant's data may still be in Superset.
-      # The superset_erasure.failed audit row was written for the same job. Runbook:
+      # #728 (docs/specs/superset-gdpr-erasure.md): a user's or tenant's data may still be in
+      # Superset. outcome="failed": the erasure job spent every retry (about 26 hours) without
+      # finishing; its superset_erasure.failed audit row was written. outcome="not_queued": the job
+      # could not even be queued (Redis down), so nothing will retry it from the API. Runbook:
       # docs/runbooks/superset-erasure.md.
       - alert: SupersetErasureFailed
-        expr: increase(openwind_superset_erasure_total{outcome="failed"}[1h]) > 0
+        expr: increase(openwind_superset_erasure_total{outcome=~"failed|not_queued"}[1h]) > 0
         labels:
           severity: critical
           team: platform
         annotations:
-          summary: "A Superset erasure ran out of retries without completing"
-          description: '{{ $value | printf "%.0f" }} Superset erasure job(s) failed on their last retry in the last hour. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
+          summary: "A Superset erasure did not complete ({{ $labels.outcome }})"
+          description: '{{ $value | printf "%.0f" }} Superset erasure(s) with outcome {{ $labels.outcome }} in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
 
       # Backstop for the alert above: a failed superset-erasure job stays in the queue for 7 days, so this
       # also catches one the counter cannot see (a job BullMQ failed after it stalled twice, or a counter

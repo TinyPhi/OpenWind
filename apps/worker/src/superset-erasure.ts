@@ -273,9 +273,13 @@ if (supersetErasureMode(env) === "full" && !env.SUPERSET_ERASURE_ENABLED) {
 }
 
 // A counter only appears in Prometheus once it has a value, and increase() of a series that starts at
-// 1 is 0, so the first failure of a process would never raise SupersetErasureFailed. Start both at 0.
+// 1 is 0, so the first failure of a process would never raise SupersetErasureFailed. Start each at 0.
 supersetErasureTotal.add(0, { outcome: "completed" });
 supersetErasureTotal.add(0, { outcome: "failed" });
+supersetErasureTotal.add(0, { outcome: "not_queued" });
+
+// Failure audit writes still running, so a shutdown waits for them instead of losing the row.
+const pendingFailureAudits = new Set<Promise<void>>();
 
 export const supersetErasureWorker = new Worker<SupersetErasureJob>(
   "superset-erasure",
@@ -320,14 +324,15 @@ supersetErasureWorker.on("failed", (job, err) => {
   const parsed = JobSchema.safeParse(job.data);
   // Nothing to link an audit row to when the job itself is malformed.
   if (!parsed.success) return;
-  void recordFailed(parsed.data, job.attemptsMade).catch(
-    (auditErr: unknown) => {
+  const write = recordFailed(parsed.data, job.attemptsMade)
+    .catch((auditErr: unknown) => {
       logger.error(
         { tenantId: job.data.tenantId, err: String(auditErr) },
         "superset erasure: failed to write the failure audit entry",
       );
-    },
-  );
+    })
+    .finally(() => pendingFailureAudits.delete(write));
+  pendingFailureAudits.add(write);
 });
 
 /**
@@ -366,7 +371,13 @@ export async function enqueueSupersetErasure(
         );
         return true;
       }
-      await existing.remove();
+      await existing.remove().catch(async (removeErr: unknown) => {
+        // Another request may have removed it a moment earlier and queued the fresh job.
+        const state = await (
+          await supersetErasureQueue.getJob(jobId)
+        )?.getState();
+        if (state === "failed" || state === "completed") throw removeErr;
+      });
     }
     await supersetErasureQueue.add(
       "erase",
@@ -375,6 +386,7 @@ export async function enqueueSupersetErasure(
     );
     return true;
   } catch (err) {
+    supersetErasureTotal.add(1, { outcome: "not_queued" });
     logger.error(
       { tenantId: job.tenantId, kind: job.kind, err },
       "superset erasure could not be queued; run it by hand (docs/runbooks/superset-erasure.md)",
@@ -383,6 +395,7 @@ export async function enqueueSupersetErasure(
   }
 }
 
-export function stopSupersetErasureWorker(): Promise<void> {
-  return supersetErasureWorker.close();
+export async function stopSupersetErasureWorker(): Promise<void> {
+  await supersetErasureWorker.close();
+  await Promise.allSettled([...pendingFailureAudits]);
 }

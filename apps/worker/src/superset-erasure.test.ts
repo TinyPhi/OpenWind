@@ -87,6 +87,7 @@ const {
   eraseInSuperset,
   supersetErasureJobId,
   MAX_CALLS_PER_ATTEMPT,
+  stopSupersetErasureWorker,
 } = await import("./superset-erasure.js");
 
 const TENANT = "bbbbbbbb-0002-4000-b000-000000000002";
@@ -387,9 +388,10 @@ describe("the job", () => {
 });
 
 describe("metrics", () => {
-  it("starts both outcomes at 0, so the first failure of a process still moves increase()", () => {
+  it("starts every outcome at 0, so the first failure of a process still moves increase()", () => {
     expect(initialCounts).toContainEqual([0, { outcome: "failed" }]);
     expect(initialCounts).toContainEqual([0, { outcome: "completed" }]);
+    expect(initialCounts).toContainEqual([0, { outcome: "not_queued" }]);
   });
 });
 
@@ -432,6 +434,24 @@ describe("failure handling", () => {
     const { UnrecoverableError } = await import("bullmq");
     failed()(queued(1), new UnrecoverableError("bad job"));
     await vi.waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1));
+  });
+
+  it("waits for a failure row still being written before shutting down", async () => {
+    let finish: () => void = () => {};
+    mockWrite.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    failed()(queued(SUPERSET_ERASURE_ATTEMPTS), new Error("503"));
+    await vi.waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1));
+    let stopped = false;
+    const stopping = stopSupersetErasureWorker().then(() => {
+      stopped = true;
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stopped).toBe(false);
+    finish();
+    await stopping;
+    expect(stopped).toBe(true);
   });
 
   it("logs, and does not throw, when even the failure row cannot be written", async () => {
@@ -532,7 +552,7 @@ describe("queueing", () => {
     ).toBe(true);
   });
 
-  it("never throws when the queue is down, and says how to run it by hand", async () => {
+  it("never throws when the queue is down, says how to run it by hand, and counts it for the alert", async () => {
     mockAdd.mockRejectedValueOnce(new Error("redis down"));
     expect(
       await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
@@ -541,5 +561,34 @@ describe("queueing", () => {
       expect.anything(),
       expect.stringContaining("runbook"),
     );
+    expect(mockCount).toHaveBeenCalledWith(1, { outcome: "not_queued" });
+  });
+
+  it("still queues when another request removed the old job a moment earlier", async () => {
+    const remove = vi.fn(async () => {
+      throw new Error("Missing key for job");
+    });
+    mockGetJob
+      .mockResolvedValueOnce({ getState: async () => "failed", remove })
+      .mockResolvedValueOnce(undefined);
+    expect(
+      await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
+    ).toBe(true);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports not queued when the old failed job could not be removed and is still there", async () => {
+    const stuck = {
+      getState: async () => "failed",
+      remove: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+    };
+    mockGetJob.mockResolvedValueOnce(stuck).mockResolvedValueOnce(stuck);
+    expect(
+      await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
+    ).toBe(false);
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockCount).toHaveBeenCalledWith(1, { outcome: "not_queued" });
   });
 });

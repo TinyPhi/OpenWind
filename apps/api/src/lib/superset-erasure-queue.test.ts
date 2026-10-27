@@ -1,21 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAdd, mockGetJob, mockInfo, mockWarn, mockError, mockEnv } =
-  vi.hoisted(() => ({
-    mockAdd: vi.fn(),
-    mockGetJob: vi.fn(),
-    mockInfo: vi.fn(),
-    mockWarn: vi.fn(),
-    mockError: vi.fn(),
-    mockEnv: {
-      SUPERSET_OAUTH_CLIENT_ID: "client-id" as string | undefined,
-      SUPERSET_ERASURE_ENABLED: true,
-    },
-  }));
+const {
+  mockAdd,
+  mockGetJob,
+  mockInfo,
+  mockWarn,
+  mockError,
+  mockEnv,
+  mockCount,
+  initialCounts,
+} = vi.hoisted(() => ({
+  mockCount: vi.fn(),
+  initialCounts: [] as unknown[][],
+  mockAdd: vi.fn(),
+  mockGetJob: vi.fn(),
+  mockInfo: vi.fn(),
+  mockWarn: vi.fn(),
+  mockError: vi.fn(),
+  mockEnv: {
+    SUPERSET_OAUTH_CLIENT_ID: "client-id" as string | undefined,
+    SUPERSET_ERASURE_ENABLED: true,
+    SUPERSET_REDIS_URL: "redis://superset-cache:6379/1" as string | undefined,
+  },
+}));
 vi.mock("@platform/telemetry", () => ({
   Queue: class {
     add = mockAdd;
     getJob = mockGetJob;
+  },
+  supersetErasureTotal: {
+    add: (...args: unknown[]): unknown => {
+      initialCounts.push(args);
+      return mockCount(...args);
+    },
   },
 }));
 vi.mock("@platform/config", () => ({
@@ -50,6 +67,7 @@ beforeEach(() => {
   mockGetJob.mockResolvedValue(undefined);
   mockEnv.SUPERSET_OAUTH_CLIENT_ID = "client-id";
   mockEnv.SUPERSET_ERASURE_ENABLED = true;
+  mockEnv.SUPERSET_REDIS_URL = "redis://superset-cache:6379/1";
 });
 
 describe("enqueueSupersetErasure (#728)", () => {
@@ -137,7 +155,7 @@ describe("enqueueSupersetErasure (#728)", () => {
     ).toBe(true);
   });
 
-  it("never throws when the queue is down, and points to the runbook", async () => {
+  it("never throws when the queue is down, points to the runbook, and counts it for the alert", async () => {
     mockAdd.mockRejectedValueOnce(new Error("redis down"));
     expect(
       await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
@@ -146,6 +164,38 @@ describe("enqueueSupersetErasure (#728)", () => {
       expect.anything(),
       expect.stringContaining("runbook"),
     );
+    expect(mockCount).toHaveBeenCalledWith(1, { outcome: "not_queued" });
+  });
+
+  it("starts the not-queued count at 0, so the first one still moves increase()", () => {
+    expect(initialCounts).toContainEqual([0, { outcome: "not_queued" }]);
+  });
+
+  it("still queues when another request removed the old job a moment earlier", async () => {
+    const remove = vi.fn(async () => {
+      throw new Error("Missing key for job");
+    });
+    mockGetJob
+      .mockResolvedValueOnce({ getState: async () => "failed", remove })
+      .mockResolvedValueOnce(undefined);
+    expect(
+      await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
+    ).toBe(true);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports not queued when the old failed job could not be removed and is still there", async () => {
+    const stuck = {
+      getState: async () => "failed",
+      remove: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+    };
+    mockGetJob.mockResolvedValueOnce(stuck).mockResolvedValueOnce(stuck);
+    expect(
+      await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
+    ).toBe(false);
+    expect(mockAdd).not.toHaveBeenCalled();
   });
 });
 
@@ -198,6 +248,15 @@ describe("eraseUserInSuperset (#728): what the admin is told", () => {
     const outcome = await run();
     expect(outcome.status).toBe("cache_only");
     expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not claim the cache is being cleared when Superset has no cache configured", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockEnv.SUPERSET_REDIS_URL = undefined;
+    const outcome = await run();
+    expect(outcome.status).toBe("cache_only");
+    expect(outcome.message).toContain("no cache to clear");
+    expect(outcome.message).not.toContain("being cleared");
   });
 
   it("says when the erasure could not be scheduled", async () => {

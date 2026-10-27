@@ -77,8 +77,28 @@ tests:
               team: platform
               outcome: failed
             exp_annotations:
-              summary: "A Superset erasure ran out of retries without completing"
-              description: "1 Superset erasure job(s) failed on their last retry in the last hour. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+              summary: "A Superset erasure did not complete (failed)"
+              description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+
+  - name: an erasure that could not be queued raises SupersetErasureFailed
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_total{outcome="not_queued"}'
+        values: "0x10 1x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SupersetErasureFailed
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SupersetErasureFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              outcome: not_queued
+            exp_annotations:
+              summary: "A Superset erasure did not complete (not_queued)"
+              description: "1 Superset erasure(s) with outcome not_queued in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
 
   - name: successful erasures alone stay quiet
     interval: 1m
@@ -137,8 +157,8 @@ tests:
               team: platform
               outcome: failed
             exp_annotations:
-              summary: "A Superset erasure ran out of retries without completing"
-              description: "1 Superset erasure job(s) failed on their last retry in the last hour. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+              summary: "A Superset erasure did not complete (failed)"
+              description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
 
   - name: a slow tick raises ScheduleTickDurationSLOBreach
     interval: 1m

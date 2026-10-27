@@ -1,4 +1,4 @@
-import { Queue } from "@platform/telemetry";
+import { Queue, supersetErasureTotal } from "@platform/telemetry";
 import { env, supersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
 import { auditResourceId } from "@platform/audit";
@@ -18,6 +18,9 @@ export const supersetErasureQueue = new Queue("superset-erasure", {
   connection,
   defaultJobOptions: { ...SUPERSET_ERASURE_JOB_OPTIONS },
 });
+
+// Starts at 0 so the first failed enqueue of a process still moves increase() (SupersetErasureFailed).
+supersetErasureTotal.add(0, { outcome: "not_queued" });
 
 /**
  * Queues the erasure of a user's data in Superset (#728). Only when Superset Stage 2 is on: with
@@ -47,11 +50,18 @@ export async function enqueueSupersetErasure(
         );
         return true;
       }
-      await existing.remove();
+      await existing.remove().catch(async (removeErr: unknown) => {
+        // Another request may have removed it a moment earlier and queued the fresh job.
+        const state = await (
+          await supersetErasureQueue.getJob(jobId)
+        )?.getState();
+        if (state === "failed" || state === "completed") throw removeErr;
+      });
     }
     await supersetErasureQueue.add("erase", request, { jobId });
     return true;
   } catch (err) {
+    supersetErasureTotal.add(1, { outcome: "not_queued" });
     logger.error(
       { tenantId: request.tenantId, kind: request.kind, err },
       "superset erasure could not be queued; run it by hand (docs/runbooks/superset-erasure.md)",
@@ -106,8 +116,9 @@ export async function eraseUserInSuperset(input: {
     return {
       status: "cache_only",
       switchIgnored: false,
-      message:
-        "Superset sign-in is off, so Superset holds no account for this user; its cached results are being cleared.",
+      message: env.SUPERSET_REDIS_URL
+        ? "Superset sign-in is off, so Superset holds no account for this user; its cached results are being cleared."
+        : "Superset sign-in is off, so Superset holds no account for this user; it has no cache to clear.",
     };
   }
   const switchIgnored = !env.SUPERSET_ERASURE_ENABLED;
