@@ -3,6 +3,27 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — multi-lingual support Phase 1 (#200)]
+
+### Added
+
+- 11-language i18n infrastructure: English (default) + Hindi, Marathi, Bengali, Tamil, Telugu,
+  Kannada, French, German, Italian, Spanish. Language preference is stored in `localStorage`
+  (`ow:language`) and validated against the supported list on every read — unrecognised or
+  injected values silently fall back to English.
+- Language selector tab in Settings (available to all users, not admin-only). The active
+  language is reflected on `document.documentElement.lang` for screen readers.
+- Noto Sans + Noto Sans Devanagari loaded via Google Fonts with `unicode-range` blocks so
+  Indic-script fonts (~1.5 MB) download only for users who need them.
+- Refine `i18nProvider` wired in `App.tsx` (`translate`, `changeLocale`, `getLocale`).
+- Locale-completeness CI test — fails if any non-English `common.json` is missing a key
+  present in the English baseline.
+
+### Changed
+
+- `analytics.tsx` `getTodayLabel` and `dashboard.tsx` `formatDueDateLong` now read the active
+  locale from `useLocale()` instead of hardcoding `"en-IN"`.
+
 ## [Unreleased — org-view follow-ups (#1072)]
 
 ### Changed
