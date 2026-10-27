@@ -52,6 +52,14 @@ vi.mock("../authProvider.js", () => ({
   },
 }));
 
+const mockFetchWithAuth = vi.fn(
+  (_url: string): Promise<unknown> => Promise.resolve({ data: null }),
+);
+vi.mock("../lib/api.js", () => ({
+  fetchWithAuth: (url: string) => mockFetchWithAuth(url),
+  API_URL: "/api",
+}));
+
 const { Layout } = await import("./layout.js");
 
 function renderLayout(): ReturnType<typeof render> {
@@ -214,5 +222,133 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     ])("derives initials for %j as %s", (name, expected) => {
       expect(initialsFor(name)).toBe(expected);
     });
+  });
+});
+
+describe("Layout header brand (R12)", () => {
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockFetchWithAuth.mockResolvedValue({ data: null });
+  });
+
+  function header(): HTMLElement {
+    return document.querySelector(".main-header") as HTMLElement;
+  }
+
+  it("asks for the caller's own org brand", async () => {
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() =>
+      expect(mockFetchWithAuth).toHaveBeenCalledWith("/api/me/org"),
+    );
+  });
+
+  it("shows a sandbox's logo and name in place of the OpenWind brand", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: { name: "Acme Demo", logo: "data:image/png;base64,AAAA" },
+    });
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() => expect(header().textContent).toContain("Acme Demo"));
+    expect(header().textContent).not.toContain("OpenWind");
+    expect(
+      header().querySelector('img[src="data:image/png;base64,AAAA"]'),
+    ).not.toBeNull();
+    expect(header().querySelector('img[src="/favicon.svg"]')).toBeNull();
+  });
+
+  it("shows the initials of the org name when the sandbox has no logo", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: { name: "Acme Demo", logo: null },
+    });
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() => expect(header().textContent).toContain("Acme Demo"));
+    expect(header().textContent).toContain("AD");
+    expect(header().querySelector("img")).toBeNull();
+  });
+
+  it("falls back to the initials tile when the logo image fails to load", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: { name: "Acme Demo", logo: "data:image/png;base64,AAAA" },
+    });
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() =>
+      expect(header().querySelector('img[src^="data:image"]')).not.toBeNull(),
+    );
+    fireEvent.error(
+      header().querySelector('img[src^="data:image"]') as Element,
+    );
+
+    expect(header().querySelector('img[src^="data:image"]')).toBeNull();
+    expect(header().textContent).toContain("AD");
+  });
+
+  it("keeps the OpenWind brand for a tenant that is not a sandbox", async () => {
+    mockFetchWithAuth.mockResolvedValue({ data: null });
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() =>
+      expect(
+        (header().querySelector(".logo-text") as HTMLElement).style.visibility,
+      ).toBe(""),
+    );
+    expect(header().textContent).toContain("OpenWind");
+    expect(header().querySelector('img[src="/favicon.svg"]')).not.toBeNull();
+  });
+
+  it("keeps the OpenWind brand when the lookup fails, so the app stays usable", async () => {
+    mockFetchWithAuth.mockRejectedValue(new Error("Network error"));
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() =>
+      expect(
+        (header().querySelector(".logo-text") as HTMLElement).style.visibility,
+      ).toBe(""),
+    );
+    expect(header().textContent).toContain("OpenWind");
+  });
+
+  it("holds the space invisibly while loading, so a sandbox never flashes OpenWind", async () => {
+    let resolve!: (value: unknown) => void;
+    mockFetchWithAuth.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    const text = header().querySelector(".logo-text") as HTMLElement;
+    expect(text.style.visibility).toBe("hidden");
+    expect(
+      (header().querySelector('img[src="/favicon.svg"]') as HTMLElement).style
+        .visibility,
+    ).toBe("hidden");
+
+    resolve({ data: { name: "Acme Demo", logo: null } });
+    await waitFor(() => expect(header().textContent).toContain("Acme Demo"));
+    expect(header().textContent).not.toContain("OpenWind");
+  });
+
+  it("ignores a malformed response and keeps the OpenWind brand", async () => {
+    mockFetchWithAuth.mockResolvedValue({ data: { name: 42, logo: "x" } });
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() =>
+      expect(
+        (header().querySelector(".logo-text") as HTMLElement).style.visibility,
+      ).toBe(""),
+    );
+    expect(header().textContent).toContain("OpenWind");
   });
 });

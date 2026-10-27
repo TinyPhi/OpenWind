@@ -68,6 +68,7 @@ export function SandboxDetailPanel({
               tenantId={sandbox.id}
               tenantName={sandbox.name}
               trialEndsAt={sandbox.trialEndsAt}
+              logo={sandbox.logo}
               onDone={onActionDone}
             />
             <IconButton aria-label="Close details" onClick={onClose}>

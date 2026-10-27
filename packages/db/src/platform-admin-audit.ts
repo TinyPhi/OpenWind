@@ -15,7 +15,8 @@ export type PlatformAdminAction =
   | "sandbox.reset"
   | "sandbox.deleted"
   | "sandbox.trial_changed"
-  | "sandbox.trial_ended";
+  | "sandbox.trial_ended"
+  | "sandbox.branding_changed";
 
 export interface RecordPlatformAdminActionInput {
   actorSub: string;
@@ -70,10 +71,11 @@ function asPlatformAdminAction(action: string): PlatformAdminAction {
     action === "sandbox.reset" ||
     action === "sandbox.deleted" ||
     action === "sandbox.trial_changed" ||
-    action === "sandbox.trial_ended"
+    action === "sandbox.trial_ended" ||
+    action === "sandbox.branding_changed"
   )
     return action;
-  // The DB CHECK constraint (migrations 0141, 0142) already guarantees this is unreachable --
+  // The DB CHECK constraint (migrations 0141, 0142, 0155) already guarantees this is unreachable --
   // narrowing defensively, same pattern as platform-admin-view.ts's asProgressStatus.
   throw new Error(`unexpected platform_admin_audit_log.action: ${action}`);
 }

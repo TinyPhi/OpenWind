@@ -12,6 +12,7 @@ import {
   sandboxTrialHandler,
   sandboxTrialEndHandler,
 } from "./sandbox-trial.js";
+import { sandboxBrandingHandler } from "./sandbox-branding.js";
 import { sandboxResetHandler } from "./sandbox-reset.js";
 import { sandboxDeleteHandler } from "./sandbox-delete.js";
 import { auditLogHandler } from "./audit-log.js";
@@ -33,6 +34,7 @@ router.post("/sandboxes/:tenantId/reset", ...sandboxResetHandler);
 router.post("/sandboxes/:tenantId/delete", ...sandboxDeleteHandler);
 router.post("/sandboxes/:tenantId/trial", ...sandboxTrialHandler);
 router.post("/sandboxes/:tenantId/trial/end", ...sandboxTrialEndHandler);
+router.patch("/sandboxes/:tenantId/branding", ...sandboxBrandingHandler);
 router.get("/audit-log", ...auditLogHandler);
 
 export { router as platformAdminRouter };
