@@ -12,6 +12,7 @@ import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 import { initials } from "../lib/format.js";
 import { avatarColor } from "../lib/theme.js";
+import { OrgChartPanel } from "./org-directory.js";
 
 function getRolesFromProfile(
   profile: Record<string, unknown> | undefined,
@@ -195,6 +196,7 @@ export function UsersPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
+  const [showOrgChart, setShowOrgChart] = useState(false);
   const isAdmin = roles.includes("admin");
 
   useEffect(() => {
@@ -227,6 +229,33 @@ export function UsersPage(): React.ReactElement {
 
   return (
     <div>
+      {showOrgChart && (
+        <div className="modal-overlay" onClick={() => setShowOrgChart(false)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Org chart"
+            style={{ maxWidth: "1200px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h3 className="modal-title">Org Chart</h3>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="Close"
+                onClick={() => setShowOrgChart(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <OrgChartPanel embedded />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div
         style={{
@@ -242,6 +271,13 @@ export function UsersPage(): React.ReactElement {
             All members of your organization, sorted alphabetically.
           </p>
         </div>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => setShowOrgChart(true)}
+        >
+          View org chart
+        </button>
       </div>
 
       {/* Search */}

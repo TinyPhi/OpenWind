@@ -85,9 +85,8 @@ export function RosterPage(): React.ReactElement {
     Promise.all([
       fetchWithAuth(`${API_URL}/admin/teams`),
       // Admin-only endpoint for on-call assignee pickers (PR #602 review,
-      // BLOCKER-1) -- separate from GET /users, the customer-facing @mention
-      // picker. Returns all org members (admin + user roles, no "agent"
-      // role in this deployment).
+      // BLOCKER-1) -- separate from GET /users, the @mention picker. Returns
+      // admin, agent and "user" (employee) members.
       fetchWithAuth(`${API_URL}/admin/members`),
     ])
       .then(([teamsRes, usersRes]) => {

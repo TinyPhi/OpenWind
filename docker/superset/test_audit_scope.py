@@ -11,10 +11,14 @@ Two defects found in review of the audit writer, each pinned here:
    live Superset before the fix; the lookup is now scoped to the caller's own
    queries.
 
+The lookup also runs on its own connection under a 2 s limit, so a slow
+metadata database withholds the SQL instead of holding the request (#813).
+
 Needs Flask, so it runs inside the Superset image (the CI job in the plan):
     python -m unittest test_audit_scope
 """
 
+import contextlib
 import importlib
 import importlib.util
 import json
@@ -48,23 +52,44 @@ class FakeQuery:
         self.client_id, self.user_id, self.sql = client_id, user_id, sql
 
 
-class FakeSession:
-    """`session.query(Query).filter_by(...).first()` over an in-memory list."""
-
-    def __init__(self, rows):
-        self.rows = rows
-        self.filters = []
-
-    def query(self, _model):
-        return self
-
-    def filter_by(self, **kw):
-        self.filters.append(kw)
-        self._matches = [r for r in self.rows if all(getattr(r, k) == v for k, v in kw.items())]
-        return self
+class FakeResult:
+    def __init__(self, row):
+        self._row = row
 
     def first(self):
-        return self._matches[0] if self._matches else None
+        return self._row
+
+
+class FakeEngine:
+    """`engine.connect()` over an in-memory list of queries.
+
+    Records every statement in order, and the parameters of each lookup in
+    `filters`. `fail` makes the lookup raise, as a statement timeout does.
+    """
+
+    def __init__(self, rows, dialect="postgresql", fail=None):
+        self.rows, self.fail = rows, fail
+        self.statements, self.filters = [], []
+        self.dialect = types.SimpleNamespace(name=dialect)
+
+    @contextlib.contextmanager
+    def connect(self):
+        yield self
+
+    @contextlib.contextmanager
+    def begin(self):
+        yield self
+
+    def execute(self, statement, params=None):
+        self.statements.append(str(statement))
+        if params is None:
+            return FakeResult(None)
+        self.filters.append(params)
+        if self.fail:
+            raise self.fail
+        matches = [r for r in self.rows
+                   if r.client_id == params["client_id"] and r.user_id == params["user_id"]]
+        return FakeResult(matches[0] if matches else None)
 
 
 @unittest.skipUnless(importlib.util.find_spec("flask") is not None, "needs Flask (runs in the image)")
@@ -104,25 +129,14 @@ class AuditScope(unittest.TestCase):
             else:
                 os.environ[k] = v
 
-    def stubs(self, rows):
-        """Superset's models need a full app just to import; only `Query` is used."""
-        session = FakeSession(rows)
+    def payload(self, rows, action, record, user, kwargs=None, **engine):
+        """The payload, plus the fake engine the lookup ran on."""
+        lookup = FakeEngine(rows, **engine)
         fake_db = mock.MagicMock()
-        fake_db.session = session
-        models = types.ModuleType("superset.models")
-        sql_lab = types.ModuleType("superset.models.sql_lab")
-        sql_lab.Query = FakeQuery
-        models.sql_lab = sql_lab
-        patches = (
-            mock.patch("superset.db", fake_db),
-            mock.patch.dict(sys.modules, {"superset.models": models, "superset.models.sql_lab": sql_lab}),
-        )
-        return session, patches
-
-    def payload(self, rows, action, record, user, kwargs=None):
-        session, patches = self.stubs(rows)
-        with patches[0], patches[1]:
-            return self.logger.build_audit_payload(action, record, kwargs or {}, user), session
+        fake_db.engine = lookup
+        self.fake_db = fake_db
+        with mock.patch("superset.db", fake_db):
+            return self.logger.build_audit_payload(action, record, kwargs or {}, user), lookup
 
     # ── defect 2: another tenant's query text ─────────────────────────────────
     def test_a_forged_client_id_does_not_copy_another_users_sql(self):
@@ -140,15 +154,41 @@ class AuditScope(unittest.TestCase):
 
     def test_the_lookup_is_filtered_by_the_callers_id(self):
         rows = [FakeQuery("q1", USER_A, SECRET)]
-        _, session = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B))
-        self.assertEqual(session.filters, [{"client_id": "q1", "user_id": USER_B}])
+        _, lookup = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B))
+        self.assertEqual(lookup.filters, [{"client_id": "q1", "user_id": USER_B}])
 
     def test_no_caller_id_means_nothing_is_looked_up_or_recorded(self):
         rows = [FakeQuery("q1", USER_A, SECRET)]
-        payload, session = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(None))
-        self.assertEqual(session.filters, [])
+        payload, lookup = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(None))
+        self.assertEqual(lookup.filters, [])
         self.assertEqual(payload["sql"], "")
         self.assertTrue(payload["sql_withheld"])
+
+    # ── #813: the lookup cannot hold the request ──────────────────────────────
+    def test_the_lookup_runs_under_a_time_limit(self):
+        rows = [FakeQuery("q1", USER_B, "SELECT 1")]
+        _, lookup = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B))
+        self.assertIn("SET LOCAL statement_timeout = '2s'", lookup.statements[0])
+        self.assertIn("FROM query", lookup.statements[1])
+
+    def test_a_timed_out_lookup_withholds_the_sql_and_does_not_raise(self):
+        rows = [FakeQuery("q1", USER_B, "SELECT 1")]
+        timeout = RuntimeError("canceling statement due to statement timeout")
+        payload, _ = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B), fail=timeout)
+        self.assertEqual(payload["sql"], "")
+        self.assertTrue(payload["sql_withheld"])
+
+    def test_the_lookup_does_not_touch_superset_s_request_session(self):
+        rows = [FakeQuery("q1", USER_B, "SELECT 1")]
+        self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B))
+        self.assertEqual(self.fake_db.session.method_calls, [])
+
+    def test_no_postgres_time_limit_is_sent_to_another_database(self):
+        rows = [FakeQuery("q1", USER_B, "SELECT 1")]
+        payload, lookup = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B),
+                                       dialect="sqlite")
+        self.assertEqual(payload["sql"], "SELECT 1")
+        self.assertFalse(any("statement_timeout" in s for s in lookup.statements))
 
     def test_an_unknown_client_id_is_withheld_not_an_error(self):
         payload, _ = self.payload([], "reporting.exported", {"client_id": "nope"}, User(USER_B))
@@ -157,10 +197,55 @@ class AuditScope(unittest.TestCase):
 
     def test_sql_the_caller_just_ran_is_taken_from_the_request_without_a_lookup(self):
         rows = [FakeQuery("q1", USER_A, SECRET)]
-        payload, session = self.payload(
+        payload, lookup = self.payload(
             rows, "reporting.query_executed", {"client_id": "q1", "sql": "SELECT 1"}, User(USER_B))
         self.assertEqual(payload["sql"], "SELECT 1")
-        self.assertEqual(session.filters, [])
+        self.assertEqual(lookup.filters, [])
+
+    # ── #812: the audit row names the database, not only its id ───────────────
+    def appended_row(self, database_id, reporting_db_id=2):
+        """The metadata `_append_platform_audit` writes, with the database stubbed."""
+        written = []
+
+        class Conn:
+            def execute(self_inner, _statement, params):
+                written.append(json.loads(params["meta"]))
+
+        class FakeDatabase:
+            id, database_name = reporting_db_id, "OpenWind Platform"
+
+            @contextlib.contextmanager
+            def get_sqla_engine(self_inner):
+                yield types.SimpleNamespace(begin=lambda: contextlib.nullcontext(Conn()))
+
+        fake_db = mock.MagicMock()
+        fake_db.session.query.return_value.filter_by.return_value.one_or_none.return_value = FakeDatabase()
+        models = types.ModuleType("superset.models")
+        core = types.ModuleType("superset.models.core")
+        core.Database = type("Database", (), {})
+        models.core = core
+        record = {"path": "/api/v1/sqllab/execute/", "client_id": "q1", "sql": "SELECT 1",
+                  "database_id": database_id}
+        with mock.patch("superset.db", fake_db), \
+                mock.patch.dict(sys.modules, {"superset.models": models, "superset.models.core": core}), \
+                mock.patch.object(self.config, "_tenant_from_user_roles", return_value="t"), \
+                mock.patch.object(self.config, "_session_user", return_value=User(USER_B)), \
+                mock.patch.object(self.config, "audit_actor", return_value="a"):
+            self.logger._append_platform_audit("reporting.query_executed", record, {})
+        return written[0]
+
+    def test_the_row_names_the_reporting_database(self):
+        row = self.appended_row(database_id=2)
+        self.assertEqual(row["database_id"], 2)
+        self.assertEqual(row["database_name"], "OpenWind Platform")
+
+    def test_a_different_database_id_gets_no_guessed_name(self):
+        row = self.appended_row(database_id=5)
+        self.assertEqual(row["database_id"], 5)
+        self.assertNotIn("database_name", row)
+
+    def test_no_database_id_gets_no_name(self):
+        self.assertNotIn("database_name", self.appended_row(database_id=None))
 
     # ── defect 1: a chart export says what was exported ───────────────────────
     def test_a_chart_export_records_the_chart_dataset_and_format(self):

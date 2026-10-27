@@ -7,9 +7,40 @@ vi.mock("@platform/config", () => ({
 }));
 
 import {
+  toPlatformAdminSandboxView,
   toProvisioningProgressView,
   type ProvisioningProgressRow,
 } from "./platform-admin-view.js";
+
+describe("toPlatformAdminSandboxView", () => {
+  const base = {
+    id: "t-1",
+    name: "Acme Demo",
+    isSandbox: true,
+    trialEndsAt: null,
+    createdAt: new Date("2026-10-01T00:00:00.000Z"),
+  };
+
+  it("passes the logo through, and null when there is none (R12)", () => {
+    const logo = "data:image/png;base64,iVBORw0KGgo=";
+    expect(toPlatformAdminSandboxView({ ...base, logo }).logo).toBe(logo);
+    expect(toPlatformAdminSandboxView({ ...base, logo: null }).logo).toBeNull();
+  });
+
+  it("returns only the allow-listed fields", () => {
+    expect(
+      Object.keys(toPlatformAdminSandboxView({ ...base, logo: null })).sort(),
+    ).toEqual([
+      "createdAt",
+      "id",
+      "isSandbox",
+      "logo",
+      "name",
+      "trialEndsAt",
+      "trialStatus",
+    ]);
+  });
+});
 
 describe("toProvisioningProgressView", () => {
   it("maps a completed provisioning job row with rolledBack null", () => {

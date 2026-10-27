@@ -22,6 +22,24 @@ vi.mock("../lib/org-directory-client.js", () => ({
   triggerOrgSync: (): unknown => mockTriggerOrgSync(),
 }));
 
+// React Flow measures nodes with ResizeObserver / DOMMatrixReadOnly, which jsdom lacks.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+vi.stubGlobal(
+  "DOMMatrixReadOnly",
+  class {
+    m22 = 1;
+  },
+);
+
+// React Flow and dagre load on first render; under a full parallel run that can exceed the
+// default 1s waitFor.
+const CHART_TIMEOUT_MS = 5000;
+
 const { OrgDirectoryPage } = await import("./org-directory.js");
 
 const ROOT = {
@@ -114,15 +132,36 @@ describe("OrgDirectoryPage", () => {
   it("renders the tree with the root and default-expanded levels visible", async () => {
     render(<OrgDirectoryPage />);
 
-    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
     expect(screen.getByText("CEO Person")).toBeTruthy();
     expect(screen.getByText("VP Person")).toBeTruthy();
+  });
+
+  it("offers zoom in, zoom out and fit-view controls", async () => {
+    render(<OrgDirectoryPage />);
+
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
+    expect(
+      await screen.findByRole("button", { name: /zoom in/i }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /zoom out/i }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /fit view/i }),
+    ).toBeTruthy();
   });
 
   it("does not show the Sync now button for a non-admin", async () => {
     render(<OrgDirectoryPage />);
 
-    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
     expect(screen.queryByText("Sync now")).toBeNull();
   });
 
@@ -164,7 +203,9 @@ describe("OrgDirectoryPage", () => {
 
     render(<OrgDirectoryPage />);
 
-    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
     expect(screen.getByText(/Last sync failed/)).toBeTruthy();
   });
 
@@ -172,7 +213,9 @@ describe("OrgDirectoryPage", () => {
     it("reveals a node that starts collapsed below the default expand depth", async () => {
       render(<OrgDirectoryPage />);
 
-      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+        timeout: CHART_TIMEOUT_MS,
+      });
       // LEAF_CHILD is depth 4, below the default depth-3 expand -- its
       // parent (LEAF) is rendered but not expanded, so LEAF_CHILD starts
       // genuinely absent from the DOM, not just visually collapsed.
@@ -191,7 +234,9 @@ describe("OrgDirectoryPage", () => {
     it("leaves the tree unchanged and highlights nothing when the search matches no one", async () => {
       render(<OrgDirectoryPage />);
 
-      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+        timeout: CHART_TIMEOUT_MS,
+      });
 
       fireEvent.change(
         screen.getByPlaceholderText("Search by name or email…"),
@@ -206,7 +251,9 @@ describe("OrgDirectoryPage", () => {
     it("highlights the first match in tree order when multiple employees match (documents single-match behaviour)", async () => {
       render(<OrgDirectoryPage />);
 
-      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+        timeout: CHART_TIMEOUT_MS,
+      });
 
       // "Person" matches both CEO Person and VP Person. allNodes is built
       // root-first, then by nodesByParentId's own key order -- CEO comes
@@ -230,7 +277,9 @@ describe("OrgDirectoryPage", () => {
     it("keeps the highlighted card's border orange when it isn't hovered (#755)", async () => {
       render(<OrgDirectoryPage />);
 
-      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+        timeout: CHART_TIMEOUT_MS,
+      });
 
       fireEvent.change(
         screen.getByPlaceholderText("Search by name or email…"),

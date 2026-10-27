@@ -199,6 +199,76 @@ describe("getOrgMetadataForUser", () => {
   });
 });
 
+describe("getOrgMetadataForUser request", () => {
+  it("calls UserService/ListUserMetadata (ListMetadata does not exist and answers 404) and decodes the result", async () => {
+    mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
+      type: "serviceaccount",
+      keyId: "key-1",
+      key: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      userId: "service-user-1",
+    });
+    const b64 = (v: string): string =>
+      Buffer.from(v, "utf8").toString("base64");
+    const paths: string[] = [];
+
+    // Answers by path: token exchange, then the metadata call. Anything else (issuer
+    // discovery) fails, which getAccessToken tolerates.
+    mockHttpRequest.mockImplementation(
+      (
+        options: { path: string },
+        callback: (res: IncomingMessage) => void,
+      ): Partial<ClientRequest> => {
+        paths.push(options.path);
+        const req: Partial<ClientRequest> = {
+          setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+          on: vi.fn() as unknown as ClientRequest["on"],
+          write: vi.fn() as unknown as ClientRequest["write"],
+          end: vi.fn() as unknown as ClientRequest["end"],
+        };
+        const reply = (status: number, body: unknown): void => {
+          const res = new EventEmitter() as EventEmitter & {
+            statusCode: number;
+          };
+          res.statusCode = status;
+          queueMicrotask(() => {
+            callback(res as IncomingMessage);
+            res.emit("data", Buffer.from(JSON.stringify(body)));
+            res.emit("end");
+          });
+        };
+        if (options.path.includes("/oauth/v2/token")) {
+          reply(200, { access_token: "token-endpoint-test", expires_in: 60 });
+        } else if (options.path.endsWith("UserService/ListUserMetadata")) {
+          reply(200, {
+            metadata: [
+              { key: "manager_id", value: b64("boss-1") },
+              { key: "department", value: b64("sales") },
+              { key: "title", value: b64("Sales Executive") },
+            ],
+          });
+        } else {
+          reply(404, { message: "not found" });
+        }
+        return req;
+      },
+    );
+
+    try {
+      const result = await getOrgMetadataForUser("user-endpoint-path");
+
+      expect(result).toEqual({
+        managerId: "boss-1",
+        department: "sales",
+        title: "Sales Executive",
+      });
+      expect(paths).toContain("/zitadel.user.v2.UserService/ListUserMetadata");
+      expect(paths).not.toContain("/zitadel.user.v2.UserService/ListMetadata");
+    } finally {
+      mockHttpRequest.mockReset();
+    }
+  });
+});
+
 describe("parseOrgMetadataEntries", () => {
   const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 

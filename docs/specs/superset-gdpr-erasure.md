@@ -45,7 +45,7 @@ They are out of scope here, each with where it goes:
 | **#709**                         | map 6.1.0 action names; **a test where a real SQL Lab query and a real export each write one `reporting.*` row**; correct standalone spec T11 | mapping done, and the chart-CSV request-format fix (the button was not audited at all until 2026-10-06; found live). The product has no SQL Lab download, so the export is the chart CSV button. Still to do: committed real-run test (T3), correct T11 in the standalone spec (T10), and actor = Zitadel subject as T11 itself requires (T12) | in review (#799)                                               |
 | **#716**                         | SQL Lab returns the tenant's rows (same count as a chart); retest after the GHSA 0128 fix                                                     | fix and the committed count test (`test_sqllab_count_realdb.py`: SQL Lab, chart and database counts match) merged in #798                                                                                                                                                                                                                      | merged (#798)                                                  |
 | **#728**                         | evict cache + erase Superset DB rows on user erasure; update ADR-019 OQ-3                                                                     | §R R1–R9, tasks T13–T26. **Deviation:** cache keys are opaque hashes, not tenant-namespaced (verified), so the cache is flushed by prefix; the platform has no Superset DB access, so Superset erases its own data                                                                                                                             | not built                                                      |
-| **#731**                         | ADR-019 "Stage 2 gate criteria": owner, criteria, enablement steps, deadline                                                                  | draft text for the human (T27, H5). The issue's step "via OpenBao" is changed to environment variables (Superset's credentials come from environment variables; OpenBao is used in this codebase only for connector credentials)                                                                                                               | not drafted                                                    |
+| **#731**                         | ADR-019 "Stage 2 gate criteria": owner, criteria, enablement steps, deadline                                                                  | draft text for the human (T27, H5). The issue's step "via OpenBao" stands: in production Superset's credentials load from OpenBao at startup (ADR-023, `superset` and `superset-init` paths); locally they come from `.env.local`                                                                                                              | not drafted                                                    |
 | **ST17 (standalone spec's T17)** | forged OIDC claim rejected; tenant-filter-dodging query returns 0 rows; export attributed to the right tenant                                 | abuse tests T5–T8 (ST17), including the UUID-username collision I suspected                                                                                                                                                                                                                                                                    | not written                                                    |
 | found while testing              | SQL Lab streaming CSV export returns an empty file in Stage 2                                                                                 | **Dropped 2026-10-07:** the product has no SQL Lab download (owner). The audit mapping still covers the export routes in case a role change ever opens them (T11, H7 closed)                                                                                                                                                                   | closed                                                         |
 
@@ -62,7 +62,9 @@ They are out of scope here, each with where it goes:
   purge worker has the durable pattern: BullMQ job, retries, `purge.failed` audit, post-commit work.
 - F5: `backup.sh` dumps `platform` + files only; Redis is documented "rebuildable, not backed up".
 - F6: the service account is `ReportingServiceAccount`, not `Admin`; it already mints guest tokens.
-- F7: `ow-backend` and `ow-worker` already receive `SUPERSET_OAUTH_CLIENT_ID` via `.env.local`.
+- F7: locally, `ow-backend` and `ow-worker` receive `SUPERSET_OAUTH_CLIENT_ID` via `.env.local`. In
+  production (ADR-023) it is stored only at the `superset` and `superset-init` OpenBao paths, so T22
+  must also make it available to backend and worker.
 - F8: Flask-AppBuilder does not refresh an existing user's name or email at login (verified).
 - F9: `SQLALCHEMY_POOL_CLASS` does not exist in Superset 6.1.0's config; pooling is controlled by the
   `nullpool` argument of `Database.get_sqla_engine()` (default `True`).
@@ -81,15 +83,15 @@ They are out of scope here, each with where it goes:
 
 ## §C Constraints
 
-| constraint                    | value                                                                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| where Superset data is erased | **inside Superset**, which already reaches its own DB and Redis. The platform only asks. No Superset DB credential goes to the API or worker.                                                                                             |
-| match key                     | the `owsub:<subject>` role added at every login **and** the `tenant:<uuid>` role must match the request. Never username, email or display name.                                                                                           |
-| payloads and logs             | ids only. No name, email or SQL in a job, log line, response or audit metadata written by this feature.                                                                                                                                   |
-| Superset DB shape             | rows wholly the user's are deleted; `ab_user` is anonymised (51 author-pointer columns reference it).                                                                                                                                     |
-| delivery process              | spec → `/spec-tasks` → human `approve-plan` before any edit under `apps/`, `packages/`, `modules/` (`agent-behaviour.md`).                                                                                                                |
-| worker credentials            | **no new secret.** The worker reuses the existing `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and `SUPERSET_SERVICE_ACCOUNT_PASSWORD`; `docker-compose.yml` passes them to the worker exactly as it already does to the API. |
-| never autonomous              | `.github/workflows/` and ADR edits. CI jobs are proposed as patches; ADR-019 is updated by a human.                                                                                                                                       |
+| constraint                    | value                                                                                                                                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| where Superset data is erased | **inside Superset**, which already reaches its own DB and Redis. The platform only asks. No Superset DB credential goes to the API or worker.                                                                                                                 |
+| match key                     | the `owsub:<subject>` role added at every login, **and** either the request's `tenant:<uuid>` role or no `tenant:` role at all. An account holding only another tenant's role is never matched; it is counted as held. Never username, email or display name. |
+| payloads and logs             | ids only. No name, email or SQL in a job, log line, response or audit metadata written by this feature.                                                                                                                                                       |
+| Superset DB shape             | rows wholly the user's are deleted; `ab_user` is anonymised (51 author-pointer columns reference it).                                                                                                                                                         |
+| delivery process              | spec → `/spec-tasks` → human `approve-plan` before any edit under `apps/`, `packages/`, `modules/` (`agent-behaviour.md`).                                                                                                                                    |
+| worker credentials            | **no new secret.** The worker reuses the existing `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and `SUPERSET_SERVICE_ACCOUNT_PASSWORD`; `docker-compose.yml` passes them to the worker exactly as it already does to the API.                     |
+| never autonomous              | `.github/workflows/` and ADR edits. CI jobs are proposed as patches; ADR-019 is updated by a human.                                                                                                                                                           |
 
 ## §D Decisions
 
@@ -129,7 +131,7 @@ data on request. These questions decide how long the rest is kept when nobody ha
   service account's username, so it is not matched by name. Any other authenticated caller, including `Admin`, gets 403. CSRF protection stays on: the caller fetches a CSRF
   token and its session cookie first, as `superset-client.ts` already does, and a request without them is refused
   (400) before authentication. Each call does a bounded amount of work (about 20 s, well under the server's 120 s
-  request limit) and returns counts only: `{matchedUsers, deletedRows, cacheKeysRemoved, more}`. The worker calls
+  request limit) and returns counts only: `{matchedUsers, heldUsers, deletedRows, cacheKeysRemoved, more}`. The worker calls
   again while `more` is true; the user row is anonymised only in the call that finishes. Fallback if the CSRF flow
   ever fails: list the endpoint in `WTF_CSRF_EXEMPT_LIST` as `superset_config.<function>` (tested).
 - Operator fallback: a `superset openwind-erase --tenant <uuid> --subject <id>` command registered from
@@ -166,10 +168,24 @@ data on request. These questions decide how long the rest is kept when nobody ha
   only). Needs a migration extending `audit_log_action_check` (as 0115 did) and the exhaustiveness maps in
   `packages/audit`. The migration is numbered and written at build time, after rebasing: open PRs #803–#805 also
   rewrite this constraint, and each rewrite lists every action, so the later one must include the other's.
+- Who asked is **not** recorded again on these rows. The platform already writes it when the erasure is
+  requested: `deleted` on `user` (`DELETE /users/:userId`) or on `tenant` (`scheduleTenantDeletion`), with the
+  admin as actor. The Superset rows only record that the follow-up ran and when. They carry the same `tenantId`,
+  `resourceType` and `resourceId` as that request row (`auditResourceId(subject)` for a user, the tenant id for a
+  tenant), so one search by resource shows the request and its Superset outcome together. No actor field is
+  added to the job payloads.
+- The operator command (`superset openwind-erase`) writes no audit row. Only someone with shell access to the
+  server can run it, and that access is recorded by the server, not by the platform. The runbook (T28) limits it
+  to a job that keeps failing and asks the operator to note who ran it and why in the incident ticket.
 - Metrics and alerts: a failed job; an erasure request with no `completed` row after 7 days (an
   operational default, a setting, not a legal deadline).
 
-**What "erase" does in Superset:** find users holding `owsub:<subject>` and `tenant:<tenantId>` (refuse
+**What "erase" does in Superset:** find users holding `owsub:<subject>` and `tenant:<tenantId>`, or
+`owsub:<subject>` and no `tenant:` role at all (a login that resolved to no tenant; it belongs to no other
+tenant, and the platform deletes the person's Zitadel login in the same erasure). An account of the subject
+that holds only another tenant's role is not erased, since that would remove the person's records in that
+tenant: it is counted as `heldUsers`, logged as a warning, and the count goes into the `completed` audit row
+so the erasure is never reported as whole in silence. A tenant erase matches by the tenant role only (refuse
 `admin` and the service account) → delete the `delete`-class rows in bounded batches, including the user's
 `key_value` cache rows → clear any `rls_filter_roles` reference to the roles about to go (the foreign key is
 `NO ACTION`; none exist today) → delete the user's `owsub:`/`owuser:` roles (a tenant purge also deletes the
@@ -190,6 +206,8 @@ R2: Tenant purge removes every Superset user of that tenant.
 R3: Matching never trusts a name.
 ✓ a username equal to another tenant's id or another user's login name is not matched; right subject
 with wrong tenant role is not matched; `admin` and the service account are never erased.
+✓ the subject's account with no tenant role is erased; the subject's account holding only another tenant's
+role is left untouched and counted in `heldUsers`; a tenant erase never touches an account with no tenant role.
 
 R4: A Superset failure never blocks the Postgres erasure and is never silent.
 ✓ Superset unreachable: the route still succeeds, Postgres rows are gone, the job is queued.
@@ -322,9 +340,10 @@ phase gate: tests of the phase pass before the next phase starts.
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed                                                            | root cause                                                       | promoted to §V?                       |
-| --- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- |
-| B1  | the earlier draft grew to 27 tasks of GDPR features no issue asked for | GDPR articles were treated as requirements instead of the issues | yes — §S0 and §T0 now bound the scope |
+| id  | what failed                                                                                                            | root cause                                                                                                                                                                                                                                                                              | promoted to §V?                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| B1  | the earlier draft grew to 27 tasks of GDPR features no issue asked for                                                 | GDPR articles were treated as requirements instead of the issues                                                                                                                                                                                                                        | yes — §S0 and §T0 now bound the scope                                                                                 |
+| B2  | after #1070, `test_audit_realdb.py` wrote no audit row for a SQL Lab query or a chart CSV export (4 of 5 tests failed) | the audit writer started reading `database.id` / `database_name` (#812); the test's `FakeDatabase` stand-in had neither, so the writer raised and logged instead of writing. The real-DB tests are skipped without their environment, in CI and in #1070's own run, so nothing ran them | no — test-only: `FakeDatabase` carries the real row's `id` and `database_name`. Running the real-DB tests in CI is H4 |
 
 ---
 
