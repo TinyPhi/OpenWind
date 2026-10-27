@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased — Superset erasure runs automatically (#728)]
 
+### Security
+
+- `DELETE /users/:userId` now erases only a person of the admin's own organisation (signed in, or
+  in the organisation's Zitadel users). Any other id gets 404 and nothing is touched. Before, the
+  Zitadel login of any user id was deleted, including one from another organisation.
+
 ### Added
 
 - Erasing a user, or purging a tenant, now also erases their data from Superset's own database
@@ -20,7 +26,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - A user's Superset data is erased only when they were a member of the erasing admin's tenant.
   `ow-worker` now receives `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and
   `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, as `ow-backend` does.
-- `SupersetErasureFailed` alert (an erasure spent every retry), `SupersetErasureJobFailedInQueue` (a
+- `SupersetErasureFailed` alert (an erasure spent every retry, or could not be queued at all:
+  `outcome="not_queued"`; a tenant purge then fails and retries so it is queued again),
+  `SupersetErasureJobFailedInQueue` (a
   failed job is waiting in the queue, which also catches a job BullMQ failed after it stalled) and the
   [Superset erasure runbook](docs/runbooks/superset-erasure.md). Production needs the Stage 2 client
   id and the service account password at the API's and worker's own settings; see the runbook.

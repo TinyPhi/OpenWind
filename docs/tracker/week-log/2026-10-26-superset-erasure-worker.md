@@ -14,8 +14,16 @@
   `SupersetErasureJobFailedInQueue` is the backstop: `superset-erasure` is added to the queues whose depth is
   exported, and any job in its failed state (kept 7 days) raises the alert, including a job BullMQ failed after it
   stalled twice, which writes no audit row.
-- A second erase of the same user or tenant replaces a failed or finished job with the same id (BullMQ ignores an
-  add whose id exists); the user job id is built from the hashed subject because BullMQ ids cannot contain a colon.
+- A new request for the same id replaces a failed or finished job (BullMQ ignores an add whose id exists); the user
+  job id is built from the hashed subject because BullMQ ids cannot contain a colon. A second erase of the same user
+  from OpenWind does not reach this: the first erase removed them from the organisation, so the route answers 404.
+  The recovery for a user is the operator command in the runbook.
+- Review follow-ups (2026-10-27): `DELETE /users/:userId` refuses (404) an id outside the admin's organisation
+  before anything runs (the Zitadel delete is instance-wide); a failed enqueue counts as `outcome="not_queued"`
+  and raises `SupersetErasureFailed`; a tenant purge whose erasure could not be queued fails so its retry queues it
+  again; two requests racing to replace the same failed job no longer report a false failure; shutdown waits for a
+  `failed` audit row still being written. T23–T26 are marked partial in the tasks file: no real-database tests
+  were added, and the local run used stand-in Superset users.
 - Local run of the real worker against the local Superset 6.1.0 (isolated Redis db, a copy of the platform DB with
   0156 applied, stand-in Superset users with queries, saved queries, logs and a favourite): the normal path erased
   18 rows and wrote one `completed` row whose resource id equals the platform's; with Superset unreachable the

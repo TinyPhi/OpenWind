@@ -50,12 +50,19 @@ with `superset openwind-erase --tenant <that tenant> --subject <id>`.
 
 ## When it did not finish
 
-The `SupersetErasureFailed` alert fires when a job spends its last retry. The job log line says
-"superset erasure failed on its last attempt" and a `superset_erasure.failed` row exists. A second
-alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state, which
-lasts 7 days or until the job is removed. It also catches a job BullMQ failed because the worker died
-twice while running it: that job has no `failed` audit row, so look for it in the queue
-(`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
+The `SupersetErasureFailed` alert fires in two cases, told apart by its `outcome` label:
+
+- `failed`: a job spent its last retry. The job log line says "superset erasure failed on its last
+  attempt" and a `superset_erasure.failed` row exists.
+- `not_queued`: the job could not even be queued (Redis was down at that moment). The log line says
+  "superset erasure could not be queued"; there is no job and no audit row. For a tenant purge, the
+  purge job fails and its own retry queues the erasure again. For a user, nothing retries it: run
+  the erase by hand as below.
+  A second
+  alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state, which
+  lasts 7 days or until the job is removed. It also catches a job BullMQ failed because the worker died
+  twice while running it: that job has no `failed` audit row, so look for it in the queue
+  (`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
 
 1. **Find the cause in the worker log** (`ow-worker`), the line before the final one. Usual causes:
 
@@ -69,8 +76,9 @@ twice while running it: that job has no `failed` audit row, so look for it in th
    | an `insert into "admin_audit_log"` error       | Migration `0156_superset_erasure_audit_actions` is not applied. Apply migrations; the job keeps Superset's result and retries, so the counts are not lost. |
 
 2. **Fix it, then run the erase by hand.** The failed job is kept for 7 days but is not retried
-   again; erasing the same user or tenant again from OpenWind replaces it with a fresh job. From a
-   shell on the host that runs Superset:
+   again. Erasing the same user again from OpenWind does **not** queue a new job: the first erase
+   already removed them from the organisation, so the API answers "not found". Run it from a shell on
+   the host that runs Superset:
 
    ```
    docker exec ow-superset superset openwind-erase --tenant <tenant-uuid> --subject <zitadel-user-id>
