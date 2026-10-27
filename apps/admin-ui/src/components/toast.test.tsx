@@ -14,9 +14,11 @@ afterEach(() => {
 });
 
 describe("ToastHost", () => {
-  it("renders nothing until a toast is shown", () => {
+  it("keeps an empty live region mounted before any toast, so the first one is announced", () => {
     render(<ToastHost />);
-    expect(screen.queryByRole("status")).toBeNull();
+    const region = screen.getByRole("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(screen.queryByTestId("toast")).toBeNull();
   });
 
   it("shows the title, message and tone of each toast in a live region", () => {

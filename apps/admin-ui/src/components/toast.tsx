@@ -65,7 +65,8 @@ export function ToastHost(): React.ReactElement | null {
     };
   }, [dismiss]);
 
-  if (toasts.length === 0) return null;
+  // The live region stays mounted while empty: screen readers often miss a message that arrives in
+  // the same moment as the region itself.
   return (
     <div
       role="status"
