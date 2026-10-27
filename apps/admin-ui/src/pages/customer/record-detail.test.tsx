@@ -1958,3 +1958,95 @@ describe("CustomerRecordDetail — admin state override (docs/specs/state-overri
     expect([...select.options].map((o) => o.value)).toEqual(["", "review"]);
   });
 });
+
+// The API refuses a comment over 4,000 characters (add-comment.ts). The composer used to send it
+// anyway and swallow the 400, so nothing on screen said why the comment never appeared.
+describe("CustomerRecordDetail — comment length limit", () => {
+  beforeEach(() => {
+    mockProfileRoles = ["agent"];
+    mockUserId = ADMIN_USER;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  async function composer(): Promise<HTMLTextAreaElement> {
+    mockRoutesForAccessRequests([]);
+    renderRecordDetail();
+    return (await screen.findByPlaceholderText(
+      /Add a comment/,
+    )) as HTMLTextAreaElement;
+  }
+
+  function postButton(): HTMLButtonElement {
+    return screen.getByRole("button", { name: /Post/ }) as HTMLButtonElement;
+  }
+
+  it("shows how many characters are left once 200 or fewer remain", async () => {
+    const box = await composer();
+    fireEvent.change(box, { target: { value: "a".repeat(3990) } });
+    expect(screen.getByText("10 characters left")).toBeDefined();
+    expect(postButton().disabled).toBe(false);
+  });
+
+  it("marks the text past the limit, says how much to remove, and will not post it", async () => {
+    const box = await composer();
+    fireEvent.change(box, {
+      target: { value: "a".repeat(4000) + "overflow!" },
+    });
+
+    expect(screen.getByText("Remove 9 characters to post")).toBeDefined();
+    expect(document.querySelector(".cmt-overflow")?.textContent).toBe(
+      "overflow!",
+    );
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    expect(postButton().disabled).toBe(true);
+
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(
+      mockFetchWithAuth.mock.calls.some(
+        ([url, init]) =>
+          url === `/api/entities/${RECORD_ID}/comments` &&
+          (init as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("counts the trimmed text, as the API does", async () => {
+    const box = await composer();
+    fireEvent.change(box, {
+      target: { value: "  " + "a".repeat(4000) + "\n\n" },
+    });
+    expect(screen.queryByText(/to post$/)).toBeNull();
+    expect(postButton().disabled).toBe(false);
+  });
+
+  it("shows the server's message and keeps the text when posting fails", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject(new Error("Request validation failed"));
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Request validation failed",
+    );
+    expect(box.value).toBe("hello");
+
+    // Editing the text clears the message.
+    fireEvent.change(box, { target: { value: "hello again" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

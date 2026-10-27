@@ -395,6 +395,12 @@ function HistoryIcon({
 }
 
 /* ── Comment composer with @mention + file attachments ──────── */
+// The API's limit on a comment (apps/api/src/routes/entities/add-comment.ts). It checks the
+// trimmed text, which is what the composer sends, so the count here trims too.
+const COMMENT_MAX_LENGTH = 4000;
+// The counter appears once this few characters are left, like X's composer.
+const COMMENT_COUNTER_FROM = 200;
+
 function CommentComposer({
   users,
   replyTo,
@@ -423,7 +429,12 @@ function CommentComposer({
   const [mentionAnchor, setMentionAnchor] = useState(0);
   const [mentionIdx, setMentionIdx] = useState(0);
   const [mentionedIds, setMentionedIds] = useState<Set<string>>(new Set());
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const leadingSpace = text.length - text.trimStart().length;
+  const remaining = COMMENT_MAX_LENGTH - text.trim().length;
+  const overLimit = remaining < 0;
   const {
     stagedFiles,
     addFiles,
@@ -449,6 +460,7 @@ function CommentComposer({
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>): void {
     const val = e.target.value;
     setText(val);
+    setSubmitError(null);
     const cursor = e.target.selectionStart;
     const atMatch = /@([\w.]*)$/.exec(val.slice(0, cursor));
     if (atMatch) {
@@ -500,8 +512,9 @@ function CommentComposer({
   }
 
   async function handleSubmit(): Promise<void> {
-    if (!text.trim() || submitting) return;
+    if (!text.trim() || submitting || overLimit) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       await onSubmit(
         text.trim(),
@@ -513,6 +526,13 @@ function CommentComposer({
       setMentionQuery(null);
       setMentionedIds(new Set());
       clearFiles();
+    } catch (err) {
+      // Keep the text so it can be fixed and posted again; before this the failure was silent.
+      setSubmitError(
+        err instanceof Error && err.message
+          ? err.message
+          : "The comment could not be posted",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -551,10 +571,31 @@ function CommentComposer({
         </div>
       )}
       <div className="cmt-input-wrap">
+        {/* Mirrors the textarea's text behind it so the part past the limit can be painted
+            red, as X does; a textarea cannot style part of its own text. */}
+        <div ref={backdropRef} className="cmt-backdrop" aria-hidden="true">
+          {overLimit ? (
+            <>
+              {text.slice(0, leadingSpace + COMMENT_MAX_LENGTH)}
+              <mark className="cmt-overflow">
+                {text.slice(leadingSpace + COMMENT_MAX_LENGTH)}
+              </mark>
+            </>
+          ) : (
+            text
+          )}
+          {/* A trailing newline only takes up a line when something follows it. */}
+          {"​"}
+        </div>
         <textarea
           ref={textareaRef}
           className="cmt-textarea"
           rows={3}
+          aria-invalid={overLimit || undefined}
+          onScroll={(e) => {
+            if (backdropRef.current)
+              backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+          }}
           placeholder={
             placeholder ??
             "Add a comment… Use @ to mention someone (Ctrl+Enter to post)"
@@ -606,8 +647,23 @@ function CommentComposer({
           ))}
         </div>
       )}
+      {submitError && (
+        <div className="cmt-submit-error" role="alert">
+          {submitError}
+        </div>
+      )}
       <div className="cmt-composer-footer">
-        <span className="cmt-hint">@ mention · Ctrl+Enter to post</span>
+        {overLimit ? (
+          <span className="cmt-counter cmt-counter-over" role="status">
+            Remove {-remaining} character{remaining === -1 ? "" : "s"} to post
+          </span>
+        ) : remaining <= COMMENT_COUNTER_FROM ? (
+          <span className="cmt-counter" role="status">
+            {remaining} character{remaining === 1 ? "" : "s"} left
+          </span>
+        ) : (
+          <span className="cmt-hint">@ mention · Ctrl+Enter to post</span>
+        )}
         <div className="cmt-footer-actions">
           <label className="cmt-attach-btn" title="Attach files">
             <svg
@@ -640,8 +696,16 @@ function CommentComposer({
           <button
             type="button"
             className="portal-btn-primary cmt-post-btn"
-            disabled={!text.trim() || submitting || pendingCount > 0}
-            title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
+            disabled={
+              !text.trim() || submitting || pendingCount > 0 || overLimit
+            }
+            title={
+              pendingCount > 0
+                ? "Waiting for file scan…"
+                : overLimit
+                  ? `Comments can be at most ${COMMENT_MAX_LENGTH} characters`
+                  : undefined
+            }
             onClick={() => void handleSubmit()}
           >
             {submitting ? (
