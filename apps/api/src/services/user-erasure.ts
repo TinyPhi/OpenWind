@@ -20,6 +20,7 @@ import {
   ticketLabels,
   notificationPolicies,
   teams,
+  teamMembers,
   services,
   onCallSchedules,
   scheduleRules,
@@ -27,6 +28,7 @@ import {
   orgDirectorySyncRuns,
 } from "@platform/db";
 import type { EntityField } from "@platform/entity-engine";
+import { compactTeamPositions } from "@platform/teams";
 
 const REDACTED = "[REDACTED]";
 
@@ -62,6 +64,7 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
   "ticket_labels.assigned_by",
   "notification_policies.created_by",
   "teams.created_by",
+  "team_members.user_id",
   "services.created_by",
   "on_call_schedules.primary_user_id",
   "on_call_schedules.backup_user_id",
@@ -435,6 +438,18 @@ export async function eraseUserFromTenant(
         eq(notificationPolicies.createdBy, targetUserId),
       ),
     );
+  const removedFrom = await tx
+    .delete(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.tenantId, tenantId),
+        eq(teamMembers.userId, targetUserId),
+      ),
+    )
+    .returning({ teamId: teamMembers.teamId });
+  for (const teamId of new Set(removedFrom.map((r) => r.teamId))) {
+    await compactTeamPositions(tx, tenantId, teamId);
+  }
   await tx
     .update(teams)
     .set({ createdBy: REDACTED })

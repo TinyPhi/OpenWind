@@ -35,6 +35,7 @@ Last reconciled: 2026-09-28 (#694).
 | [modal-a11y-wave2](modal-a11y-wave2.md)                                                           | —           | #298                                                                             |
 | [network-status-awareness](network-status-awareness.md)                                           | —           | #486                                                                             |
 | [oncall-routing](oncall-routing.md)                                                               | —           | 3E Phases 1–4 (ADR-016; design: `docs/oncall-routing-design.md`); gaps #570 #571 |
+| [oncall-team-rotation](oncall-team-rotation.md)                                                   | in progress | Teams with members, restricted roster, recurring rotation (ADR-016 addendum)     |
 | [outbound-notifications-kill-switch](outbound-notifications-kill-switch.md)                       | ✓           | `isOutboundNotificationsEnabled` (worker)                                        |
 | [outbox-automation-idempotent-consumption](outbox-automation-idempotent-consumption.md)           | ✓           | #372 / #380                                                                      |
 | [plugin-system](plugin-system.md)                                                                 | ✓           | #397 (3B; gaps in #644)                                                          |

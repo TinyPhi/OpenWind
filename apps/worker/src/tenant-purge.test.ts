@@ -135,6 +135,7 @@ vi.mock("@platform/db", () => {
     "ticketLabels",
     "entityInstanceTags",
     "teams",
+    "teamMembers",
     "services",
     "onCallSchedules",
     "notificationPolicies",
