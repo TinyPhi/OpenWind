@@ -40,6 +40,7 @@ export {
   toPlatformAdminSandboxView,
   extendSandboxTrial,
   endSandboxTrial,
+  setSandboxBranding,
   checkSandboxQuota,
   toProvisioningProgressView,
 } from "./platform-admin-view.js";
@@ -51,6 +52,7 @@ export {
   type ListPlatformAdminAuditLogOptions,
 } from "./platform-admin-audit.js";
 export type {
+  SandboxBrandingChange,
   PlatformAdminSandboxView,
   PlatformAdminSandboxRow,
   SandboxQuotaCheck,

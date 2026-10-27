@@ -4,6 +4,7 @@ import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ExtendTrialDialog } from "./extend-trial-dialog.js";
+import { EditBrandingDialog } from "./edit-branding-dialog.js";
 import { StepUpMfaDialog } from "./step-up-mfa-dialog.js";
 
 type ActionKind = "reset" | "delete" | "end_trial";
@@ -19,7 +20,8 @@ export interface SandboxRowActionsProps {
   tenantId: string;
   tenantName: string;
   trialEndsAt: string | null;
-  /** Called after a reset, delete or trial change succeeds, so the parent can refresh. */
+  logo: string | null;
+  /** Called after a reset, delete, trial or branding change succeeds, so the parent can refresh. */
   onDone: () => void;
 }
 
@@ -92,7 +94,7 @@ const CONFIRM_COPY: Record<
 
 // Rough rendered height of the three-item menu, used only to decide whether it fits below
 // the button or should open upward.
-const MENU_HEIGHT_ESTIMATE = 130;
+const MENU_HEIGHT_ESTIMATE = 170;
 const MENU_GAP = 6;
 
 interface MenuPosition {
@@ -113,6 +115,7 @@ export function SandboxRowActions({
   tenantId,
   tenantName,
   trialEndsAt,
+  logo,
   onDone,
 }: SandboxRowActionsProps): React.ReactElement {
   const [confirming, setConfirming] = React.useState<ActionKind | null>(null);
@@ -121,6 +124,7 @@ export function SandboxRowActions({
     null,
   );
   const [trialOpen, setTrialOpen] = React.useState(false);
+  const [brandingOpen, setBrandingOpen] = React.useState(false);
   // Reset and delete need a freshly verified code (ADR-022 Decision 10, #865). When the
   // server asks for one, the action waits here until the admin has verified, then retries.
   const [reauthFor, setReauthFor] = React.useState<ActionKind | null>(null);
@@ -264,6 +268,14 @@ export function SandboxRowActions({
               >
                 Extend trial
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                onClick={() => choose(() => setBrandingOpen(true))}
+              >
+                Edit branding
+              </button>
               {trialActive && (
                 <button
                   type="button"
@@ -302,6 +314,19 @@ export function SandboxRowActions({
           open={true}
           onVerified={handleReauthVerified}
           onCancel={() => setReauthFor(null)}
+        />
+      )}
+      {brandingOpen && (
+        <EditBrandingDialog
+          open={true}
+          tenantId={tenantId}
+          tenantName={tenantName}
+          logo={logo}
+          onClose={() => setBrandingOpen(false)}
+          onSaved={() => {
+            setBrandingOpen(false);
+            onDone();
+          }}
         />
       )}
       {trialOpen && (

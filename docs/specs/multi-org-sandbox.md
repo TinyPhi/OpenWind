@@ -5,7 +5,7 @@
 
 status: draft
 created: 2026-10-05
-updated: 2026-10-14
+updated: 2026-10-23
 
 ---
 
@@ -23,15 +23,15 @@ does not write this ADR.
 
 ## §C Constraints
 
-| constraint   | value                                                                                                                                                                                                                                                                                                                   |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| stack        | Hono API, Drizzle+Postgres (RLS), BullMQ worker, Zitadel (shared project, new org per sandbox), Refine/shadcn admin-ui                                                                                                                                                                                                  |
-| auth         | `platform_admin` = Zitadel role claim, same OIDC mechanism as `admin`/`agent`/`user`, but NOT tenant-scoped — dedicated `/platform-admin` login route, required MFA                                                                                                                                                     |
-| tenancy      | each sandbox = 1 real `tenants` row + 1 real Zitadel org, same isolation guarantees (RLS + explicit `tenant_id`) as any customer tenant                                                                                                                                                                                 |
-| out of scope | self-serve signup; in-app cross-tenant data/log viewer; auto-deletion of expired data; randomized org _shapes_ (names only); conversion-to-paid automation; support impersonation capability; multiple concurrent platform admins or delegated/scoped platform-admin permissions — single trusted operator model for v1 |
-| perf         | provisioning (~21+ Zitadel calls) shows live progress, not a single long-held request — built as a trackable/resumable job, polled by the UI                                                                                                                                                                            |
-| abuse/quota  | a single `platform_admin` can create at most N concurrently-active (non-deleted) sandboxes; N is a config value, not hardcoded                                                                                                                                                                                          |
-| UI scope     | the prospect-facing side has no sandbox-aware UI of its own — they use the normal tenant admin-ui/login exactly like any customer; "sandbox" is an internal-only concept, invisible to the prospect                                                                                                                     |
+| constraint   | value                                                                                                                                                                                                                                                                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| stack        | Hono API, Drizzle+Postgres (RLS), BullMQ worker, Zitadel (shared project, new org per sandbox), Refine/shadcn admin-ui                                                                                                                                                                                                                             |
+| auth         | `platform_admin` = Zitadel role claim, same OIDC mechanism as `admin`/`agent`/`user`, but NOT tenant-scoped — dedicated `/platform-admin` login route, required MFA                                                                                                                                                                                |
+| tenancy      | each sandbox = 1 real `tenants` row + 1 real Zitadel org, same isolation guarantees (RLS + explicit `tenant_id`) as any customer tenant                                                                                                                                                                                                            |
+| out of scope | self-serve signup; in-app cross-tenant data/log viewer; auto-deletion of expired data; randomized org _shapes_ (names only); conversion-to-paid automation; support impersonation capability; multiple concurrent platform admins or delegated/scoped platform-admin permissions — single trusted operator model for v1                            |
+| perf         | provisioning (~21+ Zitadel calls) shows live progress, not a single long-held request — built as a trackable/resumable job, polled by the UI                                                                                                                                                                                                       |
+| abuse/quota  | a single `platform_admin` can create at most N concurrently-active (non-deleted) sandboxes; N is a config value, not hardcoded                                                                                                                                                                                                                     |
+| UI scope     | the prospect-facing side has no sandbox-aware UI of its own — they use the normal tenant admin-ui/login exactly like any customer; "sandbox" is an internal-only concept, invisible to the prospect. **Amended 2026-10-23 (R12):** the one sandbox-driven UI element is the header brand (org logo + name), and it never says or implies "sandbox" |
 
 ## §I Interfaces
 
@@ -43,6 +43,9 @@ GET    /platform-admin/sandboxes/:tenantId        -> read metadata (no business 
 GET    /platform-admin/sandboxes/:jobId/handover -> per-account username, email, role + password, for handoff
 POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, cancels queued jobs (200 on success, 504 RESET_TIMEOUT, 500 RESET_FAILED)
 DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts (200 on success, 504 DELETE_TIMEOUT, 500 DELETE_FAILED)
+
+PATCH  /platform-admin/sandboxes/:tenantId/branding -> { name?, logo? } sets display name / logo; logo: null clears it (R12; 200 {data: view}, 400 invalid input, 404)
+GET    /me/org                                    -> tenant-scoped (any role): { data: { name, logo } | null } -- null for non-sandbox tenants (R12; exact path settled at T27)
 
 POST   /platform-admin/mfa/request               -> sends a one-time verification code (R1)
 POST   /platform-admin/mfa/verify                -> verifies the code, returns this sign-in's MFA session token
@@ -64,6 +67,8 @@ Key entities:
 - `tenants.is_sandbox: boolean`
 - `tenants.trial_ends_at: timestamp | null`
 - `tenants.created_by_platform_admin: text` (actor id)
+- `tenants.logo: text | null` (R12) -- a `data:image/{png,jpeg,webp};base64,` URL, never SVG; added to
+  `PlatformAdminSandboxView` (deliberate widening, R2 still holds: it is tenant metadata, not business data)
 - A per-platform-admin active-sandbox counter, backing the quota constraint (R11)
 - A per-action record (create/delete/reset only — R9) — **done** (Phase 3, T16): dedicated
   `platform_admin_audit_log` table, per ADR-022 Decision 7
@@ -265,6 +270,34 @@ R11: A single platform admin cannot create unbounded sandboxes.
 exceeding it returns a clear error, not a silent failure or partial provisioning attempt.
 ✓ The cap is a config value (`PLATFORM_ADMIN_MAX_ACTIVE_SANDBOXES`), not hardcoded in route logic.
 
+R12 **(added 2026-10-23; owner request)**: A sandbox shows its own name and logo in the header of its
+users' app, and the platform admin can edit both.
+✓ Platform admin can set a sandbox's display name (1–100 chars after trimming) and its logo, or
+clear the logo. The name is the existing `tenants.name`; the Zitadel org name and the tenant slug
+are not changed.
+✓ A logo is PNG, JPEG or WebP, at most 100 KB decoded, supplied as a data URL. The server checks
+the declared type against the file's own leading bytes and rejects anything else (SVG included)
+with `400`, the platform-admin routes' invalid-input status; the client checks the same limits first so the admin sees the reason before upload.
+✓ Sandboxes only, enforced in the database: `platform_admin_role` gets EXECUTE on one function
+(a new migration) that updates only active `is_sandbox` rows, never an UPDATE grant on
+`tenants` (R6a's pattern). A non-sandbox, unknown or being-deleted tenant id returns 404 and
+changes nothing. `platform_admin_role` also gets `SELECT (logo)`, nothing wider.
+✓ Each change is recorded in `platform_admin_audit_log` as `sandbox.branding_changed` (R9), in the
+same transaction as the change. The row holds no name or logo content. Needs the sign-in's verified
+MFA flag, not a fresh code (same tier as trial changes).
+✓ Any user of that sandbox (admin, agent, user) sees, left of the page title beside the hamburger,
+the org logo, or when none is set a tile with the initials of the org name (same rule as
+`initials()` for people), followed by the org name, in place of the OpenWind icon and wordmark. A
+change shows within five minutes: `GET /me/org` is cached privately for 300 s (`Cache-Control: private, max-age=300`). No push.
+✓ Non-sandbox tenants, the login page and the platform-admin dashboard keep the OpenWind brand. The
+tenant endpoint returns nothing for a non-sandbox tenant, and never an `isSandbox` flag, so the
+prospect UI can't tell it is a sandbox.
+✓ While the brand is loading nothing wrong flashes: a sandbox user never sees "OpenWind" and then
+the org name. If the lookup fails, the header falls back to the OpenWind brand and the app stays
+usable. A broken logo image falls back to the initials tile.
+✓ Reset (R7) keeps the name and logo; delete (R8) leaves none behind, the purge clears the logo on
+the tombstone row.
+
 ## §V Invariants
 
 - A `platform_admin`-authenticated request never resolves to, or is scoped by, any single tenant's
@@ -298,6 +331,10 @@ exceeding it returns a clear error, not a silent failure or partial provisioning
   account also has a tenant role — platform_admin is a separate identity (R1). (B3)
 - Every module that constructs a BullMQ `Worker` is imported by the worker entry point —
   enforced by `apps/worker/src/worker-entry-wiring.test.ts`. (B4)
+- A sandbox logo is only ever a raster data URL, rendered through an `<img>` and never as markup;
+  SVG is rejected at the database CHECK as well as the route. The tenant `GET /me/org` filters on
+  the caller's own `tenant_id` explicitly -- `tenants` has no RLS, so there is no second layer to
+  lean on. (R12)
 
 ## §T Tasks
 
@@ -346,6 +383,32 @@ ADR-022-sandboxing.md's review history).
 
 phase gate: all unit + integration tests pass before advancing to next phase; isolation tests
 required in every phase touching tenant-scoped data or new routes.
+
+### Phase 4 — Sandbox branding (R12) — ✅ implemented (branch `feat/sandbox-branding`, PR pending)
+
+| id  | task                                                                                                                                                                                                                                                                                                                     | depends  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| T24 | Migration (next free number, 0155 at time of writing (0154 is claimed by #1063); renumber if upstream took it): `tenants.logo` + CHECK (raster data-URL prefix, length cap); `platform_admin_set_sandbox_branding` SECURITY DEFINER function; `GRANT SELECT (logo)`; widen audit action CHECK; down migration — **done** | —        |
+| T25 | `@platform/db`: `setSandboxBranding` (audit row + role switch in one transaction, like `runSandboxTrialFunction`), `sandbox.branding_changed` action, `logo` on `PlatformAdminSandboxView`/row; unit tests — **done**                                                                                                    | T24      |
+| T26 | `PATCH /platform-admin/sandboxes/:tenantId/branding`: Zod, name trim/length, logo type + magic-byte + size check, 400/404; register in the platform-admin router; tests — **done**                                                                                                                                       | T25      |
+| T27 | Tenant `GET /me/org` (explicit `WHERE id = tenantId`, sandbox-only, no `isSandbox` in the response) + tests — **done**                                                                                                                                                                                                   | T24      |
+| T28 | Tenant purge clears `logo` on the tombstone row (check the purge role's grant on `tenants`); worker test — **done**                                                                                                                                                                                                      | T24      |
+| T29 | admin-ui platform-admin: "Edit branding" row action + dialog (name, logo pick with preview and initials fallback, remove logo, client-side limits) + activity-timeline label for the new action; tests — **done**                                                                                                        | T26      |
+| T30 | admin-ui header: org-brand hook + `layout.tsx` brand block (logo or initials tile + name, no-flash loading, error and broken-image fallbacks, mobile keeps icon only like `.logo-text`); tests in `layout.test.tsx` — **done**                                                                                           | T27      |
+| T31 | Isolation tests: function refuses a non-sandbox and a deleting tenant; `platform_admin_role` has no direct UPDATE on `tenants`; `/me/org` never returns another tenant's brand; reset keeps branding — **done**                                                                                                          | T26, T27 |
+| T32 | `/security-review` (new route, new tenant-readable surface, user-supplied image stored and re-served), then docs: week-log, tracker row — **done**                                                                                                                                                                       | T31      |
+
+Decided for v1 (open to revisit): (a) **logo at creation** — v1 sets the name when creating and the logo only
+via Edit afterwards, rather than threading image bytes through the provisioning job; (b) **Zitadel
+org name** is left as the creation name, so it can drift from the display name; (c) data-URL storage
+in the `tenants` row (read on every header load) instead of `@platform/files`, accepted for a 100 KB
+cap and revisited if branding is ever extended to real tenants.
+
+From the R12 reviews, all low: (d) _resolved in review:_ `GET /me/org` carries `Cache-Control: private, max-age=300`, so a
+logo of up to ~140 KB is not re-sent on every page load; (e) the platform-admin list returns each row's logo (up to 100 rows by default),
+so a `hasLogo` flag on the list and the image only on the detail view would shrink it; (f) a CSP, if
+one is ever added to the frontend, must allow `img-src data:` or logos stop rendering; (g) _resolved in review:_ #1063 merged, and migration 0155 is
+journaled at idx 155, after 0154 (`migration-journal.test.ts` guards the order).
 
 ## §O Operations — OTP delivery failure and break-glass (#801)
 
