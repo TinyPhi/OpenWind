@@ -14,6 +14,7 @@ import { logger } from "@platform/logger";
 import { eraseUserFromTenant } from "../../services/user-erasure.js";
 import { enqueueSupersetCacheFlush } from "../../lib/superset-cache-flush-queue.js";
 import { eraseUserInSuperset } from "../../lib/superset-erasure-queue.js";
+import { resolveTenantMembers } from "../../lib/ensure-user-refs.js";
 import { userExportRouter } from "./user-export.js";
 
 type AppVars = { Variables: { auth: AuthContext } };
@@ -142,8 +143,23 @@ usersRouter.delete(
   requireAuth(db),
   requireRole("admin"),
   async (c) => {
-    const { tenantId, userId: adminUserId } = c.get("auth");
+    const { tenantId, orgId, userId: adminUserId } = c.get("auth");
     const targetUserId = c.req.param("userId");
+
+    // An admin erases only people of their own organisation. The Zitadel delete below is
+    // instance-wide, so without this an id from another organisation would lose its sign-in. A
+    // member who has never signed in counts (found in this org's Zitadel users). Another
+    // organisation's id gets the same answer as one that does not exist.
+    const members = await resolveTenantMembers(tenantId, [targetUserId], orgId);
+    if (!members.has(targetUserId)) {
+      return c.json(
+        {
+          error: "NOT_FOUND",
+          message: "No user with this id in this organisation",
+        },
+        404,
+      );
+    }
 
     let wasMember = false;
     await withTenantContext(tenantId, async (tx) => {

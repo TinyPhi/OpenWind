@@ -41,6 +41,12 @@ const QUEUED = {
 };
 // Export routes have their own test (user-export.test.ts).
 vi.mock("./user-export.js", () => ({ userExportRouter: new Hono() }));
+const { mockResolveTenantMembers } = vi.hoisted(() => ({
+  mockResolveTenantMembers: vi.fn(),
+}));
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  resolveTenantMembers: mockResolveTenantMembers,
+}));
 vi.mock("../../services/user-erasure.js", () => ({
   eraseUserFromTenant: (...args: unknown[]) => mockEraseUserFromTenant(...args),
 }));
@@ -186,6 +192,48 @@ describe("GET /users", () => {
         wasMember: true,
       });
       mockEnqueueErasure.mockResolvedValue(QUEUED);
+      // Every id asked about is a member, unless a test says otherwise.
+      mockResolveTenantMembers.mockImplementation(
+        (_tenantId: string, ids: string[]) => Promise.resolve(new Set(ids)),
+      );
+    });
+
+    it("refuses an id outside the admin's organisation with 404 and erases nothing", async () => {
+      mockResolveTenantMembers.mockResolvedValueOnce(new Set());
+
+      const res = await makeApp().request("/users/other-org-user", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: "NOT_FOUND",
+        message: "No user with this id in this organisation",
+      });
+      expect(mockResolveTenantMembers).toHaveBeenCalledWith(
+        "tenant-aaa",
+        ["other-org-user"],
+        "org-aaa",
+      );
+      expect(mockWithTenantContext).not.toHaveBeenCalled();
+      expect(mockEraseUserFromTenant).not.toHaveBeenCalled();
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+      expect(mockInvalidateUserCache).not.toHaveBeenCalled();
+      expect(mockEnqueueFlush).not.toHaveBeenCalled();
+      expect(mockEnqueueErasure).not.toHaveBeenCalled();
+    });
+
+    it("refuses with 404 when the membership lookup finds nothing, without asking the erasure", async () => {
+      // e.g. an id erased earlier: no tenant_users row, and no longer one of the org's Zitadel users.
+      mockResolveTenantMembers.mockResolvedValueOnce(new Set(["someone-else"]));
+
+      const res = await makeApp().request("/users/already-erased", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(404);
+      expect(mockDeleteUser).not.toHaveBeenCalled();
     });
 
     it("passes the membership it read to the Superset step, and replies with what happened (#728)", async () => {
@@ -201,13 +249,13 @@ describe("GET /users", () => {
       };
       mockEnqueueErasure.mockResolvedValueOnce(notMember);
       mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
-      const res = await makeApp().request("/users/someone-elses-user", {
+      const res = await makeApp().request("/users/member-without-row", {
         method: "DELETE",
       });
       expect(res.status).toBe(200);
       expect(mockEnqueueErasure).toHaveBeenCalledWith(
         expect.objectContaining({
-          subject: "someone-elses-user",
+          subject: "member-without-row",
           wasMember: false,
         }),
       );
