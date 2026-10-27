@@ -472,12 +472,13 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         .where(eq(idempotencyKeys.tenantId, tenantId));
     });
 
-    // Mark the tenant row as 'purged' (keeps a tombstone for audit trail).
-    // app_user can't change tenants.status (#408); tenant_lifecycle_role can.
+    // Mark the tenant row as 'purged' (keeps a tombstone for audit trail, minus the sandbox
+    // logo -- R12, an image the prospect supplied). app_user can't change tenants.status (#408);
+    // tenant_lifecycle_role can (and may clear logo, 0155).
     await withTenantLifecycleContext((tx) =>
       tx
         .update(tenants)
-        .set({ status: "purged", updatedAt: new Date() })
+        .set({ status: "purged", logo: null, updatedAt: new Date() })
         .where(and(eq(tenants.id, tenantId), eq(tenants.status, "deleted"))),
     );
 

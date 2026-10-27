@@ -13,6 +13,7 @@ export interface SandboxView {
   createdAt: string;
   trialStatus: TrialStatus;
   trialEndsAt: string | null;
+  logo: string | null;
 }
 
 export type PlatformAdminAction =
@@ -20,7 +21,8 @@ export type PlatformAdminAction =
   | "sandbox.reset"
   | "sandbox.deleted"
   | "sandbox.trial_changed"
-  | "sandbox.trial_ended";
+  | "sandbox.trial_ended"
+  | "sandbox.branding_changed";
 
 export interface AuditEntry {
   id: string;
@@ -36,6 +38,7 @@ export const ACTION_LABEL: Record<PlatformAdminAction, string> = {
   "sandbox.deleted": "Deleted sandbox",
   "sandbox.trial_changed": "Extended trial",
   "sandbox.trial_ended": "Ended trial",
+  "sandbox.branding_changed": "Changed branding",
 };
 
 export const TRIAL_BADGE: Record<TrialStatus, { label: string; cls: string }> =

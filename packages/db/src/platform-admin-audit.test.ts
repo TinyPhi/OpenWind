@@ -112,6 +112,24 @@ describe("platform-admin-audit", () => {
     });
   });
 
+  describe("listPlatformAdminAuditLog branding action (R12)", () => {
+    it("returns a sandbox.branding_changed row instead of throwing", async () => {
+      mockSelectLimit.mockResolvedValueOnce([
+        {
+          id: "a-1",
+          actorSub: "sub-1",
+          action: "sandbox.branding_changed",
+          targetTenantId: "tenant-1",
+          createdAt: new Date("2026-10-23T00:00:00.000Z"),
+        },
+      ]);
+
+      const rows = await listPlatformAdminAuditLog({ limit: 10 });
+
+      expect(rows[0]?.action).toBe("sandbox.branding_changed");
+    });
+  });
+
   describe("listPlatformAdminAuditLog (#894)", () => {
     it("orders by (createdAt DESC, id DESC) on first page without before cursor", async () => {
       const now = new Date();

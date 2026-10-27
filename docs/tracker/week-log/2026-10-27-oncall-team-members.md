@@ -54,7 +54,7 @@ No change to routing: `resolve_oncall` still reads schedule rows only.
 - `pnpm lint`: pass (after fixing two `??` findings).
 - Unit and route tests: teams routes 32, schedule routes 22, admin-ui teams + roster 16, admin-ui full
   suite 104 files; all pass.
-- Isolation, on a throwaway Postgres (migrations 0001–0155 applied): the two erasure coverage guards,
+- Isolation, on a throwaway Postgres (migrations 0001–0156 applied): the two erasure coverage guards,
   the user-data export guard, the user-erasure suites, the new positions and routes isolation tests,
   and all tenant-purge isolation files pass. On this Windows host the tenant-purge files need
   `--hookTimeout=120000` (the 10 s default times out while loading).
