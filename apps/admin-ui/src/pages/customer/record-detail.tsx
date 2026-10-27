@@ -395,8 +395,20 @@ function HistoryIcon({
 }
 
 /* ── Comment composer with @mention + file attachments ──────── */
-// The API's limit on a comment (apps/api/src/routes/entities/add-comment.ts). It checks the
-// trimmed text, which is what the composer sends, so the count here trims too.
+// A validation failure's message is the generic "Request validation failed"; the reason is in
+// its per-field list, so show that when there is one.
+function commentErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return "The comment could not be posted";
+  const fields = (err as Error & { fields?: Array<{ message?: string }> })
+    .fields;
+  const reasons = (fields ?? [])
+    .map((f) => f.message)
+    .filter((m): m is string => typeof m === "string" && m !== "");
+  if (reasons.length > 0) return reasons.join("; ");
+  return err.message || "The comment could not be posted";
+}
+// The API's limit on a comment (apps/api/src/routes/entities/add-comment.ts). The composer
+// sends the trimmed text, so the count here trims too.
 const COMMENT_MAX_LENGTH = 4000;
 // The counter appears once this few characters are left, like X's composer.
 const COMMENT_COUNTER_FROM = 200;
@@ -413,12 +425,14 @@ function CommentComposer({
   users: OrgUser[];
   replyTo: WorkflowEvent | null;
   onCancel?: () => void;
+  // Resolves true once posted, false if the user backed out (e.g. cancelled the access
+  // dialog) — the text is kept then. Rejects if the post failed.
   onSubmit: (
     text: string,
     mentions: string[],
     replyTo: string | null,
     fileIds: string[],
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   placeholder?: string;
   entityId: string;
   moduleSlug: string;
@@ -516,23 +530,20 @@ function CommentComposer({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await onSubmit(
+      const posted = await onSubmit(
         text.trim(),
         [...mentionedIds],
         replyTo?.id ?? null,
         cleanFileIds,
       );
+      if (!posted) return;
       setText("");
       setMentionQuery(null);
       setMentionedIds(new Set());
       clearFiles();
     } catch (err) {
       // Keep the text so it can be fixed and posted again; before this the failure was silent.
-      setSubmitError(
-        err instanceof Error && err.message
-          ? err.message
-          : "The comment could not be posted",
-      );
+      setSubmitError(commentErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -1486,6 +1497,12 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [accessChangeSaving, setAccessChangeSaving] = useState(false);
 
   // Pending mention-grant: comment waiting for access level confirmation
+  // Settles the composer's pending post once the mention-grant dialog is answered: true when
+  // posted, false when cancelled, rejected with the API error when the post failed.
+  const mentionGrantSettleRef = useRef<{
+    resolve: (posted: boolean) => void;
+    reject: (err: unknown) => void;
+  } | null>(null);
   const [pendingMentionGrant, setPendingMentionGrant] = useState<{
     text: string;
     mentions: string[]; // all mention userIds
@@ -2726,21 +2743,24 @@ export function CustomerRecordDetail(): React.ReactElement {
     mentionIds: string[],
     replyTo: string | null,
     fileIds: string[] = [],
-  ): Promise<void> {
-    if (!id) return;
+  ): Promise<boolean> {
+    if (!id) return false;
     const existingIds = new Set(accessList.map((e) => e.userId));
     const newToAccess = mentionIds.filter((uid) => !existingIds.has(uid));
     if (newToAccess.length > 0) {
       const newUsers = users.filter((u) => newToAccess.includes(u.userId));
-      setPendingMentionGrant({
-        text,
-        mentions: mentionIds,
-        replyTo,
-        newUsers,
-        selectedLevel: "read_comment",
-        fileIds,
+      // The composer waits for the dialog, so a failed or cancelled post keeps its text.
+      return new Promise<boolean>((resolve, reject) => {
+        mentionGrantSettleRef.current = { resolve, reject };
+        setPendingMentionGrant({
+          text,
+          mentions: mentionIds,
+          replyTo,
+          newUsers,
+          selectedLevel: "read_comment",
+          fileIds,
+        });
       });
-      return;
     }
     // All mentioned users already have access — post directly
     const mentionEntries = mentionIds.map((uid) => {
@@ -2751,6 +2771,13 @@ export function CustomerRecordDetail(): React.ReactElement {
       };
     });
     await doSubmitComment(text, mentionEntries, replyTo, fileIds);
+    return true;
+  }
+
+  function cancelMentionGrant(): void {
+    setPendingMentionGrant(null);
+    mentionGrantSettleRef.current?.resolve(false);
+    mentionGrantSettleRef.current = null;
   }
 
   useEffect(() => {
@@ -4962,7 +4989,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                       onCancel={() => setReplyTo(null)}
                       onSubmit={(text, mentions, replyToId, fileIds) =>
                         submitComment(text, mentions, replyToId, fileIds).then(
-                          () => setReplyTo(null),
+                          (posted) => {
+                            if (posted) setReplyTo(null);
+                            return posted;
+                          },
                         )
                       }
                     />
@@ -5715,7 +5745,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       <Dialog
         open={pendingMentionGrant !== null}
         onOpenChange={(next) => {
-          if (!next) setPendingMentionGrant(null);
+          if (!next) cancelMentionGrant();
         }}
       >
         <DialogContent
@@ -5853,10 +5883,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
           <div className="modal-footer">
-            <Button
-              variant="secondary"
-              onClick={() => setPendingMentionGrant(null)}
-            >
+            <Button variant="secondary" onClick={cancelMentionGrant}>
               Cancel
             </Button>
             <Button
@@ -5865,6 +5892,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                 if (!pendingMentionGrant) return;
                 const { text, mentions, replyTo, selectedLevel } =
                   pendingMentionGrant;
+                const settle = mentionGrantSettleRef.current;
+                mentionGrantSettleRef.current = null;
                 setPendingMentionGrant(null);
                 const existingIds = new Set(accessList.map((e) => e.userId));
                 const mentionEntries = mentions.map((uid) => ({
@@ -5874,11 +5903,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                         "read_comment") as AccessLevel)
                     : selectedLevel,
                 }));
-                void doSubmitComment(
+                doSubmitComment(
                   text,
                   mentionEntries,
                   replyTo,
                   pendingMentionGrant.fileIds ?? [],
+                ).then(
+                  () => settle?.resolve(true),
+                  (err: unknown) => settle?.reject(err),
                 );
               }}
             >

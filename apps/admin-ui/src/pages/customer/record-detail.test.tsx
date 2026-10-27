@@ -2049,4 +2049,117 @@ describe("CustomerRecordDetail — comment length limit", () => {
     fireEvent.change(box, { target: { value: "hello again" } });
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  // A validation failure's message is the generic "Request validation failed"; the reason is in
+  // its per-field list (apps/api/src/lib/validator.ts).
+  it("shows the field reason from a validation failure, not the generic message", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject(
+          Object.assign(new Error("Request validation failed"), {
+            fields: [
+              {
+                field: "fileIds",
+                code: "too_big",
+                message: "Array must contain at most 10 element(s)",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Array must contain at most 10 element(s)",
+    );
+  });
+
+  // Mentioning someone without access opens a dialog first; the post happens from the dialog.
+  // That path used to clear the box straight away and drop any error from the post.
+  describe("when the comment mentions someone without access", () => {
+    const NEW_USER = {
+      userId: "u-new",
+      email: "nina@example.com",
+      displayName: "Nina New",
+    };
+
+    async function composerWithMention(
+      post: () => Promise<unknown>,
+    ): Promise<HTMLTextAreaElement> {
+      clearUsersCache();
+      mockRoutesForAccessRequests([]);
+      const routes = mockFetchWithAuth.getMockImplementation();
+      mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+        if (url === "/api/users") {
+          return Promise.resolve({ data: [NEW_USER] });
+        }
+        if (
+          url === `/api/entities/${RECORD_ID}/comments` &&
+          (init as RequestInit | undefined)?.method === "POST"
+        ) {
+          return post();
+        }
+        return routes ? routes(url, init) : Promise.resolve({ data: [] });
+      });
+      renderRecordDetail();
+      const box = (await screen.findByPlaceholderText(
+        /Add a comment/,
+      )) as HTMLTextAreaElement;
+      await waitFor(() => {
+        fireEvent.change(box, { target: { value: "hi @Nin" } });
+        expect(screen.getByText("Nina New")).toBeDefined();
+      });
+      fireEvent.keyDown(box, { key: "Enter" });
+      fireEvent.click(postButton());
+      await screen.findByRole("button", { name: /Grant & post/ });
+      return box;
+    }
+
+    it("keeps the text and shows the error when the post fails", async () => {
+      const box = await composerWithMention(() =>
+        Promise.reject(new Error("The comment could not be saved")),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Grant & post/ }));
+
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        "The comment could not be saved",
+      );
+      expect(box.value).toBe("hi @Nina New ");
+    });
+
+    it("keeps the text and posts nothing when the dialog is cancelled", async () => {
+      const post = vi.fn(() => Promise.resolve({ data: {} }));
+      const box = await composerWithMention(post);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: /Grant & post/ }),
+        ).toBeNull();
+      });
+      expect(box.value).toBe("hi @Nina New ");
+      expect(post).not.toHaveBeenCalled();
+      expect(postButton().disabled).toBe(false);
+    });
+
+    it("clears the box once the post succeeds", async () => {
+      const box = await composerWithMention(() =>
+        Promise.resolve({ data: {} }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Grant & post/ }));
+
+      await waitFor(() => {
+        expect(box.value).toBe("");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
 });
