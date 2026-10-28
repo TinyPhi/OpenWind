@@ -150,9 +150,9 @@ fresh MFA required, 404 for a non-sandbox). It orders the org's accounts by name
 structure (one shared `sandboxOrgPlacement` function, so new and back-filled sandboxes match),
 overwrites each account's `department`/`title`/`manager_id` metadata, and runs the org-directory
 sync. Safe to repeat while the org's accounts are unchanged; it overwrites those three keys for
-every account in the org. Known limits: an empty value is skipped, not deleted, so an account that
-becomes a top-level manager on a re-run (accounts added or removed shifts the name order) keeps its
-earlier `manager_id`; and the action is logged but not yet recorded in the platform-admin audit
+every account in the org. A top-level manager's `manager_id` is removed (explicit null deletes the
+key; 2026-10-28), so a re-run after accounts were added or removed no longer leaves a stale manager
+behind that chains the whole org under one person. Known limit: the action is logged but not yet recorded in the platform-admin audit
 log -- that log's action list is a DB CHECK constraint, so a new action needs a migration
 (follow-up, tracked in the PR).
 ✓ **(added 2026-10-13)** Every handed-over account can sign in: the OpenWind project is granted to

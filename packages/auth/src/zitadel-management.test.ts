@@ -656,7 +656,7 @@ describe("grantProjectToOrg", () => {
 describe("setUserOrgMetadata", () => {
   const b64 = (v: string): string => Buffer.from(v, "utf8").toString("base64");
 
-  it("writes the three org keys as base64 to SetUserMetadata and skips null or empty values", async () => {
+  it("writes the org keys it is given as base64 and skips undefined or empty values", async () => {
     setProvisioningKey();
     queueFailedIssuerDiscovery();
     queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
@@ -664,9 +664,9 @@ describe("setUserOrgMetadata", () => {
 
     await expect(
       setUserOrgMetadata("user-9", {
-        managerId: null,
         department: "sales",
         title: "Sales Executive",
+        managerId: undefined,
       }),
     ).resolves.toBe(true);
 
@@ -680,11 +680,61 @@ describe("setUserOrgMetadata", () => {
     });
   });
 
-  it("makes no request when there is nothing to write", async () => {
+  it("removes the manager when managerId is an explicit null, so a re-seed clears a stale one", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const set = queueCapturedJsonResponse(200, {});
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const del = queueCapturedJsonResponse(200, {});
+
+    await expect(
+      setUserOrgMetadata("user-9", {
+        managerId: null,
+        department: "sales",
+        title: "Sales Manager",
+      }),
+    ).resolves.toBe(true);
+
+    expect(set.path).toBe("/zitadel.user.v2.UserService/SetUserMetadata");
+    expect(del.path).toBe("/zitadel.user.v2.UserService/DeleteUserMetadata");
+    expect(del.body).toEqual({ userId: "user-9", keys: ["manager_id"] });
+  });
+
+  it("treats a missing manager key (404 on delete) as already cleared", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(404, { message: "metadata not found" });
+
+    mockLoggerWarn.mockClear();
+
+    await expect(
+      setUserOrgMetadata("user-9", { managerId: null }),
+    ).resolves.toBe(true);
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 404, userId: "user-9" }),
+      expect.stringContaining("already done"),
+    );
+  });
+
+  it("reports failure when Zitadel refuses the manager removal", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(403, { message: "permission denied" });
+
+    await expect(
+      setUserOrgMetadata("user-9", { managerId: null }),
+    ).resolves.toBe(false);
+  });
+
+  it("makes no request when there is nothing to write or clear", async () => {
     mockHttpRequest.mockClear();
 
     await expect(
-      setUserOrgMetadata("user-9", { managerId: null, department: "" }),
+      setUserOrgMetadata("user-9", { managerId: undefined, department: "" }),
     ).resolves.toBe(true);
 
     expect(mockHttpRequest).not.toHaveBeenCalled();

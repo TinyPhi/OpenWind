@@ -76,11 +76,22 @@ vi.mock("@platform/auth", async (importOriginal) => {
       meta: Partial<OrgMeta>,
     ): Promise<boolean> => {
       zitadel.setCalls++;
-      zitadel.metaByUser.set(userId, {
-        managerId: meta.managerId ?? null,
-        department: meta.department ?? null,
-        title: meta.title ?? null,
-      });
+      // The same rules as the real setUserOrgMetadata: a non-empty string writes the key, an
+      // explicit null clears it, and undefined or an empty string leaves what is there. Writing
+      // null for every missing value here, as this stand-in once did, hid the stale-manager bug.
+      const next: OrgMeta = {
+        ...(zitadel.metaByUser.get(userId) ?? {
+          managerId: null,
+          department: null,
+          title: null,
+        }),
+      };
+      for (const key of ["managerId", "department", "title"] as const) {
+        const value = meta[key];
+        if (typeof value === "string" && value !== "") next[key] = value;
+        else if (value === null) next[key] = null;
+      }
+      zitadel.metaByUser.set(userId, next);
       return Promise.resolve(true);
     },
     getOrgMetadataForUser: (userId: string): Promise<OrgMeta> =>
@@ -265,6 +276,47 @@ describe("POST /platform-admin/sandboxes/:tenantId/seed-org-tree", () => {
       404,
     );
     expect(zitadel.setCalls).toBe(0);
+  });
+
+  it("re-seeding over an earlier structure clears the manager a top-level account no longer has", async () => {
+    // An earlier seed, in a different name order, left managers behind: a-user-0 and a-user-3
+    // report to each other, and a-user-2 (a top-level manager in the new placement) reports to a
+    // lead. Without clearing them the chart chains the org under one person.
+    zitadel.metaByUser.set("a-user-0", {
+      managerId: "a-user-3",
+      department: "old",
+      title: "Lead",
+    });
+    zitadel.metaByUser.set("a-user-3", {
+      managerId: "a-user-0",
+      department: "old",
+      title: "Lead",
+    });
+    zitadel.metaByUser.set("a-user-2", {
+      managerId: "a-user-4",
+      department: "old",
+      title: "Lead",
+    });
+
+    const res = await post(SANDBOX_A);
+    expect(res.status).toBe(200);
+
+    expect(zitadel.metaByUser.get("a-user-0")?.managerId).toBeNull();
+    expect(zitadel.metaByUser.get("a-user-2")?.managerId).toBeNull();
+
+    const rows = await rowsOf(SANDBOX_A);
+    const root = rows.find((r) => r.isRoot);
+    const idToUser = new Map(rows.map((r) => [r.id, r.userId]));
+    const reportsOf = (userId: string): string[] =>
+      rows
+        .filter(
+          (r) => r.parentId !== null && idToUser.get(r.parentId) === userId,
+        )
+        .map((r) => r.userId ?? "");
+    expect(rows.filter((r) => r.parentId === root?.id)).toHaveLength(3);
+    expect(reportsOf("a-user-0")).toEqual(["a-user-3"]);
+    expect(reportsOf("a-user-1")).toEqual(["a-user-4"]);
+    expect(reportsOf("a-user-2")).toEqual([]);
   });
 
   it("can be run again and gives the same tree", async () => {
