@@ -15,6 +15,7 @@ import { eraseUserFromTenant } from "../../services/user-erasure.js";
 import { enqueueSupersetCacheFlush } from "../../lib/superset-cache-flush-queue.js";
 import { eraseUserInSuperset } from "../../lib/superset-erasure-queue.js";
 import { resolveTenantMembers } from "../../lib/ensure-user-refs.js";
+import { enforceErasureRateLimit } from "../../lib/rate-limit-tiers.js";
 import { userExportRouter } from "./user-export.js";
 
 type AppVars = { Variables: { auth: AuthContext } };
@@ -146,6 +147,33 @@ usersRouter.delete(
     const { tenantId, orgId, userId: adminUserId } = c.get("auth");
     const targetUserId = c.req.param("userId");
 
+    // An admin cannot erase themselves: it would remove their own sign-in mid-request, and an
+    // organisation could lose its last admin. The Users page hides this option; this enforces it.
+    if (targetUserId === adminUserId) {
+      return c.json(
+        {
+          error: "CANNOT_ERASE_SELF",
+          message: "You cannot erase your own account.",
+        },
+        403,
+      );
+    }
+
+    const { allowed, resetAt } = await enforceErasureRateLimit(
+      tenantId,
+      adminUserId,
+    );
+    if (!allowed) {
+      c.header(
+        "Retry-After",
+        String(Math.max(1, resetAt - Math.ceil(Date.now() / 1000))),
+      );
+      return c.json(
+        { error: "RATE_LIMITED", message: "Too many erase requests" },
+        429,
+      );
+    }
+
     // An admin erases only people of their own organisation. The Zitadel delete below is
     // instance-wide, so without this an id from another organisation would lose its sign-in. A
     // member who has never signed in counts (found in this org's Zitadel users). Another
@@ -204,13 +232,25 @@ usersRouter.delete(
       });
     });
 
-    // Zitadel account erasure (Finding 7 & Finding 9)
-    await deleteUser(targetUserId).catch((err: unknown) => {
+    // Zitadel account erasure (Finding 7 & Finding 9). The data above is already erased; if the
+    // sign-in cannot be removed the reply says so instead of success, because the person could
+    // still sign in. Repeating the request is safe: they are still one of the organisation's
+    // Zitadel users, the data erase finds nothing left, and the delete is tried again.
+    const signInRemoved = await deleteUser(targetUserId).catch(
+      (err: unknown) => {
+        logger.error(
+          { err, targetUserId },
+          "GDPR erasure: failed to delete user account from Zitadel",
+        );
+        return false;
+      },
+    );
+    if (!signInRemoved) {
       logger.error(
-        { err, targetUserId },
-        "GDPR erasure: failed to delete user account from Zitadel",
+        { tenantId, targetUserId },
+        "GDPR erasure: data erased but the Zitadel sign-in was not removed",
       );
-    });
+    }
 
     invalidateUserCache();
 
@@ -229,6 +269,18 @@ usersRouter.delete(
       wasMember,
     });
 
+    if (!signInRemoved) {
+      return c.json(
+        {
+          success: false,
+          error: "SIGN_IN_NOT_REMOVED",
+          message:
+            "The user's data was erased, but their sign-in could not be removed. Try again.",
+          superset,
+        },
+        502,
+      );
+    }
     return c.json({ success: true, superset });
   },
 );

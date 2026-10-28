@@ -47,6 +47,12 @@ const { mockResolveTenantMembers } = vi.hoisted(() => ({
 vi.mock("../../lib/ensure-user-refs.js", () => ({
   resolveTenantMembers: mockResolveTenantMembers,
 }));
+const { mockErasureRateLimit } = vi.hoisted(() => ({
+  mockErasureRateLimit: vi.fn(),
+}));
+vi.mock("../../lib/rate-limit-tiers.js", () => ({
+  enforceErasureRateLimit: mockErasureRateLimit,
+}));
 vi.mock("../../services/user-erasure.js", () => ({
   eraseUserFromTenant: (...args: unknown[]) => mockEraseUserFromTenant(...args),
 }));
@@ -95,7 +101,7 @@ vi.mock("@platform/auth", () => ({
 const mockListOrgUsers = vi.fn();
 const mockListUserRolesByUserId = vi.fn();
 const mockInvalidateUserCache = vi.fn();
-const mockDeleteUser = vi.fn().mockResolvedValue(undefined);
+const mockDeleteUser = vi.fn().mockResolvedValue(true);
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listOrgUsers: (...args: unknown[]) => mockListOrgUsers(...args),
@@ -192,11 +198,81 @@ describe("GET /users", () => {
         wasMember: true,
       });
       mockEnqueueErasure.mockResolvedValue(QUEUED);
+      mockDeleteUser.mockResolvedValue(true);
+      mockErasureRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 9,
+        resetAt: 0,
+      });
       // Every id asked about is a member, unless a test says otherwise.
       mockResolveTenantMembers.mockImplementation(
         (_tenantId: string, ids: string[]) => Promise.resolve(new Set(ids)),
       );
     });
+
+    it("refuses an admin erasing themselves with 403, before anything runs", async () => {
+      const res = await makeApp().request("/users/user-bbb", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: "CANNOT_ERASE_SELF",
+        message: "You cannot erase your own account.",
+      });
+      expect(mockErasureRateLimit).not.toHaveBeenCalled();
+      expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+      expect(mockEraseUserFromTenant).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+    });
+
+    it("answers 429 with Retry-After once the admin's erase budget is spent, and erases nothing", async () => {
+      const resetAt = Math.ceil(Date.now() / 1000) + 30;
+      mockErasureRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt,
+      });
+
+      const res = await makeApp().request("/users/target-user-123", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+      expect(mockErasureRateLimit).toHaveBeenCalledWith(
+        "tenant-aaa",
+        "user-bbb",
+      );
+      expect(mockEraseUserFromTenant).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["fails", () => mockDeleteUser.mockResolvedValueOnce(false)],
+      ["throws", () => mockDeleteUser.mockRejectedValueOnce(new Error("down"))],
+    ])(
+      "answers 502, not success, when the Zitadel delete %s; the data erase and Superset step still ran",
+      async (_how, arrange) => {
+        arrange();
+        mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+
+        const res = await makeApp().request("/users/target-user-123", {
+          method: "DELETE",
+        });
+
+        expect(res.status).toBe(502);
+        expect(await res.json()).toEqual({
+          success: false,
+          error: "SIGN_IN_NOT_REMOVED",
+          message:
+            "The user's data was erased, but their sign-in could not be removed. Try again.",
+          superset: QUEUED,
+        });
+        expect(mockEraseUserFromTenant).toHaveBeenCalledTimes(1);
+        expect(mockEnqueueErasure).toHaveBeenCalledTimes(1);
+      },
+    );
 
     it("refuses an id outside the admin's organisation with 404 and erases nothing", async () => {
       mockResolveTenantMembers.mockResolvedValueOnce(new Set());

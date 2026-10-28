@@ -95,6 +95,14 @@ The `SupersetErasureFailed` alert fires in two cases, told apart by its `outcome
 If personal data stayed in Superset longer than expected, treat it as a possible personal-data
 incident and follow the [breach notification runbook](breach-notification.md).
 
+## When the sign-in was not removed
+
+`DELETE /users/:userId` answers 502 `SIGN_IN_NOT_REMOVED` (the admin sees "Erase incomplete") when the
+person's data was erased but Zitadel refused or could not be reached for the sign-in delete. The person
+can still sign in until it is removed. Erase them again from the Users page once Zitadel is healthy: they
+are still one of the organisation's Zitadel users, the data erase finds nothing left, and the delete is
+retried. The API log line is "GDPR erasure: data erased but the Zitadel sign-in was not removed".
+
 ## Production setup
 
 The API and the worker have to know that Stage 2 is on, and the worker needs the service account

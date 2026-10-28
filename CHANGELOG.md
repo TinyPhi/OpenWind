@@ -10,6 +10,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `DELETE /users/:userId` now erases only a person of the admin's own organisation (signed in, or
   in the organisation's Zitadel users). Any other id gets 404 and nothing is touched. Before, the
   Zitadel login of any user id was deleted, including one from another organisation.
+- An admin can no longer erase their own account (403), and each admin may send at most 10 erase
+  requests a minute (429 with `Retry-After`).
+
+### Fixed
+
+- When the user's data is erased but their Zitadel sign-in cannot be removed, the erase now answers
+  502 (`SIGN_IN_NOT_REMOVED`) instead of success, so the admin knows the person can still sign in;
+  erasing again retries it. A sign-in that is already gone counts as removed.
 
 ### Added
 

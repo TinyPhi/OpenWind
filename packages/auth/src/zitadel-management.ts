@@ -1287,6 +1287,10 @@ async function _fetchOrgMetadataForUser(
   }
 }
 
+/**
+ * Deletes a Zitadel user. True when the user is gone afterwards: deleted now, or already absent
+ * (404), so a repeated erasure does not report a failure for a login removed earlier.
+ */
 export async function deleteUser(userId: string): Promise<boolean> {
   const token = await getAccessToken();
   if (!token) return false;
@@ -1299,6 +1303,7 @@ export async function deleteUser(userId: string): Promise<boolean> {
       { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       JSON.stringify({ userId }),
     );
+    if (result.status === 404) return true;
     return result.status >= 200 && result.status < 300;
   } catch (err) {
     logger.error({ err, userId }, "Failed to delete Zitadel user");
