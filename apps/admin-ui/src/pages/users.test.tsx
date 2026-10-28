@@ -247,6 +247,30 @@ describe("UsersPage — erase a user (#728)", () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
+  it("says the erase is incomplete, and keeps the user, when only the sign-in removal failed", async () => {
+    signInAs("me", ["admin"]);
+    apiAnswers(
+      Object.assign(new Error("sign-in not removed"), {
+        status: 502,
+        code: "SIGN_IN_NOT_REMOVED",
+      }),
+    );
+    render(<UsersPage />);
+    await openEraseFor("Ravi Kumar");
+    fireEvent.change(screen.getByLabelText("Type Ravi Kumar to confirm"), {
+      target: { value: "Ravi Kumar" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Erase" }));
+    await waitFor(() =>
+      expect(showAlert).toHaveBeenCalledWith(
+        "Ravi Kumar's data was erased, but their sign-in could not be removed, so they can still sign in. Erase them again to retry.",
+        "Erase incomplete",
+      ),
+    );
+    expect(screen.getByText("Ravi Kumar")).toBeDefined();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
   it("erases nothing when the admin cancels", async () => {
     signInAs("me", ["admin"]);
     apiAnswers({ success: true });

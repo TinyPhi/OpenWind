@@ -278,6 +278,15 @@ export function UsersPage(): React.ReactElement {
         tone: superset.tone,
       });
     } catch (err) {
+      // The data is gone but the sign-in is not: the user stays listed (they can still sign in),
+      // and erasing again retries the sign-in removal.
+      if ((err as { code?: string }).code === "SIGN_IN_NOT_REMOVED") {
+        showAlert(
+          `${name}'s data was erased, but their sign-in could not be removed, so they can still sign in. Erase them again to retry.`,
+          "Erase incomplete",
+        );
+        return;
+      }
       showAlert(
         `${name} was not erased: ${err instanceof Error ? err.message : "the request failed"}.`,
         "Erase failed",

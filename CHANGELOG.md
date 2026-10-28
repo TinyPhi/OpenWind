@@ -11,7 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   The Erase button never shows on the admin's own row. A confirmation dialog asks them to type the
   user's name before Erase is enabled; afterwards the user leaves the list and a toast reports the
   result, including the API's sentence about Superset when it sends one (#1100). A failed erasure
-  keeps the user and shows the error.
+  keeps the user and shows the error; when only the sign-in removal failed (`SIGN_IN_NOT_REMOVED`,
+  #1100) it says "Erase incomplete" and that erasing again retries it.
 - `ConfirmDeleteDialog` takes an optional `typeToConfirm` for deletes that cannot be undone, and
   the admin-ui has a toast (`showToast`, mounted once in `App.tsx`).
 
