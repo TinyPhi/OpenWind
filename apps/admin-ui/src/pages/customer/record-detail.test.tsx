@@ -2016,6 +2016,18 @@ describe("CustomerRecordDetail — comment length limit", () => {
     ).toBe(false);
   });
 
+  it("does not split an emoji that straddles the limit", async () => {
+    const box = await composer();
+    // 3999 + 2 (the emoji is two UTF-16 units, as the API counts it) + 1 = 4002.
+    fireEvent.change(box, {
+      target: { value: "a".repeat(3999) + "\u{1F600}" + "b" },
+    });
+    expect(screen.getByText("Remove 2 characters to post")).toBeDefined();
+    expect(document.querySelector(".cmt-overflow")?.textContent).toBe(
+      "\u{1F600}b",
+    );
+  });
+
   it("counts the trimmed text, as the API does", async () => {
     const box = await composer();
     fireEvent.change(box, {
@@ -2079,6 +2091,50 @@ describe("CustomerRecordDetail — comment length limit", () => {
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Array must contain at most 10 element(s)",
+    );
+  });
+
+  it("falls back to the error's own message when the field list is empty", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject(
+          Object.assign(new Error("Request validation failed"), {
+            fields: [],
+          }),
+        );
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Request validation failed",
+    );
+  });
+
+  it("shows a fixed message when the failure is not an Error", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject("network down");
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The comment could not be posted",
     );
   });
 

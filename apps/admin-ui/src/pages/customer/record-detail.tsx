@@ -449,6 +449,10 @@ function CommentComposer({
   const leadingSpace = text.length - text.trimStart().length;
   const remaining = COMMENT_MAX_LENGTH - text.trim().length;
   const overLimit = remaining < 0;
+  // Where the red part starts. The count is in UTF-16 units, as the API's is, so the limit can
+  // fall inside an emoji; start the red part at the emoji then, rather than splitting it.
+  let overflowAt = leadingSpace + COMMENT_MAX_LENGTH;
+  if (/[\uD800-\uDBFF]/.test(text.charAt(overflowAt - 1))) overflowAt -= 1;
   const {
     stagedFiles,
     addFiles,
@@ -587,15 +591,14 @@ function CommentComposer({
         <div ref={backdropRef} className="cmt-backdrop" aria-hidden="true">
           {overLimit ? (
             <>
-              {text.slice(0, leadingSpace + COMMENT_MAX_LENGTH)}
-              <mark className="cmt-overflow">
-                {text.slice(leadingSpace + COMMENT_MAX_LENGTH)}
-              </mark>
+              {text.slice(0, overflowAt)}
+              <mark className="cmt-overflow">{text.slice(overflowAt)}</mark>
             </>
           ) : (
             text
           )}
-          {/* A trailing newline only takes up a line when something follows it. */}
+          {/* Zero-width space: a trailing newline only takes up a line when something follows
+              it, so without this the backdrop is a line short and drifts from the textarea. */}
           {"​"}
         </div>
         <textarea
@@ -604,8 +607,10 @@ function CommentComposer({
           rows={3}
           aria-invalid={overLimit || undefined}
           onScroll={(e) => {
-            if (backdropRef.current)
+            if (backdropRef.current) {
               backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+              backdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            }
           }}
           placeholder={
             placeholder ??
@@ -1503,6 +1508,14 @@ export function CustomerRecordDetail(): React.ReactElement {
     resolve: (posted: boolean) => void;
     reject: (err: unknown) => void;
   } | null>(null);
+  // Leaving the page with the dialog open: settle the composer's pending post as not posted.
+  useEffect(
+    () => () => {
+      mentionGrantSettleRef.current?.resolve(false);
+      mentionGrantSettleRef.current = null;
+    },
+    [],
+  );
   const [pendingMentionGrant, setPendingMentionGrant] = useState<{
     text: string;
     mentions: string[]; // all mention userIds
