@@ -5,6 +5,7 @@ import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { relativeTime } from "../lib/format.js";
 import { withAlpha } from "../lib/theme.js";
 import { userManager } from "../authProvider.js";
+import { useLocale } from "../lib/language.js";
 import { Button } from "@platform/ui";
 
 type WorkflowState = {
@@ -71,8 +72,8 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function getTodayLabel(): string {
-  return new Date().toLocaleDateString("en-IN", {
+function getTodayLabel(locale: string): string {
+  return new Date().toLocaleDateString(locale, {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -888,6 +889,7 @@ function QuickActionButton({
 
 export function Analytics(): React.ReactElement {
   const navigate = useNavigate();
+  const { locale } = useLocale();
   const { data: identity } = useGetIdentity<{
     id: string;
     name: string;
@@ -1108,7 +1110,7 @@ export function Analytics(): React.ReactElement {
               marginBottom: "4px",
             }}
           >
-            {getTodayLabel()}
+            {getTodayLabel(locale)}
           </div>
           <h2
             style={{

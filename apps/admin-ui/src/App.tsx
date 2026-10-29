@@ -62,6 +62,8 @@ import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { ToastHost } from "./components/toast.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
+import { useLocale, changeLocale } from "./lib/language.js";
+import { useTranslation } from "react-i18next";
 import "./index.css";
 
 function AuthenticatedShell({
@@ -105,6 +107,16 @@ function RouteLoadingFallback(): React.ReactElement {
 }
 
 export function App(): React.ReactElement {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+
+  const i18nProvider = {
+    translate: (key: string, params?: object) =>
+      t(key, params as Record<string, unknown>),
+    changeLocale: (lng: string) => changeLocale(lng),
+    getLocale: () => locale,
+  };
+
   return (
     <BrowserRouter>
       <GlobalErrorBanner />
@@ -114,6 +126,7 @@ export function App(): React.ReactElement {
         authProvider={authProvider}
         dataProvider={dataProvider}
         routerProvider={routerProvider}
+        i18nProvider={i18nProvider}
         options={{
           reactQuery: {
             // Prevents Authenticated from unmounting children on background auth
