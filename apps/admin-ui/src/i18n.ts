@@ -11,7 +11,7 @@ import commonFr from "./locales/fr/common.json";
 import commonDe from "./locales/de/common.json";
 import commonIt from "./locales/it/common.json";
 import commonEs from "./locales/es/common.json";
-import { getSavedLanguage } from "./lib/language.js";
+import { getSavedLanguage } from "./lib/language-storage.js";
 
 /**
  * i18n scaffolding (PLAT-200, proof of concept)
@@ -96,5 +96,9 @@ void i18n.use(initReactI18next).init({
   },
   returnNull: false,
 });
+
+// Set lang attribute at startup so screen readers and CSS font-selection rules
+// see the correct language before any React render (changeLocale keeps it in sync).
+document.documentElement.lang = getSavedLanguage();
 
 export { i18n };
