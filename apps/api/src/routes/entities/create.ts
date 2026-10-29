@@ -42,7 +42,7 @@ const CreateEntitySchema = z
     // PR #659 review (Vijit), G6: was z.string().min(1) -- a non-UUID value
     // passed schema validation and only failed at the team lookup below,
     // surfacing as "Must be an existing team in this tenant" rather than a
-    // structured invalid-format error. TemplateSchema uses .uuid() for the
+    // structured invalid-format error. TemplateSchema uses z.guid() for the
     // same field.
     teamId: z.guid().optional(),
     dueDate: z.string().datetime(),
