@@ -43,6 +43,8 @@ export const tenants = pgTable("tenants", {
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   /** Zitadel user id of the platform_admin who created this sandbox. NULL for real tenants. */
   createdByPlatformAdmin: text("created_by_platform_admin"),
+  /** Sandbox header logo: a png/jpeg/webp data URL (CHECK in migration 0155), never SVG. NULL for real tenants. */
+  logo: text("logo"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

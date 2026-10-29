@@ -42,6 +42,25 @@ vi.mock("./extend-trial-dialog.js", () => ({
   ),
 }));
 
+// Shallow-mocked: edit-branding-dialog.test.tsx covers the dialog itself.
+vi.mock("./edit-branding-dialog.js", () => ({
+  EditBrandingDialog: (props: {
+    onSaved: () => void;
+    onClose: () => void;
+    logo: string | null;
+  }) => (
+    <div>
+      Branding dialog ({props.logo ?? "no logo"})
+      <button type="button" onClick={props.onSaved}>
+        Save branding
+      </button>
+      <button type="button" onClick={props.onClose}>
+        Close branding
+      </button>
+    </div>
+  ),
+}));
+
 // Shallow-mocked: step-up-mfa-dialog.test.tsx covers the dialog itself.
 vi.mock("./step-up-mfa-dialog.js", () => ({
   StepUpMfaDialog: (props: {
@@ -70,13 +89,22 @@ function renderComponent(onDone: () => void = vi.fn()): () => void {
       tenantId={TENANT_ID}
       tenantName="Acme Sandbox"
       trialEndsAt="2026-12-01T00:00:00.000Z"
+      logo={null}
       onDone={onDone}
     />,
   );
   return onDone;
 }
 
-function choose(item: "Reset" | "Delete" | "Extend trial" | "End trial"): void {
+function choose(
+  item:
+    | "Reset"
+    | "Delete"
+    | "Extend trial"
+    | "End trial"
+    | "Seed org chart"
+    | "Edit branding",
+): void {
   fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
   fireEvent.click(screen.getByRole("menuitem", { name: item }));
 }
@@ -101,6 +129,23 @@ describe("SandboxRowActions", () => {
 
     expect(screen.getByText("Reset this sandbox?")).toBeTruthy();
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  it("calls the seed-org-tree endpoint and onDone after confirming", async () => {
+    const onDone = renderComponent();
+    choose("Seed org chart");
+    expect(screen.getByText("Seed the org chart?")).toBeTruthy();
+    expect(mockFetchWithAuth).not.toHaveBeenCalled();
+
+    fireEvent.click(getConfirmButton("Seed org chart"));
+
+    await waitFor(() => {
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        `/api/platform-admin/sandboxes/${TENANT_ID}/seed-org-tree`,
+        { method: "POST" },
+      );
+    });
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });
 
   it("calls the reset endpoint and onDone after confirming", async () => {
@@ -149,6 +194,7 @@ describe("SandboxRowActions", () => {
     it.each([
       ["Reset", "reset"],
       ["Delete", "delete"],
+      ["Seed org chart", "seed-org-tree"],
     ] as const)(
       "%s: opens the code dialog instead of an error, and retries the same action once verified",
       async (label, path) => {
@@ -271,7 +317,14 @@ describe("SandboxRowActions", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Extend trial", "End trial", "Delete"],
+      [
+        "Reset",
+        "Seed org chart",
+        "Extend trial",
+        "Edit branding",
+        "End trial",
+        "Delete",
+      ],
     );
   });
 
@@ -282,6 +335,7 @@ describe("SandboxRowActions", () => {
           tenantId={TENANT_ID}
           tenantName="Acme Sandbox"
           trialEndsAt={null}
+          logo={null}
           onDone={vi.fn()}
         />
       </div>,
@@ -353,12 +407,13 @@ describe("SandboxRowActions", () => {
         tenantId={TENANT_ID}
         tenantName="Acme Sandbox"
         trialEndsAt="2026-01-01T00:00:00.000Z"
+        logo={null}
         onDone={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Extend trial", "Delete"],
+      ["Reset", "Seed org chart", "Extend trial", "Edit branding", "Delete"],
     );
   });
 
@@ -369,12 +424,13 @@ describe("SandboxRowActions", () => {
         tenantId={TENANT_ID}
         tenantName="Acme Sandbox"
         trialEndsAt={null}
+        logo={null}
         onDone={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Extend trial", "Delete"],
+      ["Reset", "Seed org chart", "Extend trial", "Edit branding", "Delete"],
     );
   });
 
@@ -387,6 +443,23 @@ describe("SandboxRowActions", () => {
     fireEvent.click(screen.getByText("Save trial"));
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Trial dialog/)).toBeNull();
+  });
+
+  it("opens the branding dialog with the current logo and calls onDone after saving", () => {
+    const onDone = renderComponent();
+    choose("Edit branding");
+    expect(screen.getByText("Branding dialog (no logo)")).toBeTruthy();
+    fireEvent.click(screen.getByText("Save branding"));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Branding dialog/)).toBeNull();
+  });
+
+  it("closes the branding dialog without calling onDone when it is dismissed", () => {
+    const onDone = renderComponent();
+    choose("Edit branding");
+    fireEvent.click(screen.getByText("Close branding"));
+    expect(screen.queryByText(/Branding dialog/)).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   it("disables the actions menu while a request for this row is in flight", async () => {

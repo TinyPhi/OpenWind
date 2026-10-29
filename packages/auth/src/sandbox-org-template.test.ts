@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   generateSandboxOrgTemplate,
+  sandboxOrgPlacement,
   nextEmailCandidate,
 } from "./sandbox-org-template.js";
 
@@ -24,6 +25,41 @@ describe("generateSandboxOrgTemplate", () => {
       expect(account.givenName.length).toBeGreaterThan(0);
       expect(account.familyName.length).toBeGreaterThan(0);
       expect(account.emailLocalPart).not.toMatch(/placeholder|test|user\d+/i);
+    }
+  });
+
+  it("lays out three managers, two team leads under each, and employees under the leads", () => {
+    for (let i = 0; i < 20; i++) {
+      const { admin, members } = generateSandboxOrgTemplate();
+      const all = [admin, ...members];
+      const depthOf = (position: number): number => {
+        let depth = 0;
+        let current: number | null = position;
+        while (current !== null) {
+          current = all[current]?.reportsTo ?? null;
+          if (current !== null) depth++;
+        }
+        return depth;
+      };
+      const positionsAt = (d: number): number[] =>
+        all.flatMap((_, pos) => (depthOf(pos) === d ? [pos] : []));
+
+      const managers = positionsAt(0);
+      const leads = positionsAt(1);
+      expect(managers).toHaveLength(3);
+      expect(new Set(managers.map((m) => all[m]?.department)).size).toBe(3);
+      expect(leads).toHaveLength(6);
+      for (const manager of managers) {
+        const reports = all.filter((a) => a.reportsTo === manager);
+        expect(reports.length).toBeGreaterThanOrEqual(2);
+      }
+      expect(positionsAt(2).length).toBe(all.length - 9);
+      expect(all.some((_, pos) => depthOf(pos) > 2)).toBe(false);
+
+      for (const account of all) {
+        if (account.reportsTo === null) continue;
+        expect(all[account.reportsTo]?.department).toBe(account.department);
+      }
     }
   });
 
@@ -51,6 +87,9 @@ describe("nextEmailCandidate", () => {
     familyName: "Smith",
     emailLocalPart: "olivia.smith",
     role: "admin" as const,
+    department: "engineering",
+    title: "Engineering Manager",
+    reportsTo: null,
   };
 
   it("attempt 0 returns the plain local-part address", () => {
@@ -75,5 +114,35 @@ describe("nextEmailCandidate", () => {
       expect(suffix).toBeGreaterThanOrEqual(1000);
       expect(suffix).toBeLessThanOrEqual(9999);
     }
+  });
+});
+
+describe("sandboxOrgPlacement", () => {
+  it("places positions 0-2 as managers, 3-8 as leads under them, 9+ as employees under leads", () => {
+    expect(sandboxOrgPlacement(0)).toMatchObject({
+      department: "engineering",
+      reportsTo: null,
+    });
+    expect(sandboxOrgPlacement(2)).toMatchObject({
+      department: "support",
+      reportsTo: null,
+    });
+    expect(sandboxOrgPlacement(3)).toMatchObject({
+      department: "engineering",
+      reportsTo: 0,
+    });
+    expect(sandboxOrgPlacement(8)).toMatchObject({
+      department: "support",
+      reportsTo: 2,
+    });
+    expect(sandboxOrgPlacement(9)).toMatchObject({
+      department: "engineering",
+      reportsTo: 3,
+    });
+    expect(sandboxOrgPlacement(10)).toMatchObject({
+      department: "sales",
+      reportsTo: 4,
+    });
+    expect(sandboxOrgPlacement(15)).toMatchObject({ reportsTo: 3 });
   });
 });

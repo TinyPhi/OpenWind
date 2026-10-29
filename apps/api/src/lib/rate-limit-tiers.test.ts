@@ -14,8 +14,11 @@ vi.mock("@platform/redis", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
-const { enforceKeyPersonRateLimit, enforceExportRateLimit } =
-  await import("./rate-limit-tiers.js");
+const {
+  enforceKeyPersonRateLimit,
+  enforceExportRateLimit,
+  enforceErasureRateLimit,
+} = await import("./rate-limit-tiers.js");
 
 describe("enforceKeyPersonRateLimit", () => {
   beforeEach(() => {
@@ -135,6 +138,51 @@ describe("enforceExportRateLimit", () => {
     mockCheckRateLimit.mockRejectedValueOnce(new Error("redis down"));
 
     const result = await enforceExportRateLimit("tenant-a", "user-1");
+
+    expect(result.allowed).toBe(true);
+  });
+});
+
+describe("enforceErasureRateLimit", () => {
+  beforeEach(() => {
+    mockCheckRateLimit.mockReset();
+  });
+
+  it("keys the check on tenant + admin with a 10-per-60s budget", async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({
+      allowed: true,
+      remaining: 9,
+      resetAt: 1,
+    });
+
+    await enforceErasureRateLimit("tenant-a", "admin-1");
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "rl:erase:tenant-a:admin-1",
+      10,
+      60,
+    );
+  });
+
+  it("returns allowed:false when the budget is spent", async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({
+      allowed: false,
+      remaining: 0,
+      resetAt: 123,
+    });
+
+    expect(await enforceErasureRateLimit("tenant-a", "admin-1")).toEqual({
+      allowed: false,
+      remaining: 0,
+      resetAt: 123,
+    });
+  });
+
+  it("fails open when Redis errors", async () => {
+    mockCheckRateLimit.mockRejectedValueOnce(new Error("redis down"));
+
+    const result = await enforceErasureRateLimit("tenant-a", "admin-1");
 
     expect(result.allowed).toBe(true);
   });

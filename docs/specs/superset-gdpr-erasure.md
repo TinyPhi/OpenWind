@@ -177,8 +177,9 @@ data on request. These questions decide how long the rest is kept when nobody ha
 - The operator command (`superset openwind-erase`) writes no audit row. Only someone with shell access to the
   server can run it, and that access is recorded by the server, not by the platform. The runbook (T28) limits it
   to a job that keeps failing and asks the operator to note who ran it and why in the incident ticket.
-- Metrics and alerts: a failed job; an erasure request with no `completed` row after 7 days (an
-  operational default, a setting, not a legal deadline).
+- Metrics and alerts: `SupersetErasureFailed` when a job spends its last retry (about 26 hours) or could not
+  be queued at all, and `SupersetErasureJobFailedInQueue` while a failed job waits in the queue (kept 7 days).
+  These replaced the earlier "no `completed` row after 7 days" alert (#1100).
 
 **What "erase" does in Superset:** find users holding `owsub:<subject>` and `tenant:<tenantId>`, or
 `owsub:<subject>` and no `tenant:` role at all (a login that resolved to no tenant; it belongs to no other
@@ -212,8 +213,8 @@ role is left untouched and counted in `heldUsers`; a tenant erase never touches 
 R4: A Superset failure never blocks the Postgres erasure and is never silent.
 ✓ Superset unreachable: the route still succeeds, Postgres rows are gone, the job is queued.
 ✓ final failure writes exactly one `superset_erasure.failed` row; success writes `completed`.
-✓ no name, email or SQL in the payload, logs or audit metadata. An erasure with no `completed` row after
-7 days raises an alert.
+✓ no name, email or SQL in the payload, logs or audit metadata. An erasure that spends its last retry, or
+cannot be queued, raises an alert.
 
 R5: Repeating an erasure is safe. ✓ a second run matches zero and succeeds; duplicate enqueues collapse.
 
@@ -288,7 +289,7 @@ switch (D8).
 | wrong user erased (name or UUID-username collision)                 | match on `owsub` + `tenant` roles, never username (R3, R14)                                                                                                                                                                                                                                                                                                                                               |
 | tenant A erases tenant B's user                                     | tenant role must equal the request's tenant (V1)                                                                                                                                                                                                                                                                                                                                                          |
 | personal data leaks through job, logs or responses                  | ids and counts only (V2)                                                                                                                                                                                                                                                                                                                                                                                  |
-| erasure silently fails                                              | retries, final-failure audit row, alert after 7 days (R4)                                                                                                                                                                                                                                                                                                                                                 |
+| erasure silently fails                                              | retries, final-failure audit row, alert on the last retry or a failed enqueue (R4)                                                                                                                                                                                                                                                                                                                        |
 | Superset upgrade adds a user-referencing table                      | coverage guard (R6)                                                                                                                                                                                                                                                                                                                                                                                       |
 | a large history stalls the DB or times out                          | bounded batches, and a per-call work cap with continuation (R16)                                                                                                                                                                                                                                                                                                                                          |
 
