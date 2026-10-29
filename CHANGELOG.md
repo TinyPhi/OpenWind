@@ -24,6 +24,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `analytics.tsx` `getTodayLabel` and `dashboard.tsx` `formatDueDateLong` now read the active
   locale from `useLocale()` instead of hardcoding `"en-IN"`.
 
+## [Unreleased — erase a user from the Users page (#728)]
+
+### Added
+
+- Admins can erase a user from the Users page (`DELETE /users/:userId`, the existing GDPR erasure).
+  The Erase button never shows on the admin's own row. A confirmation dialog asks them to type the
+  user's name before Erase is enabled; afterwards the user leaves the list and a toast reports the
+  result, including the API's sentence about Superset when it sends one (#1100). A failed erasure
+  keeps the user and shows the error; when only the sign-in removal failed (`SIGN_IN_NOT_REMOVED`,
+  #1100) it says "Erase incomplete" and that erasing again retries it.
+- `ConfirmDeleteDialog` takes an optional `typeToConfirm` for deletes that cannot be undone, and
+  the admin-ui has a toast (`showToast`, mounted once in `App.tsx`).
+
+## [Unreleased — Superset erasure runs automatically (#728)]
+
+### Security
+
+- `DELETE /users/:userId` now erases only a person of the admin's own organisation (signed in, or
+  in the organisation's Zitadel users). Any other id gets 404 and nothing is touched. Before, the
+  Zitadel login of any user id was deleted, including one from another organisation.
+- An admin can no longer erase their own account (403), and each admin may send at most 10 erase
+  requests a minute (429 with `Retry-After`).
+
+### Fixed
+
+- When the user's data is erased but their Zitadel sign-in cannot be removed, the erase now answers
+  502 (`SIGN_IN_NOT_REMOVED`) instead of success, so the admin knows the person can still sign in;
+  erasing again retries it. A sign-in that is already gone counts as removed.
+
+### Added
+
+- Erasing a user, or purging a tenant, now also erases their data from Superset's own database
+  when Superset Stage 2 is on. A `superset-erasure` worker job calls Superset's erase endpoint
+  until it finishes and retries for about 26 hours (1 minute up to 1 hour apart) if Superset is
+  down. Migration `0156_superset_erasure_audit_actions` adds the audit actions
+  `superset_erasure.completed` and `superset_erasure.failed`; each is written by the system with the
+  same tenant and resource id as the platform's own erase row, and holds counts only.
+- `SUPERSET_OAUTH_CLIENT_ID` (empty counts as unset) and `SUPERSET_ERASURE_ENABLED` (default
+  `true`) for `ow-backend` and `ow-worker`. With Stage 2 off the erasure only flushes Superset's
+  cache, or does nothing (and logs a warning) when `SUPERSET_ERASURE_ENABLED=false`; with Stage 2 on
+  it cannot be turned off.
+- A user's Superset data is erased only when they were a member of the erasing admin's tenant.
+  `ow-worker` now receives `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and
+  `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, as `ow-backend` does.
+- `SupersetErasureFailed` alert (an erasure spent every retry, or could not be queued at all:
+  `outcome="not_queued"`; a tenant purge then fails and retries so it is queued again),
+  `SupersetErasureJobFailedInQueue` (a
+  failed job is waiting in the queue, which also catches a job BullMQ failed after it stalled) and the
+  [Superset erasure runbook](docs/runbooks/superset-erasure.md). Production needs the Stage 2 client
+  id and the service account password at the API's and worker's own settings; see the runbook.
+
 ## [Unreleased — org-view follow-ups (#1072)]
 
 ### Changed

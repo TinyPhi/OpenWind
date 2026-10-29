@@ -73,6 +73,35 @@ export async function enforceExportRateLimit(
   }
 }
 
+/**
+ * Per-(tenant, admin) cap on DELETE /users/:userId (GDPR erasure), so a script or a stuck client
+ * cannot erase many people in a burst. A constant, not a setting: an admin erases people one at a
+ * time from the Users page, and no deployment needs a different number.
+ */
+export const ERASURE_RATE_LIMIT_PER_MIN = 10;
+const ERASURE_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/** Keyed on the verified auth identity, so it must run after requireAuth. Fails open like every other tier. */
+export async function enforceErasureRateLimit(
+  tenantId: string,
+  userId: string,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  try {
+    return await checkRateLimit(
+      getRedis(),
+      `rl:erase:${tenantId}:${userId}`,
+      ERASURE_RATE_LIMIT_PER_MIN,
+      ERASURE_RATE_LIMIT_WINDOW_SECONDS,
+    );
+  } catch (err) {
+    logger.warn(
+      { err, tenantId, userId },
+      "rate-limit-tiers: erasure check failed unexpectedly — failing open",
+    );
+    return { allowed: true, remaining: ERASURE_RATE_LIMIT_PER_MIN, resetAt: 0 };
+  }
+}
+
 const SANDBOX_PROVISIONING_RATE_LIMIT_WINDOW_SECONDS = 60;
 
 /**

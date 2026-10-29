@@ -122,4 +122,76 @@ describe("ConfirmDeleteDialog", () => {
       true,
     );
   });
+
+  describe("typeToConfirm", () => {
+    const renderTyped = (onConfirm = vi.fn()): ReturnType<typeof render> =>
+      render(
+        <ConfirmDeleteDialog
+          open
+          title="Erase this user?"
+          message="This permanently erases Asha Rao."
+          confirmLabel="Erase"
+          typeToConfirm="Asha Rao"
+          onConfirm={onConfirm}
+          onCancel={vi.fn()}
+        />,
+      );
+
+    it("keeps the confirm button disabled until the exact text is typed", () => {
+      const onConfirm = vi.fn();
+      renderTyped(onConfirm);
+      const confirm = screen.getByRole("button", { name: "Erase" });
+      const input = screen.getByLabelText("Type Asha Rao to confirm");
+      expect(confirm.hasAttribute("disabled")).toBe(true);
+
+      fireEvent.change(input, { target: { value: "Asha" } });
+      expect(confirm.hasAttribute("disabled")).toBe(true);
+      fireEvent.change(input, { target: { value: "asha rao" } });
+      expect(confirm.hasAttribute("disabled")).toBe(true);
+
+      fireEvent.change(input, { target: { value: " Asha Rao " } });
+      expect(confirm.hasAttribute("disabled")).toBe(false);
+      fireEvent.click(confirm);
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts empty again for a different person", () => {
+      const { rerender } = renderTyped();
+      fireEvent.change(screen.getByLabelText("Type Asha Rao to confirm"), {
+        target: { value: "Asha Rao" },
+      });
+      rerender(
+        <ConfirmDeleteDialog
+          open
+          message="This permanently erases Ravi Kumar."
+          confirmLabel="Erase"
+          typeToConfirm="Ravi Kumar"
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      const input = screen.getByLabelText(
+        "Type Ravi Kumar to confirm",
+      ) as HTMLInputElement;
+      expect(input.value).toBe("");
+      expect(
+        screen.getByRole("button", { name: "Erase" }).hasAttribute("disabled"),
+      ).toBe(true);
+    });
+
+    it("shows no text box for an ordinary delete", () => {
+      render(
+        <ConfirmDeleteDialog
+          open
+          message="Delete this?"
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      expect(screen.queryByRole("textbox")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Delete" }).hasAttribute("disabled"),
+      ).toBe(false);
+    });
+  });
 });

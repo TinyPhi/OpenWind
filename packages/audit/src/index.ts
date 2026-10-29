@@ -214,7 +214,14 @@ export type AuditAction =
   // admin with a recorded reason, and a change to a workflow's override switch. Migration
   // 0146_workflows_state_override.sql extends the DB CHECK constraint in the same commit.
   | "workflow.state_overridden"
-  | "workflow.override_policy_updated";
+  | "workflow.override_policy_updated"
+  // #728 — the outcome of erasing a user's, or a purged tenant's, data from Superset (its metadata
+  // database and cache). Written by the superset-erasure worker as the system, with the same
+  // tenantId, resourceType and resourceId as the platform's own "deleted" or "purge.completed"
+  // row, so one search shows who asked and when Superset was cleaned. Migration
+  // 0156_superset_erasure_audit_actions.sql extends the DB CHECK constraint in the same commit.
+  | "superset_erasure.completed"
+  | "superset_erasure.failed";
 
 export type AuditEntryInput = {
   tenantId: string;

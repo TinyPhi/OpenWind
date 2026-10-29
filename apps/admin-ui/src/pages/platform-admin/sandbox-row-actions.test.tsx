@@ -97,7 +97,13 @@ function renderComponent(onDone: () => void = vi.fn()): () => void {
 }
 
 function choose(
-  item: "Reset" | "Delete" | "Extend trial" | "End trial" | "Edit branding",
+  item:
+    | "Reset"
+    | "Delete"
+    | "Extend trial"
+    | "End trial"
+    | "Seed org chart"
+    | "Edit branding",
 ): void {
   fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
   fireEvent.click(screen.getByRole("menuitem", { name: item }));
@@ -123,6 +129,23 @@ describe("SandboxRowActions", () => {
 
     expect(screen.getByText("Reset this sandbox?")).toBeTruthy();
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  it("calls the seed-org-tree endpoint and onDone after confirming", async () => {
+    const onDone = renderComponent();
+    choose("Seed org chart");
+    expect(screen.getByText("Seed the org chart?")).toBeTruthy();
+    expect(mockFetchWithAuth).not.toHaveBeenCalled();
+
+    fireEvent.click(getConfirmButton("Seed org chart"));
+
+    await waitFor(() => {
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        `/api/platform-admin/sandboxes/${TENANT_ID}/seed-org-tree`,
+        { method: "POST" },
+      );
+    });
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });
 
   it("calls the reset endpoint and onDone after confirming", async () => {
@@ -171,6 +194,7 @@ describe("SandboxRowActions", () => {
     it.each([
       ["Reset", "reset"],
       ["Delete", "delete"],
+      ["Seed org chart", "seed-org-tree"],
     ] as const)(
       "%s: opens the code dialog instead of an error, and retries the same action once verified",
       async (label, path) => {
@@ -293,7 +317,14 @@ describe("SandboxRowActions", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Extend trial", "Edit branding", "End trial", "Delete"],
+      [
+        "Reset",
+        "Seed org chart",
+        "Extend trial",
+        "Edit branding",
+        "End trial",
+        "Delete",
+      ],
     );
   });
 
@@ -382,7 +413,7 @@ describe("SandboxRowActions", () => {
     );
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Extend trial", "Edit branding", "Delete"],
+      ["Reset", "Seed org chart", "Extend trial", "Edit branding", "Delete"],
     );
   });
 
@@ -399,7 +430,7 @@ describe("SandboxRowActions", () => {
     );
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Extend trial", "Edit branding", "Delete"],
+      ["Reset", "Seed org chart", "Extend trial", "Edit branding", "Delete"],
     );
   });
 
