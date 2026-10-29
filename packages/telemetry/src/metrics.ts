@@ -42,6 +42,7 @@ const queueNames = [
   "connector-inbound",
   "connector-poll",
   "mention-resolution",
+  "superset-erasure",
 ];
 
 // Cache Queue instances to avoid re-creating them on every scrape
@@ -411,6 +412,17 @@ export const mentionRecordFailureTotal = meter.createCounter(
   {
     description:
       "Resolved mentions the mention-resolution worker failed to record on a comment",
+  },
+);
+
+// docs/specs/superset-gdpr-erasure.md (#728) — the outcome of a Superset erasure job. "failed" is
+// counted once, when the last retry is spent: that erasure never completed and needs an operator
+// (docs/runbooks/superset-erasure.md). Deliberately unlabelled by tenant: the tenantId stays in the log.
+export const supersetErasureTotal = meter.createCounter(
+  "openwind_superset_erasure_total",
+  {
+    description:
+      "Superset erasure jobs by outcome (completed, or failed after the last retry)",
   },
 );
 

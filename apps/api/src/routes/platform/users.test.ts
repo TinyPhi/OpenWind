@@ -27,8 +27,32 @@ const { mockEnqueueFlush } = vi.hoisted(() => ({ mockEnqueueFlush: vi.fn() }));
 vi.mock("../../lib/superset-cache-flush-queue.js", () => ({
   enqueueSupersetCacheFlush: mockEnqueueFlush,
 }));
+const { mockEnqueueErasure } = vi.hoisted(() => ({
+  mockEnqueueErasure: vi.fn(),
+}));
+vi.mock("../../lib/superset-erasure-queue.js", () => ({
+  eraseUserInSuperset: mockEnqueueErasure,
+}));
+// What eraseUserInSuperset (unit-tested in superset-erasure-queue.test.ts) answers here.
+const QUEUED = {
+  status: "queued",
+  switchIgnored: false,
+  message: "The user's Superset data is being erased.",
+};
 // Export routes have their own test (user-export.test.ts).
 vi.mock("./user-export.js", () => ({ userExportRouter: new Hono() }));
+const { mockResolveTenantMembers } = vi.hoisted(() => ({
+  mockResolveTenantMembers: vi.fn(),
+}));
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  resolveTenantMembers: mockResolveTenantMembers,
+}));
+const { mockErasureRateLimit } = vi.hoisted(() => ({
+  mockErasureRateLimit: vi.fn(),
+}));
+vi.mock("../../lib/rate-limit-tiers.js", () => ({
+  enforceErasureRateLimit: mockErasureRateLimit,
+}));
 vi.mock("../../services/user-erasure.js", () => ({
   eraseUserFromTenant: (...args: unknown[]) => mockEraseUserFromTenant(...args),
 }));
@@ -77,7 +101,7 @@ vi.mock("@platform/auth", () => ({
 const mockListOrgUsers = vi.fn();
 const mockListUserRolesByUserId = vi.fn();
 const mockInvalidateUserCache = vi.fn();
-const mockDeleteUser = vi.fn().mockResolvedValue(undefined);
+const mockDeleteUser = vi.fn().mockResolvedValue(true);
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listOrgUsers: (...args: unknown[]) => mockListOrgUsers(...args),
@@ -169,7 +193,151 @@ describe("GET /users", () => {
   describe("DELETE /users/:userId", () => {
     beforeEach(() => {
       vi.clearAllMocks();
-      mockEraseUserFromTenant.mockResolvedValue({ rotatedApiKeys: [] });
+      mockEraseUserFromTenant.mockResolvedValue({
+        rotatedApiKeys: [],
+        wasMember: true,
+      });
+      mockEnqueueErasure.mockResolvedValue(QUEUED);
+      mockDeleteUser.mockResolvedValue(true);
+      mockErasureRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 9,
+        resetAt: 0,
+      });
+      // Every id asked about is a member, unless a test says otherwise.
+      mockResolveTenantMembers.mockImplementation(
+        (_tenantId: string, ids: string[]) => Promise.resolve(new Set(ids)),
+      );
+    });
+
+    it("refuses an admin erasing themselves with 403, before anything runs", async () => {
+      const res = await makeApp().request("/users/user-bbb", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: "CANNOT_ERASE_SELF",
+        message: "You cannot erase your own account.",
+      });
+      expect(mockErasureRateLimit).not.toHaveBeenCalled();
+      expect(mockResolveTenantMembers).not.toHaveBeenCalled();
+      expect(mockEraseUserFromTenant).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+    });
+
+    it("answers 429 with Retry-After once the admin's erase budget is spent, and erases nothing", async () => {
+      const resetAt = Math.ceil(Date.now() / 1000) + 30;
+      mockErasureRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt,
+      });
+
+      const res = await makeApp().request("/users/target-user-123", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+      expect(mockErasureRateLimit).toHaveBeenCalledWith(
+        "tenant-aaa",
+        "user-bbb",
+      );
+      expect(mockEraseUserFromTenant).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["fails", () => mockDeleteUser.mockResolvedValueOnce(false)],
+      ["throws", () => mockDeleteUser.mockRejectedValueOnce(new Error("down"))],
+    ])(
+      "answers 502, not success, when the Zitadel delete %s; the data erase and Superset step still ran",
+      async (_how, arrange) => {
+        arrange();
+        mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+
+        const res = await makeApp().request("/users/target-user-123", {
+          method: "DELETE",
+        });
+
+        expect(res.status).toBe(502);
+        expect(await res.json()).toEqual({
+          success: false,
+          error: "SIGN_IN_NOT_REMOVED",
+          message:
+            "The user's data was erased, but their sign-in could not be removed. Try again.",
+          superset: QUEUED,
+        });
+        expect(mockEraseUserFromTenant).toHaveBeenCalledTimes(1);
+        expect(mockEnqueueErasure).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("refuses an id outside the admin's organisation with 404 and erases nothing", async () => {
+      mockResolveTenantMembers.mockResolvedValueOnce(new Set());
+
+      const res = await makeApp().request("/users/other-org-user", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: "NOT_FOUND",
+        message: "No user with this id in this organisation",
+      });
+      expect(mockResolveTenantMembers).toHaveBeenCalledWith(
+        "tenant-aaa",
+        ["other-org-user"],
+        "org-aaa",
+      );
+      expect(mockWithTenantContext).not.toHaveBeenCalled();
+      expect(mockEraseUserFromTenant).not.toHaveBeenCalled();
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+      expect(mockInvalidateUserCache).not.toHaveBeenCalled();
+      expect(mockEnqueueFlush).not.toHaveBeenCalled();
+      expect(mockEnqueueErasure).not.toHaveBeenCalled();
+    });
+
+    it("refuses with 404 when the membership lookup finds nothing, without asking the erasure", async () => {
+      // e.g. an id erased earlier: no tenant_users row, and no longer one of the org's Zitadel users.
+      mockResolveTenantMembers.mockResolvedValueOnce(new Set(["someone-else"]));
+
+      const res = await makeApp().request("/users/already-erased", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(404);
+      expect(mockDeleteUser).not.toHaveBeenCalled();
+    });
+
+    it("passes the membership it read to the Superset step, and replies with what happened (#728)", async () => {
+      mockEraseUserFromTenant.mockResolvedValueOnce({
+        rotatedApiKeys: [],
+        wasMember: false,
+      });
+      const notMember = {
+        status: "not_member",
+        switchIgnored: false,
+        message:
+          "Superset data was not erased because the user was not a member of this organisation.",
+      };
+      mockEnqueueErasure.mockResolvedValueOnce(notMember);
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+      const res = await makeApp().request("/users/member-without-row", {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(200);
+      expect(mockEnqueueErasure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: "member-without-row",
+          wasMember: false,
+        }),
+      );
+      expect(await res.json()).toEqual({ success: true, superset: notMember });
+      // The cache flush is global, not personal, so it still runs.
+      expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
     });
 
     it("audits each API key put on a forced rotation window (#688)", async () => {
@@ -244,6 +412,20 @@ describe("GET /users", () => {
         expect.any(String),
         "user_erased",
       );
+      // The Zitadel user id is the subject Superset knows them by.
+      expect(mockEnqueueErasure).toHaveBeenCalledWith({
+        tenantId: tenantIdArg,
+        subject: "target-user-123",
+        wasMember: true,
+      });
+      expect(body.superset).toEqual(QUEUED);
+    });
+
+    it("queues no Superset erasure when the platform erasure fails (#728)", async () => {
+      mockEraseUserFromTenant.mockRejectedValueOnce(new Error("boom"));
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+      await makeApp().request("/users/target-user-123", { method: "DELETE" });
+      expect(mockEnqueueErasure).not.toHaveBeenCalled();
     });
 
     it("queues no Superset cache flush when the erasure fails (#728)", async () => {
