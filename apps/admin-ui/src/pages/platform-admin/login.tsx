@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { usePermissions } from "@refinedev/core";
@@ -12,6 +13,7 @@ import { userManager } from "../../authProvider.js";
  * post-login destination differs (see pages/callback.tsx's role check).
  */
 export function PlatformAdminLogin(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: roles, isLoading } = usePermissions<string[]>();
   const [loading, setLoading] = React.useState(false);
@@ -50,7 +52,7 @@ export function PlatformAdminLogin(): React.ReactElement {
     return (
       <div style={pageStyle}>
         <div style={cardStyle}>
-          <h1 style={titleStyle}>Not authorized</h1>
+          <h1 style={titleStyle}>{t("platformAdmin.notAuthorized")}</h1>
           <p style={{ color: "var(--text-muted)" }}>
             Your account does not have platform-admin access.
           </p>
@@ -59,7 +61,9 @@ export function PlatformAdminLogin(): React.ReactElement {
             disabled={loading}
             style={{ marginTop: 20 }}
           >
-            {loading ? "Redirecting…" : "Sign in with a different account"}
+            {loading
+              ? t("platformAdmin.redirecting")
+              : t("platformAdmin.signInDifferent")}
           </Button>
           {signInFailed && (
             <p
@@ -77,12 +81,12 @@ export function PlatformAdminLogin(): React.ReactElement {
   return (
     <div style={pageStyle}>
       <div style={cardStyle}>
-        <h1 style={titleStyle}>Platform Admin</h1>
+        <h1 style={titleStyle}>{t("platformAdmin.title")}</h1>
         <p style={{ color: "var(--text-muted)", marginBottom: 20 }}>
           Sign in with your platform-admin account.
         </p>
         <Button onClick={() => void handleSignIn()} disabled={loading}>
-          {loading ? "Redirecting…" : "Sign in"}
+          {loading ? t("platformAdmin.redirecting") : t("platformAdmin.signIn")}
         </Button>
         {signInFailed && (
           <p

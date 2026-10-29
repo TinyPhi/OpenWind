@@ -1,18 +1,15 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { TOKENS } from "@platform/ui";
 import { AccessLogsPanel } from "../components/access-logs-panel.js";
 
 export function ThirdPartyAccessLogsPage(): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <div>
       <div style={{ marginBottom: "24px" }}>
-        <h2 className="page-title">Third-Party API Access Logs</h2>
-        <p className="page-subtitle">
-          Every third-party application request/attempt against a ticket —
-          application, acting person, action, allowed vs. denied. The primary
-          place to investigate a connected application's behavior, separate from
-          the ticket timeline itself.
-        </p>
+        <h2 className="page-title">{t("logs.thirdPartyTitle")}</h2>
+        <p className="page-subtitle">{t("logs.thirdPartySubtitle")}</p>
       </div>
 
       <div

@@ -3,6 +3,7 @@
  * allow-listed views (packages/db platform-admin-view.ts / platform-admin-audit.ts) -- the
  * dashboard never sees more than those fields.
  */
+import i18next from "i18next";
 
 export type TrialStatus = "none" | "active" | "expired";
 
@@ -71,8 +72,8 @@ export function dayLabel(iso: string, now: number = Date.now()): string {
   const days = Math.round(
     (startOfDay(now) - startOfDay(Date.parse(iso))) / DAY,
   );
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
+  if (days === 0) return i18next.t("platformAdmin.format.today") as string;
+  if (days === 1) return i18next.t("platformAdmin.format.yesterday") as string;
   return new Date(iso).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -105,14 +106,16 @@ export function trialCountdown(
   trialEndsAt: string | null,
   now: number = Date.now(),
 ): string {
-  if (!trialEndsAt) return "No trial";
+  if (!trialEndsAt) return i18next.t("platformAdmin.noTrial") as string;
   const diff = Date.parse(trialEndsAt) - now;
   const days = Math.floor(Math.abs(diff) / DAY);
   if (diff > 0) {
-    if (days === 0) return "Ends today";
+    if (days === 0)
+      return i18next.t("platformAdmin.format.endsToday") as string;
     return `${days} day${days === 1 ? "" : "s"} left`;
   }
-  if (days === 0) return "Expired today";
+  if (days === 0)
+    return i18next.t("platformAdmin.format.expiredToday") as string;
   return `Expired ${days} day${days === 1 ? "" : "s"} ago`;
 }
 

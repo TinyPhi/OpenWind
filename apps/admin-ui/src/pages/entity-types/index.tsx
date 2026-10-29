@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useList } from "@refinedev/core";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ const EMPTY_FORM: CreateEntityTypeForm = {
 };
 
 export function EntityTypes(): React.ReactElement {
+  const { t } = useTranslation();
   const { data, isLoading, refetch } = useList<EntityType>({
     resource: "entity-types",
   });
@@ -85,7 +87,9 @@ export function EntityTypes(): React.ReactElement {
       createModal.close();
       void refetch();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create");
+      setError(
+        err instanceof Error ? err.message : t("entityTypes.failedToCreate"),
+      );
     } finally {
       setSaving(false);
     }
@@ -95,7 +99,7 @@ export function EntityTypes(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading entity types…</span>
+        <span className="loader-text">{t("entityTypes.loading")}</span>
       </div>
     );
   }
@@ -111,16 +115,15 @@ export function EntityTypes(): React.ReactElement {
         }}
       >
         <div>
-          <h2 className="page-title">Entity Types</h2>
-          <p className="page-subtitle">
-            All configurable object schemas in the platform. Entity types define
-            the structure, fields, and workflows for every record.
-          </p>
+          <h2 className="page-title">{t("entityTypes.title")}</h2>
+          <p className="page-subtitle">{t("entityTypes.subtitle")}</p>
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <div className="stat-pill">{types.length} types</div>
+          <div className="stat-pill">
+            {t("entityTypes.typeCount", { count: types.length })}
+          </div>
           <Button variant="primary" onClick={() => createModal.open()}>
-            + New Entity Type
+            {t("entityTypes.newEntityType")}
           </Button>
         </div>
       </div>
@@ -128,20 +131,22 @@ export function EntityTypes(): React.ReactElement {
       {types.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">◻</div>
-          <h4>No entity types defined</h4>
-          <p>Install a module or create a custom entity type to get started.</p>
+          <h4>{t("entityTypes.noEntityTypes")}</h4>
+          <p>{t("entityTypes.noEntityTypesDesc")}</p>
         </div>
       ) : (
         <div className="data-panel">
           <Table scroll={false}>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Plural</TableHead>
-                <TableHead>Module</TableHead>
-                <TableHead>Custom Fields</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead style={{ width: "80px" }}>Records</TableHead>
+                <TableHead>{t("entityTypes.name")}</TableHead>
+                <TableHead>{t("entityTypes.plural")}</TableHead>
+                <TableHead>{t("entityTypes.module")}</TableHead>
+                <TableHead>{t("entityTypes.customFieldsLabel")}</TableHead>
+                <TableHead>{t("entityTypes.created")}</TableHead>
+                <TableHead style={{ width: "80px" }}>
+                  {t("entityTypes.records")}
+                </TableHead>
                 <TableHead style={{ width: "40px" }}></TableHead>
               </TableRow>
             </TableHeader>
@@ -184,7 +189,7 @@ export function EntityTypes(): React.ReactElement {
                       <span
                         style={{ color: "var(--text-muted)", fontSize: "13px" }}
                       >
-                        custom
+                        {t("entityTypes.custom")}
                       </span>
                     )}
                   </TableCell>
@@ -192,7 +197,9 @@ export function EntityTypes(): React.ReactElement {
                     <span
                       className={`badge ${type.allowCustomFields ? "badge-success" : "badge-muted"}`}
                     >
-                      {type.allowCustomFields ? "Yes" : "No"}
+                      {type.allowCustomFields
+                        ? t("entityTypes.yes")
+                        : t("entityTypes.no")}
                     </span>
                   </TableCell>
                   <TableCell
@@ -214,7 +221,7 @@ export function EntityTypes(): React.ReactElement {
                         to={`/entity-types/${type.id}/records`}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        Records
+                        {t("entityTypes.records")}
                       </Link>
                     </Button>
                   </TableCell>
@@ -248,7 +255,7 @@ export function EntityTypes(): React.ReactElement {
           {Object.entries(byModule).map(([mod, items]) => (
             <div key={mod} className="module-summary-chip">
               <span className="badge badge-primary">
-                {mod === "__custom__" ? "custom" : mod}
+                {mod === "__custom__" ? t("entityTypes.custom") : mod}
               </span>
               <span
                 style={{
@@ -257,7 +264,7 @@ export function EntityTypes(): React.ReactElement {
                   marginLeft: "6px",
                 }}
               >
-                {items.length} types
+                {t("entityTypes.typeCount", { count: items.length })}
               </span>
             </div>
           ))}
@@ -277,7 +284,7 @@ export function EntityTypes(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">New Entity Type</h3>
+              <h3 className="modal-title">{t("entityTypes.newEntityType")}</h3>
             </DialogTitle>
             <DialogClose asChild>
               <button type="button" className="modal-close" aria-label="Close">
@@ -296,10 +303,10 @@ export function EntityTypes(): React.ReactElement {
                 </div>
               )}
               <div className="form-group">
-                <label className="form-label">Name *</label>
+                <label className="form-label">{t("entityTypes.name")} *</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Support Ticket"
+                  placeholder={t("entityTypes.namePlaceholder")}
                   value={form.name}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, name: e.target.value }))
@@ -309,10 +316,12 @@ export function EntityTypes(): React.ReactElement {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Plural *</label>
+                <label className="form-label">
+                  {t("entityTypes.plural")} *
+                </label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Support Tickets"
+                  placeholder={t("entityTypes.pluralPlaceholder")}
                   value={form.plural}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, plural: e.target.value }))
@@ -321,10 +330,12 @@ export function EntityTypes(): React.ReactElement {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Icon (emoji)</label>
+                <label className="form-label">
+                  {t("entityTypes.iconLabel")}
+                </label>
                 <input
                   className="form-input"
-                  placeholder="e.g. 🎫"
+                  placeholder={t("entityTypes.iconPlaceholder")}
                   value={form.icon}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, icon: e.target.value }))
@@ -344,7 +355,7 @@ export function EntityTypes(): React.ReactElement {
                       }))
                     }
                   />
-                  <span>Allow custom fields</span>
+                  <span>{t("entityTypes.allowCustomFields")}</span>
                 </label>
               </div>
             </div>
@@ -354,10 +365,12 @@ export function EntityTypes(): React.ReactElement {
                 variant="secondary"
                 onClick={createModal.close}
               >
-                Cancel
+                {t("entityTypes.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={saving}>
-                {saving ? "Creating…" : "Create Entity Type"}
+                {saving
+                  ? t("entityTypes.creating")
+                  : t("entityTypes.createEntityType")}
               </Button>
             </div>
           </form>

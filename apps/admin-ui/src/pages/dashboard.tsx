@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
+import { useTranslation } from "react-i18next";
 import { useLocale } from "../lib/language.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../entity-type-context.js";
@@ -543,10 +544,15 @@ export function FilterTabs({
   onChange: (f: TicketFilter) => void;
   counts: { all: number; dueSoon: number; overdue: number };
 }): React.ReactElement {
+  const { t } = useTranslation();
   const tabs: { key: TicketFilter; label: string; count: number }[] = [
-    { key: "all", label: "All", count: counts.all },
-    { key: "due-soon", label: "Due in 2 Days", count: counts.dueSoon },
-    { key: "overdue", label: "Overdue", count: counts.overdue },
+    { key: "all", label: t("dashboard.filterAll"), count: counts.all },
+    {
+      key: "due-soon",
+      label: t("dashboard.filterDueSoon"),
+      count: counts.dueSoon,
+    },
+    { key: "overdue", label: t("dashboard.overdue"), count: counts.overdue },
   ];
   return (
     <div
@@ -725,6 +731,7 @@ export function Pagination({
   totalItems: number;
   onChange: (page: number) => void;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
   if (totalPages <= 1) return null;
 
@@ -746,7 +753,7 @@ export function Pagination({
       }}
     >
       <span>
-        {from}–{to} of {totalItems}
+        {t("dashboard.paginationRange", { from, to, total: totalItems })}
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <button
@@ -764,11 +771,9 @@ export function Pagination({
             opacity: page <= 1 ? 0.5 : 1,
           }}
         >
-          ← Prev
+          {t("dashboard.prevPage")}
         </button>
-        <span>
-          Page {page} of {totalPages}
-        </span>
+        <span>{t("dashboard.pageOf", { page, total: totalPages })}</span>
         <button
           type="button"
           disabled={page >= totalPages}
@@ -784,7 +789,7 @@ export function Pagination({
             opacity: page >= totalPages ? 0.5 : 1,
           }}
         >
-          Next →
+          {t("dashboard.nextPage")}
         </button>
       </div>
     </div>
@@ -804,6 +809,7 @@ function TicketDueDateTable({
   emptyLabel: string;
   onOpen: (entityTypeId: string, entityId: string) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   // No sort applied by default — items arrive already ordered overdue-first
   // then soonest-first by the API. Clicking a header opts into a client-side
   // re-sort on top of that.
@@ -852,7 +858,7 @@ function TicketDueDateTable({
     <div>
       {unavailable ? (
         <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-          Temporarily unavailable — the rest of your dashboard is unaffected.
+          {t("dashboard.tempUnavailable")}
         </div>
       ) : loading ? (
         <SkeletonRows count={4} />
@@ -873,21 +879,21 @@ function TicketDueDateTable({
             <thead>
               <tr>
                 <SortableHeader
-                  label="Ticket"
+                  label={t("dashboard.columnTicket")}
                   sortKey="title"
                   active={sortKey === "title"}
                   dir={sortDir}
                   onSort={handleSort}
                 />
                 <SortableHeader
-                  label="Workflow"
+                  label={t("dashboard.columnWorkflow")}
                   sortKey="workflowName"
                   active={sortKey === "workflowName"}
                   dir={sortDir}
                   onSort={handleSort}
                 />
                 <SortableHeader
-                  label="Due Date"
+                  label={t("dashboard.columnDueDate")}
                   sortKey="dueDate"
                   active={sortKey === "dueDate"}
                   dir={sortDir}
@@ -906,7 +912,7 @@ function TicketDueDateTable({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  Status
+                  {t("dashboard.columnStatus")}
                 </th>
               </tr>
             </thead>
@@ -1018,6 +1024,7 @@ export function Card({
 // ── main Dashboard ────────────────────────────────────────────────────────────
 
 export function Dashboard(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { getTypeById } = useEntityTypes();
   const { data: identity } = useGetIdentity<{ name: string }>();
@@ -1236,12 +1243,9 @@ export function Dashboard(): React.ReactElement {
             color: "var(--text-primary)",
           }}
         >
-          <span>
-            👥 Viewing <strong>{viewingAsName}</strong>&apos;s dashboard —
-            read-only.
-          </span>
+          <span>{t("dashboard.viewingAs", { name: viewingAsName })}</span>
           <Button variant="secondary" onClick={() => navigate("/dashboard")}>
-            ← Back to my dashboard
+            {t("dashboard.backToMyDashboard")}
           </Button>
         </div>
       )}
@@ -1259,8 +1263,7 @@ export function Dashboard(): React.ReactElement {
             fontSize: "13px",
           }}
         >
-          This view includes only the most recently created 2,000 tickets.
-          Totals may be lower than the actual values.
+          {t("dashboard.truncatedWarning")}
         </div>
       )}
 
@@ -1309,7 +1312,9 @@ export function Dashboard(): React.ReactElement {
                 marginBottom: "3px",
               }}
             >
-              {isViewingAs ? "Team Member Dashboard" : "My Dashboard"}
+              {isViewingAs
+                ? t("dashboard.teamMemberDashboard")
+                : t("dashboard.myDashboard")}
             </div>
             <h2
               style={{
@@ -1343,10 +1348,10 @@ export function Dashboard(): React.ReactElement {
             {loading ? "⏳" : needsAttentionCount > 0 ? "🔔" : "✅"}
           </span>
           {loading
-            ? "Loading your work…"
+            ? t("dashboard.loadingWork")
             : needsAttentionCount > 0
-              ? `${needsAttentionCount} ticket${needsAttentionCount === 1 ? "" : "s"} need attention`
-              : "All caught up"}
+              ? t("dashboard.needsAttention", { count: needsAttentionCount })
+              : t("dashboard.allCaughtUp")}
         </div>
       </div>
 
@@ -1388,8 +1393,8 @@ export function Dashboard(): React.ReactElement {
             />
             {(
               [
-                { key: "my", label: "My View" },
-                { key: "org", label: "👥 Org View" },
+                { key: "my", label: t("dashboard.myView") },
+                { key: "org", label: t("dashboard.orgView") },
               ] as const
             ).map((tab) => {
               const isActive = activeTab === tab.key;
@@ -1440,7 +1445,7 @@ export function Dashboard(): React.ReactElement {
             }}
           >
             <KpiTile
-              label="My Tickets"
+              label={t("dashboard.myTickets")}
               value={loading ? 0 : totalTickets}
               icon="📋"
               color="hsl(211,100%,45%)"
@@ -1448,7 +1453,7 @@ export function Dashboard(): React.ReactElement {
               onClick={() => setTicketFilter("all")}
             />
             <KpiTile
-              label="Due This Week"
+              label={t("dashboard.dueThisWeek")}
               value={loading ? 0 : dueThisWeekCount}
               icon="📅"
               color="hsl(35,90%,50%)"
@@ -1456,7 +1461,7 @@ export function Dashboard(): React.ReactElement {
               onClick={() => setTicketFilter("due-week")}
             />
             <KpiTile
-              label="Overdue"
+              label={t("dashboard.overdue")}
               value={loading ? 0 : overdueCount}
               icon="⏰"
               color="hsl(350,80%,60%)"
@@ -1464,7 +1469,7 @@ export function Dashboard(): React.ReactElement {
               onClick={() => setTicketFilter("overdue")}
             />
             <KpiTile
-              label="At SLA Risk"
+              label={t("dashboard.atSlaRisk")}
               value={loading ? 0 : atRiskCount}
               icon="⚠️"
               color="hsl(340,80%,58%)"
@@ -1483,7 +1488,7 @@ export function Dashboard(): React.ReactElement {
             style={{ marginBottom: "20px" }}
           >
             <SectionHeader
-              title="My Tickets"
+              title={t("dashboard.myTickets")}
               icon="📋"
               color="hsl(211,100%,50%)"
               action={
@@ -1491,7 +1496,7 @@ export function Dashboard(): React.ReactElement {
                   type="text"
                   value={ticketSearch}
                   onChange={(e) => setTicketSearch(e.target.value)}
-                  placeholder="Search by title…"
+                  placeholder={t("dashboard.searchByTitle")}
                   style={{
                     fontSize: "12px",
                     padding: "6px 12px",
@@ -1511,14 +1516,14 @@ export function Dashboard(): React.ReactElement {
               loading={loading}
               emptyLabel={
                 ticketSearch.trim()
-                  ? "No tickets match your search."
+                  ? t("dashboard.noTicketsSearch")
                   : ticketFilter === "overdue"
-                    ? "Nothing overdue. ✅"
+                    ? t("dashboard.nothingOverdue")
                     : ticketFilter === "due-week"
-                      ? "Nothing due this week."
+                      ? t("dashboard.nothingDueThisWeek")
                       : ticketFilter === "at-risk"
-                        ? "Nothing over its SLA. ✅"
-                        : "No tickets assigned, created, or watched by you yet."
+                        ? t("dashboard.nothingOverSla")
+                        : t("dashboard.noTicketsYet")
               }
               onOpen={openRecord}
             />
@@ -1534,9 +1539,10 @@ export function Dashboard(): React.ReactElement {
                     marginTop: "12px",
                   }}
                 >
-                  Showing {filteredTickets.length} of{" "}
-                  {view.tickets.totalQualifying} tickets — narrow with a filter
-                  or search above.
+                  {t("dashboard.showingOf", {
+                    shown: filteredTickets.length,
+                    total: view.tickets.totalQualifying,
+                  })}
                 </div>
               )}
           </Card>
@@ -1556,7 +1562,7 @@ export function Dashboard(): React.ReactElement {
             >
               <Card accentColor="hsl(265,84%,60%)">
                 <SectionHeader
-                  title="My Workload"
+                  title={t("dashboard.myWorkload")}
                   icon="📊"
                   color="hsl(265,84%,60%)"
                 />
@@ -1570,7 +1576,7 @@ export function Dashboard(): React.ReactElement {
                       color: "var(--text-muted)",
                     }}
                   >
-                    0 workflows
+                    {t("dashboard.zeroWorkflows")}
                   </div>
                 ) : (
                   <div
@@ -1598,7 +1604,7 @@ export function Dashboard(): React.ReactElement {
 
               <Card accentColor="hsl(150,75%,40%)">
                 <SectionHeader
-                  title="Status Mix"
+                  title={t("dashboard.statusMix")}
                   icon="🧩"
                   color="hsl(150,75%,40%)"
                 />
@@ -1640,7 +1646,7 @@ export function Dashboard(): React.ReactElement {
             two are different signals, never merged into one score/list) ──── */}
             <Card accentColor="hsl(340,80%,58%)">
               <SectionHeader
-                title="SLA Risk"
+                title={t("dashboard.slaRisk")}
                 icon="⚠️"
                 color="hsl(340,80%,58%)"
                 action={
@@ -1661,14 +1667,13 @@ export function Dashboard(): React.ReactElement {
               />
               {view.slaRisk.unavailable ? (
                 <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                  Temporarily unavailable — the rest of your dashboard is
-                  unaffected.
+                  {t("dashboard.tempUnavailable")}
                 </div>
               ) : loading ? (
                 <SkeletonRows count={3} />
               ) : view.slaRisk.items.length === 0 ? (
                 <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                  Nothing over its SLA. ✅
+                  {t("dashboard.nothingOverSla")}
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column" }}>
@@ -1742,7 +1747,7 @@ export function Dashboard(): React.ReactElement {
             >
               <Card accentColor="hsl(211,100%,50%)">
                 <SectionHeader
-                  title="Notifications"
+                  title={t("dashboard.notifications")}
                   icon="🔔"
                   color="hsl(211,100%,50%)"
                   action={
@@ -1757,7 +1762,7 @@ export function Dashboard(): React.ReactElement {
                         border: "1px solid hsla(211,100%,50%,.25)",
                       }}
                     >
-                      {unreadCount} unread
+                      {t("dashboard.unreadCount", { count: unreadCount })}
                     </span>
                   }
                 />
@@ -1769,7 +1774,7 @@ export function Dashboard(): React.ReactElement {
                       color: "var(--text-muted)",
                     }}
                   >
-                    0 notifications
+                    {t("dashboard.zeroNotifications")}
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column" }}>
@@ -1837,7 +1842,7 @@ export function Dashboard(): React.ReactElement {
 
               <Card accentColor="hsl(185,80%,40%)">
                 <SectionHeader
-                  title="Workflows I Administer"
+                  title={t("dashboard.workflowsIAdminister")}
                   icon="🛡️"
                   color="hsl(185,80%,40%)"
                 />
@@ -1849,7 +1854,7 @@ export function Dashboard(): React.ReactElement {
                       color: "var(--text-muted)",
                     }}
                   >
-                    0 workflows
+                    {t("dashboard.zeroWorkflows")}
                   </div>
                 ) : (
                   <div
@@ -1898,7 +1903,7 @@ export function Dashboard(): React.ReactElement {
 
               <Card accentColor="hsl(35,90%,50%)">
                 <SectionHeader
-                  title="Awaiting Your Approval"
+                  title={t("dashboard.awaitingApproval")}
                   icon="✋"
                   color="hsl(35,90%,50%)"
                   action={
@@ -1919,8 +1924,7 @@ export function Dashboard(): React.ReactElement {
                 />
                 {view.pendingApprovals.unavailable ? (
                   <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                    Temporarily unavailable — the rest of your dashboard is
-                    unaffected.
+                    {t("dashboard.tempUnavailable")}
                   </div>
                 ) : view.pendingApprovals.items.length === 0 ? (
                   <div
@@ -1930,7 +1934,7 @@ export function Dashboard(): React.ReactElement {
                       color: "var(--text-muted)",
                     }}
                   >
-                    0 pending approvals
+                    {t("dashboard.zeroPendingApprovals")}
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column" }}>
@@ -1990,7 +1994,7 @@ export function Dashboard(): React.ReactElement {
 
               <Card accentColor="hsl(265,84%,60%)">
                 <SectionHeader
-                  title="Saved Views"
+                  title={t("dashboard.savedViews")}
                   icon="⭐"
                   color="hsl(265,84%,60%)"
                 />
@@ -2002,7 +2006,7 @@ export function Dashboard(): React.ReactElement {
                       color: "var(--text-muted)",
                     }}
                   >
-                    0 saved views
+                    {t("dashboard.zeroSavedViews")}
                   </div>
                 ) : (
                   <div

@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type * as ReactRouterDom from "react-router-dom";
+import "../i18n.js";
 
 // Admin-UI sidebar restructuring: workspace nav (all roles) is now visually
 // separated from an admin-only "Admin" section (docs task: split the side

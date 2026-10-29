@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { SandboxRowActions } from "./sandbox-row-actions.js";
 import {
@@ -33,6 +34,7 @@ export function SandboxesTable({
   onSelect,
   onActionDone,
 }: SandboxesTableProps): React.ReactElement {
+  const { t } = useTranslation();
   const [query, setQuery] = React.useState("");
   const [trialFilter, setTrialFilter] = React.useState<TrialFilter>("all");
   const [sort, setSort] = React.useState<{ key: SortKey; asc: boolean }>({
@@ -75,7 +77,7 @@ export function SandboxesTable({
         <input
           className="form-input"
           type="search"
-          placeholder="Search by name or id…"
+          placeholder={t("platformAdmin.searchByNameOrId")}
           aria-label="Search sandboxes"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -87,10 +89,10 @@ export function SandboxesTable({
           // The <option> values below are exactly TrialFilter's members.
           onChange={(e) => setTrialFilter(e.target.value as TrialFilter)}
         >
-          <option value="all">Any trial status</option>
-          <option value="active">Trial active</option>
-          <option value="expired">Trial expired</option>
-          <option value="none">No trial</option>
+          <option value="all">{t("platformAdmin.anyTrialStatus")}</option>
+          <option value="active">{t("platformAdmin.trialActive")}</option>
+          <option value="expired">{t("platformAdmin.trialExpired")}</option>
+          <option value="none">{t("platformAdmin.noTrial")}</option>
         </select>
       </div>
 

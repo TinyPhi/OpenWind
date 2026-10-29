@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -37,6 +38,7 @@ export function ActivityTimeline({
   refreshKey,
   compact = false,
 }: ActivityTimelineProps): React.ReactElement {
+  const { t } = useTranslation();
   const [entries, setEntries] = React.useState<AuditEntry[] | null>(null);
   const [hasMore, setHasMore] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -71,7 +73,9 @@ export function ActivityTimeline({
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(
-          err instanceof Error ? err.message : "Could not load activity",
+          err instanceof Error
+            ? err.message
+            : t("platformAdmin.couldNotLoadActivity"),
         );
       });
     return () => {
@@ -88,7 +92,11 @@ export function ActivityTimeline({
       setEntries((prev) => [...(prev ?? []), ...page]);
       setHasMore(page.length === PAGE_SIZE);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load activity");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("platformAdmin.couldNotLoadActivity"),
+      );
     } finally {
       setLoadingMore(false);
     }
@@ -126,18 +134,28 @@ export function ActivityTimeline({
             // The <option> values below are exactly ActionFilter's members.
             onChange={(e) => setFilter(e.target.value as ActionFilter)}
           >
-            <option value="all">All actions</option>
-            <option value="sandbox.created">Created</option>
-            <option value="sandbox.reset">Reset</option>
-            <option value="sandbox.deleted">Deleted</option>
-            <option value="sandbox.trial_changed">Trial extended</option>
-            <option value="sandbox.trial_ended">Trial ended</option>
+            <option value="all">{t("platformAdmin.allActions")}</option>
+            <option value="sandbox.created">
+              {t("platformAdmin.actionCreated")}
+            </option>
+            <option value="sandbox.reset">
+              {t("platformAdmin.actionReset")}
+            </option>
+            <option value="sandbox.deleted">
+              {t("platformAdmin.actionDeleted")}
+            </option>
+            <option value="sandbox.trial_changed">
+              {t("platformAdmin.actionTrialExtended")}
+            </option>
+            <option value="sandbox.trial_ended">
+              {t("platformAdmin.actionTrialEnded")}
+            </option>
           </select>
         </div>
       )}
 
       {visible.length === 0 ? (
-        <p className="pa-muted">No activity yet.</p>
+        <p className="pa-muted">{t("platformAdmin.noActivity")}</p>
       ) : (
         groupByDay(visible).map((group) => (
           <div key={group.label}>
@@ -163,7 +181,9 @@ export function ActivityTimeline({
           onClick={() => void loadMore()}
           disabled={loadingMore}
         >
-          {loadingMore ? "Loading…" : "Load more"}
+          {loadingMore
+            ? t("platformAdmin.loadingMore")
+            : t("platformAdmin.loadMore")}
         </Button>
       )}
     </div>
@@ -181,6 +201,7 @@ function TimelineItem({
   isCurrentUser: boolean;
   compact: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const dotClass = `pa-tl-dot pa-tl-dot-${entry.action.split(".")[1] ?? "created"}`;
   const target =
     tenantName ?? `Deleted tenant ${shortId(entry.targetTenantId)}`;
@@ -197,7 +218,10 @@ function TimelineItem({
         )}
       </div>
       <div className="pa-tl-meta">
-        {isCurrentUser ? "You" : `Admin ${shortId(entry.actorSub)}`} ·{" "}
+        {isCurrentUser
+          ? t("platformAdmin.you")
+          : t("platformAdmin.adminLabel", { id: shortId(entry.actorSub) })}{" "}
+        ·{" "}
         <time
           dateTime={entry.createdAt}
           title={new Date(entry.createdAt).toLocaleString()}

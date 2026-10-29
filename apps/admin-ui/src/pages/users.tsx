@@ -12,6 +12,7 @@ import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 import { initials } from "../lib/format.js";
 import { avatarColor } from "../lib/theme.js";
+import { useTranslation } from "react-i18next";
 import { OrgChartPanel } from "./org-directory.js";
 
 function getRolesFromProfile(
@@ -191,6 +192,7 @@ function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
 }
 
 export function UsersPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +215,7 @@ export function UsersPage(): React.ReactElement {
         setUsers((res as { data: User[] }).data);
       })
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load users"),
+        setError(err instanceof Error ? err.message : t("users.failedToLoad")),
       )
       .finally(() => setLoading(false));
   }, []);
@@ -240,7 +242,7 @@ export function UsersPage(): React.ReactElement {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3 className="modal-title">Org Chart</h3>
+              <h3 className="modal-title">{t("users.orgChart")}</h3>
               <button
                 type="button"
                 className="modal-close"
@@ -266,17 +268,15 @@ export function UsersPage(): React.ReactElement {
         }}
       >
         <div>
-          <h2 className="page-title">Users</h2>
-          <p className="page-subtitle">
-            All members of your organization, sorted alphabetically.
-          </p>
+          <h2 className="page-title">{t("users.title")}</h2>
+          <p className="page-subtitle">{t("users.subtitle")}</p>
         </div>
         <button
           type="button"
           className="btn btn-secondary"
           onClick={() => setShowOrgChart(true)}
         >
-          View org chart
+          {t("users.viewOrgChart")}
         </button>
       </div>
 
@@ -311,7 +311,7 @@ export function UsersPage(): React.ReactElement {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name or email…"
+          placeholder={t("users.searchByEmail")}
           className="form-input"
           style={{ paddingLeft: "32px" }}
         />
@@ -320,7 +320,7 @@ export function UsersPage(): React.ReactElement {
       {loading && (
         <div className="loading-center">
           <div className="spinner" />
-          <span className="loader-text">Loading users…</span>
+          <span className="loader-text">{t("users.loading")}</span>
         </div>
       )}
 
@@ -330,12 +330,10 @@ export function UsersPage(): React.ReactElement {
         <div className="empty-state">
           <div className="empty-state-icon">👥</div>
           <div className="empty-state-title">
-            {query ? "No users match your search" : "No users found"}
+            {query ? t("users.noMatches") : t("users.noUsers")}
           </div>
           <div className="empty-state-subtitle">
-            {query
-              ? "Try a different search term."
-              : "Users appear here after they log in, or when Zitadel is connected."}
+            {query ? t("users.tryDifferentSearch") : t("users.emptyHint")}
           </div>
         </div>
       )}
@@ -349,11 +347,11 @@ export function UsersPage(): React.ReactElement {
             <TableHeader>
               <TableRow>
                 {[
-                  "Name",
-                  "Login",
-                  "Email",
-                  "Roles",
-                  "User ID",
+                  t("users.name"),
+                  t("users.columnLogin"),
+                  t("users.email"),
+                  t("users.columnRoles"),
+                  t("users.columnUserId"),
                   ...(isAdmin ? [""] : []),
                 ].map((h) => (
                   <TableHead
@@ -382,8 +380,10 @@ export function UsersPage(): React.ReactElement {
               borderTop: `1px solid ${TOKENS.borderColor}`,
             }}
           >
-            {filtered.length} user{filtered.length !== 1 ? "s" : ""}
-            {query ? ` matching "${query}"` : " total"}
+            {t(query ? "users.countMatching" : "users.countTotal", {
+              count: filtered.length,
+              query,
+            })}
           </div>
         </div>
       )}

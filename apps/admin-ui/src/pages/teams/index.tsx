@@ -20,6 +20,7 @@ import {
   TableHead,
   TableCell,
 } from "@platform/ui";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { useModal } from "../../hooks/use-modal.js";
@@ -38,6 +39,7 @@ export interface Team {
  * Refine data hooks.
  */
 export function TeamsPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const teamModal = useModal<Team>();
@@ -47,7 +49,7 @@ export function TeamsPage(): React.ReactElement {
     setLoading(true);
     fetchWithAuth(`${API_URL}/admin/teams`)
       .then((res) => setTeams((res as { data: Team[] }).data))
-      .catch(() => showAlert("Failed to load teams."))
+      .catch(() => showAlert(t("teams.failedToLoad")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -63,7 +65,7 @@ export function TeamsPage(): React.ReactElement {
       deleteModal.close();
       refresh();
     } catch {
-      showAlert("Failed to delete team.");
+      showAlert(t("teams.failedToDelete"));
     }
   }
 
@@ -71,7 +73,7 @@ export function TeamsPage(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading teams…</span>
+        <span className="loader-text">{t("teams.loading")}</span>
       </div>
     );
   }
@@ -80,30 +82,28 @@ export function TeamsPage(): React.ReactElement {
     <div>
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">Teams</h2>
-          <p className="page-subtitle">
-            Groups agents into on-call rotations for ticket auto-assignment.
-          </p>
+          <h2 className="page-title">{t("teams.title")}</h2>
+          <p className="page-subtitle">{t("teams.subtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <Button variant="primary" onClick={teamModal.openCreate}>
-            New Team
+            {t("teams.newTeam")}
           </Button>
         </div>
       </div>
 
       {teams.length === 0 ? (
         <div className="wfl-empty">
-          <h4>No teams yet</h4>
-          <p>Create one to start routing tickets by on-call schedule.</p>
+          <h4>{t("teams.noTeams")}</h4>
+          <p>{t("teams.noTeamsDesc")}</p>
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead style={{ width: 120 }}>Actions</TableHead>
+              <TableHead>{t("teams.name")}</TableHead>
+              <TableHead>{t("teams.description")}</TableHead>
+              <TableHead style={{ width: 120 }}>{t("teams.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -114,13 +114,13 @@ export function TeamsPage(): React.ReactElement {
                 <TableCell>
                   <div style={{ display: "flex", gap: 6 }}>
                     <IconButton
-                      aria-label="Edit team"
+                      aria-label={t("teams.editTeam")}
                       onClick={() => teamModal.openEdit(team)}
                     >
                       ✎
                     </IconButton>
                     <IconButton
-                      aria-label="Delete team"
+                      aria-label={t("teams.deleteTeam")}
                       onClick={() => deleteModal.open(team)}
                     >
                       🗑
@@ -150,20 +150,20 @@ export function TeamsPage(): React.ReactElement {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete team?</AlertDialogTitle>
+          <AlertDialogTitle>{t("teams.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {deleteModal.item
-              ? `"${deleteModal.item.name}" will be archived. On-call schedules and automation rules that route to this team will stop resolving on-call assignments. This action cannot be undone through the UI.`
+              ? t("teams.deleteDesc", { name: deleteModal.item.name })
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("teams.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (deleteModal.item) void handleDelete(deleteModal.item);
               }}
             >
-              Delete
+              {t("teams.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -185,6 +185,7 @@ function TeamFormModal({
   onClose,
   onSaved,
 }: TeamFormModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [name, setName] = useState(team?.name ?? "");
   const [description, setDescription] = useState(team?.description ?? "");
   const [saving, setSaving] = useState(false);
@@ -220,7 +221,7 @@ function TeamFormModal({
       // avoid showing the same failure twice (PR #602 review, M2).
       const status = (err as { status?: number }).status;
       if (!status || status < 500) {
-        setError(err instanceof Error ? err.message : "Failed to save team");
+        setError(err instanceof Error ? err.message : t("teams.failedToSave"));
       }
     } finally {
       setSaving(false);
@@ -243,7 +244,9 @@ function TeamFormModal({
           }}
         >
           <DialogTitle asChild>
-            <h2 className="page-title">{team ? "Edit Team" : "New Team"}</h2>
+            <h2 className="page-title">
+              {team ? t("teams.editTeam") : t("teams.newTeam")}
+            </h2>
           </DialogTitle>
           <DialogClose asChild>
             <button
@@ -271,10 +274,10 @@ function TeamFormModal({
 
         <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="form-group">
-            <label className="form-label">Name *</label>
+            <label className="form-label">{t("teams.name")} *</label>
             <input
               className="form-input"
-              placeholder="e.g. Platform On-Call"
+              placeholder={t("teams.namePlaceholder")}
               value={name}
               autoFocus
               onChange={(e) => setName(e.target.value)}
@@ -283,10 +286,10 @@ function TeamFormModal({
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="form-label">{t("teams.description")}</label>
             <input
               className="form-input"
-              placeholder="What this team covers"
+              placeholder={t("teams.descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={2000}
@@ -298,7 +301,11 @@ function TeamFormModal({
             disabled={saving || !name.trim()}
             style={{ marginTop: 8 }}
           >
-            {saving ? "Saving…" : team ? "Save changes" : "Create team"}
+            {saving
+              ? t("teams.saving")
+              : team
+                ? t("teams.saveChanges")
+                : t("teams.createTeam")}
           </Button>
         </form>
       </DialogContent>

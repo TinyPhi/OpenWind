@@ -1,3 +1,4 @@
+import "../../i18n.js";
 import { describe, it, expect } from "vitest";
 import {
   dayLabel,

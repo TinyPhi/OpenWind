@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@platform/ui";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { CreateApiKeyModal } from "./create.js";
@@ -8,10 +9,10 @@ import type { ApiKeyRow } from "./status.js";
 import { groupKeysByApplication } from "./application-grouping.js";
 
 const STATUS_LABEL: Record<string, string> = {
-  active: "Active",
-  rotating: "Rotating",
-  expired: "Expired",
-  revoked: "Revoked",
+  active: "apiKeys.active",
+  rotating: "apiKeys.rotating",
+  expired: "apiKeys.expired",
+  revoked: "apiKeys.revoked",
 };
 
 /**
@@ -21,6 +22,7 @@ const STATUS_LABEL: Record<string, string> = {
  * revoked/rotated) and its access logs — see detail.tsx.
  */
 export function ApiKeys(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // Refine's dataProvider.getList doesn't forward query params from `meta`,
   // and this screen specifically needs the opt-in `includeRevoked=true` param
@@ -37,7 +39,7 @@ export function ApiKeys(): React.ReactElement {
         setKeys((res as { data: ApiKeyRow[] }).data);
       })
       .catch(() => {
-        showAlert("Failed to load API keys.");
+        showAlert(t("apiKeys.failedToLoad"));
       })
       .finally(() => setIsLoading(false));
   }, []);
@@ -50,7 +52,7 @@ export function ApiKeys(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading API keys…</span>
+        <span className="loader-text">{t("apiKeys.loading")}</span>
       </div>
     );
   }
@@ -61,7 +63,7 @@ export function ApiKeys(): React.ReactElement {
     <div>
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">API Keys</h2>
+          <h2 className="page-title">{t("apiKeys.title")}</h2>
           <p className="page-subtitle">
             Third-party applications that can create and manage tickets via the
             API, without a human logging in.
@@ -76,8 +78,8 @@ export function ApiKeys(): React.ReactElement {
 
       {applications.length === 0 ? (
         <div className="wfl-empty">
-          <h4>No API keys yet</h4>
-          <p>Create one to let a third-party application access tickets.</p>
+          <h4>{t("apiKeys.noKeys")}</h4>
+          <p>{t("apiKeys.noKeysDesc")}</p>
           <Button
             variant="primary"
             style={{ marginTop: "16px" }}
@@ -133,7 +135,7 @@ export function ApiKeys(): React.ReactElement {
                   style={{ flexShrink: 0 }}
                 >
                   <span className="wfl-status-dot" />
-                  {STATUS_LABEL[app.status]}
+                  {t(STATUS_LABEL[app.status] ?? "")}
                 </span>
               </div>
               <span className="page-subtitle" style={{ margin: 0 }}>

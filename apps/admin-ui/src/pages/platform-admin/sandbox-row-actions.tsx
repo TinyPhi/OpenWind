@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { createPortal } from "react-dom";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
@@ -118,6 +119,7 @@ export function SandboxRowActions({
   logo,
   onDone,
 }: SandboxRowActionsProps): React.ReactElement {
+  const { t } = useTranslation();
   const [confirming, setConfirming] = React.useState<ActionKind | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [menuPosition, setMenuPosition] = React.useState<MenuPosition | null>(
@@ -188,10 +190,10 @@ export function SandboxRowActions({
       }
       showAlert(
         status === 409
-          ? "Already in progress for this sandbox — try again shortly."
+          ? t("platformAdmin.actionInProgress")
           : err instanceof Error
             ? err.message
-            : "The action failed",
+            : t("platformAdmin.actionFailed"),
       );
     } finally {
       setBusy(false);
