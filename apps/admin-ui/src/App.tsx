@@ -60,6 +60,7 @@ import {
 } from "./lazy-routes.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
+import { ToastHost } from "./components/toast.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
 import "./index.css";
 
@@ -108,6 +109,7 @@ export function App(): React.ReactElement {
     <BrowserRouter>
       <GlobalErrorBanner />
       <GlobalAlertDialog />
+      <ToastHost />
       <Refine
         authProvider={authProvider}
         dataProvider={dataProvider}
