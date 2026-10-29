@@ -137,6 +137,24 @@ accounts nobody logs into added friction with no benefit.
 ✓ The org-directory sync (existing feature, unchanged) seeds the chart from this data; the seeded
 admin account has no manager and therefore attaches directly under the synthetic root — the top
 real position in the chart — using existing org-directory logic with no modification.
+✓ **(added 2026-10-21)** The org template is the default department/reporting structure for every
+sandbox: three managers (the admin plus two members; Engineering, Sales, Support), two team leads
+under each manager, and the remaining members as employees under the leads, each in their
+manager's department. Provisioning writes each account's `department`, `title` and `manager_id`
+to Zitadel user metadata (after all accounts exist, so manager ids resolve) before the
+`syncing_directory` step, so the chart is three levels deep from the first sync. A metadata write
+that fails is logged, not fatal; that account sits under the root.
+✓ **(added 2026-10-21)** Sandboxes created before that can be back-filled: the dashboard's
+per-sandbox actions menu has "Seed org chart" (`POST /platform-admin/sandboxes/:tenantId/seed-org-tree`,
+fresh MFA required, 404 for a non-sandbox). It orders the org's accounts by name, applies the same
+structure (one shared `sandboxOrgPlacement` function, so new and back-filled sandboxes match),
+overwrites each account's `department`/`title`/`manager_id` metadata, and runs the org-directory
+sync. Safe to repeat while the org's accounts are unchanged; it overwrites those three keys for
+every account in the org. A top-level manager's `manager_id` is removed (explicit null deletes the
+key; 2026-10-28), so a re-run after accounts were added or removed no longer leaves a stale manager
+behind that chains the whole org under one person. Known limit: the action is logged but not yet recorded in the platform-admin audit
+log -- that log's action list is a DB CHECK constraint, so a new action needs a migration
+(follow-up, tracked in the PR).
 ✓ **(added 2026-10-13)** Every handed-over account can sign in: the OpenWind project is granted to
 the sandbox org (roles `admin`, `agent`, `user`), the one seeded admin is authorized as `admin`
 and every other seeded account as `user`. Without this Zitadel refuses sign-in with APP-asb43 ("at

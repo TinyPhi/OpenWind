@@ -60,6 +60,7 @@ const {
   deleteOrg,
   createHumanUser,
   grantProjectToOrg,
+  setUserOrgMetadata,
   authorizeUser,
   listUserRolesByUserId,
   getUserById,
@@ -649,6 +650,159 @@ describe("grantProjectToOrg", () => {
       expect.objectContaining({ status: 403, orgId: "org-sbx" }),
       expect.stringContaining("project grant failed"),
     );
+  });
+});
+
+describe("setUserOrgMetadata", () => {
+  const b64 = (v: string): string => Buffer.from(v, "utf8").toString("base64");
+
+  it("writes the org keys it is given as base64 and skips undefined or empty values", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const sent = queueCapturedJsonResponse(200, {});
+
+    await expect(
+      setUserOrgMetadata("user-9", {
+        department: "sales",
+        title: "Sales Executive",
+        managerId: undefined,
+      }),
+    ).resolves.toBe(true);
+
+    expect(sent.path).toBe("/zitadel.user.v2.UserService/SetUserMetadata");
+    expect(sent.body).toEqual({
+      userId: "user-9",
+      metadata: [
+        { key: "department", value: b64("sales") },
+        { key: "title", value: b64("Sales Executive") },
+      ],
+    });
+  });
+
+  it("removes the manager when managerId is an explicit null, so a re-seed clears a stale one", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const set = queueCapturedJsonResponse(200, {});
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const del = queueCapturedJsonResponse(200, {});
+
+    await expect(
+      setUserOrgMetadata("user-9", {
+        managerId: null,
+        department: "sales",
+        title: "Sales Manager",
+      }),
+    ).resolves.toBe(true);
+
+    expect(set.path).toBe("/zitadel.user.v2.UserService/SetUserMetadata");
+    expect(del.path).toBe("/zitadel.user.v2.UserService/DeleteUserMetadata");
+    expect(del.body).toEqual({ userId: "user-9", keys: ["manager_id"] });
+  });
+
+  it("treats a missing manager key (404 on delete) as already cleared", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(404, { message: "metadata not found" });
+
+    mockLoggerWarn.mockClear();
+
+    await expect(
+      setUserOrgMetadata("user-9", { managerId: null }),
+    ).resolves.toBe(true);
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 404, userId: "user-9" }),
+      expect.stringContaining("already done"),
+    );
+  });
+
+  it("reports failure when Zitadel refuses the manager removal", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(403, { message: "permission denied" });
+
+    await expect(
+      setUserOrgMetadata("user-9", { managerId: null }),
+    ).resolves.toBe(false);
+  });
+
+  it("makes no request when there is nothing to write or clear", async () => {
+    mockHttpRequest.mockClear();
+
+    await expect(
+      setUserOrgMetadata("user-9", { managerId: undefined, department: "" }),
+    ).resolves.toBe(true);
+
+    expect(mockHttpRequest).not.toHaveBeenCalled();
+  });
+
+  it("drops the cached metadata so the next read after a write sees the new values", async () => {
+    mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
+      type: "serviceaccount",
+      keyId: "key-1",
+      key: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      userId: "service-user-1",
+    });
+    setProvisioningKey();
+    let department = "old-department";
+    const reads: string[] = [];
+
+    mockHttpRequest.mockImplementation(
+      (
+        options: { path: string },
+        callback: (res: IncomingMessage) => void,
+      ): Partial<ClientRequest> => {
+        const req: Partial<ClientRequest> = {
+          setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+          on: vi.fn() as unknown as ClientRequest["on"],
+          write: vi.fn() as unknown as ClientRequest["write"],
+          end: vi.fn() as unknown as ClientRequest["end"],
+        };
+        const reply = (status: number, body: unknown): void => {
+          const res = new EventEmitter() as EventEmitter & {
+            statusCode: number;
+          };
+          res.statusCode = status;
+          queueMicrotask(() => {
+            callback(res as IncomingMessage);
+            res.emit("data", Buffer.from(JSON.stringify(body)));
+            res.emit("end");
+          });
+        };
+        if (options.path.includes("/oauth/v2/token")) {
+          reply(200, { access_token: "tok", expires_in: 0 });
+        } else if (options.path.endsWith("UserService/SetUserMetadata")) {
+          department = "new-department";
+          reply(200, {});
+        } else if (/UserService[/]List(User)?Metadata$/.test(options.path)) {
+          reads.push(department);
+          reply(200, {
+            metadata: [{ key: "department", value: b64(department) }],
+          });
+        } else {
+          reply(404, {});
+        }
+        return req;
+      },
+    );
+
+    try {
+      const before = await getOrgMetadataForUser("user-cache-evict");
+      await setUserOrgMetadata("user-cache-evict", {
+        department: "new-department",
+      });
+      const after = await getOrgMetadataForUser("user-cache-evict");
+
+      expect(before.department).toBe("old-department");
+      expect(after.department).toBe("new-department");
+      expect(reads).toEqual(["old-department", "new-department"]);
+    } finally {
+      mockHttpRequest.mockReset();
+    }
   });
 });
 

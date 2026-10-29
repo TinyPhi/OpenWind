@@ -680,6 +680,9 @@ async function provisioningPost(
   payload: unknown,
   logContext: Record<string, unknown>,
   failureMessage: string,
+  // Statuses to treat as success, for calls that are meant to be idempotent (a delete of
+  // something already gone).
+  alsoOkStatuses: readonly number[] = [],
 ): Promise<boolean> {
   const token = await getProvisioningAccessToken();
   if (!token) return false;
@@ -694,6 +697,15 @@ async function provisioningPost(
     // a freshly created org and users, so this isn't expected to happen; if it ever does, the
     // existing grant is on that same org/user, which is the state we wanted.
     if (isConflictResponse(result.status, result.text)) return true;
+    if (alsoOkStatuses.includes(result.status)) {
+      // A 404 can mean the thing was already gone or that the user itself does not exist, and
+      // the status alone cannot tell them apart, so leave a trace.
+      logger.warn(
+        { status: result.status, ...logContext },
+        `${failureMessage} (status accepted as already done)`,
+      );
+      return true;
+    }
     if (result.status < 200 || result.status >= 300) {
       // Never log the raw response body -- see comment in getAccessToken.
       logger.error({ status: result.status, ...logContext }, failureMessage);
@@ -769,6 +781,60 @@ export async function authorizeUser(
     { userId, orgId, projectId },
     "authorizeUser: Zitadel authorization failed",
   );
+}
+
+// ── Org-chart metadata ───────────────────────────────────────────────────────
+
+/**
+ * Writes the org-directory metadata keys (manager_id / department / title) onto a user, so the
+ * org chart built from Zitadel metadata has real data for a freshly seeded sandbox. Only the
+ * keys in `ORG_METADATA_KEYS` are touched: a non-empty string is written, an explicit null removes
+ * the key (so a re-seed can clear a stale manager), and undefined or empty is left alone. Zitadel v2
+ * UserService.SetUserMetadata takes base64-encoded values, matching what the reader decodes.
+ */
+export async function setUserOrgMetadata(
+  userId: string,
+  metadata: Partial<OrgMetadata>,
+): Promise<boolean> {
+  const pairs: [string, string | null | undefined][] = [
+    ["manager_id", metadata.managerId],
+    ["department", metadata.department],
+    ["title", metadata.title],
+  ];
+  // A string writes the key, an explicit null removes it (so a re-seed can clear a stale
+  // manager), and undefined or an empty string leaves it alone.
+  const entries = pairs
+    .filter((p): p is [string, string] => !!p[1])
+    .map(([key, value]) => ({
+      key,
+      value: Buffer.from(value, "utf8").toString("base64"),
+    }));
+  const keysToClear = pairs.filter((p) => p[1] === null).map(([key]) => key);
+  if (entries.length === 0 && keysToClear.length === 0) return true;
+  let ok = true;
+  if (entries.length > 0) {
+    ok = await provisioningPost(
+      "/zitadel.user.v2.UserService/SetUserMetadata",
+      { userId, metadata: entries },
+      { userId },
+      "setUserOrgMetadata: Zitadel set metadata failed",
+    );
+  }
+  if (keysToClear.length > 0) {
+    // A key that was never set is already clear, so a 404 is success.
+    const cleared = await provisioningPost(
+      "/zitadel.user.v2.UserService/DeleteUserMetadata",
+      { userId, keys: keysToClear },
+      { userId },
+      "setUserOrgMetadata: Zitadel delete metadata failed",
+      [404],
+    );
+    ok = ok && cleared;
+  }
+  // getOrgMetadataForUser caches a user's metadata for CACHE_TTL_MS; drop it so a read right
+  // after this write (the org sync that follows a re-seed) sees the new values, not the old.
+  _orgMetadataCache.delete(userId);
+  return ok;
 }
 
 // ── List project roles ────────────────────────────────────────────────────────
