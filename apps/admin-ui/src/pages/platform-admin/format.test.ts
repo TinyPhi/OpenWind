@@ -1,4 +1,4 @@
-import "../../i18n.js";
+import { i18n } from "../../i18n.js";
 import { describe, it, expect } from "vitest";
 import {
   dayLabel,
@@ -11,6 +11,7 @@ import {
 import type { AuditEntry } from "./format.js";
 
 const NOW = new Date("2026-10-12T15:00:00").getTime();
+const t = i18n.t.bind(i18n);
 
 function at(iso: string): AuditEntry {
   return {
@@ -40,18 +41,19 @@ describe("relativeTime", () => {
 
 describe("dayLabel", () => {
   it("names today and yesterday by calendar day, not 24h windows", () => {
-    expect(dayLabel(new Date("2026-10-12T00:05:00").toISOString(), NOW)).toBe(
-      "Today",
-    );
-    expect(dayLabel(new Date("2026-10-11T23:55:00").toISOString(), NOW)).toBe(
-      "Yesterday",
-    );
+    expect(
+      dayLabel(t, new Date("2026-10-12T00:05:00").toISOString(), NOW),
+    ).toBe("Today");
+    expect(
+      dayLabel(t, new Date("2026-10-11T23:55:00").toISOString(), NOW),
+    ).toBe("Yesterday");
   });
 });
 
 describe("groupByDay", () => {
   it("buckets consecutive entries by day, keeping order", () => {
     const groups = groupByDay(
+      t,
       [
         at("2026-10-12T14:00:00"),
         at("2026-10-12T09:00:00"),
@@ -85,7 +87,7 @@ describe("trialCountdown", () => {
     [iso(-3 * HOUR), "Expired today"],
     [iso(-2 * 24 * HOUR - HOUR), "Expired 2 days ago"],
   ])("%s -> %s", (endsAt, expected) => {
-    expect(trialCountdown(endsAt, NOW)).toBe(expected);
+    expect(trialCountdown(t, endsAt, NOW)).toBe(expected);
   });
 });
 

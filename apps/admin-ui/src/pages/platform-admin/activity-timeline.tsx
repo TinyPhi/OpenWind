@@ -157,7 +157,7 @@ export function ActivityTimeline({
       {visible.length === 0 ? (
         <p className="pa-muted">{t("platformAdmin.noActivity")}</p>
       ) : (
-        groupByDay(visible).map((group) => (
+        groupByDay(t, visible).map((group) => (
           <div key={group.label}>
             <div className="pa-tl-day">{group.label}</div>
             <ul className="pa-tl-list">

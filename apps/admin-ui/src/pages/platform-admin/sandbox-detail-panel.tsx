@@ -95,7 +95,7 @@ export function SandboxDetailPanel({
           <dt>{t("platformAdmin.trialEnds")}</dt>
           <dd>
             {sandbox.trialEndsAt
-              ? `${new Date(sandbox.trialEndsAt).toLocaleString()} (${trialCountdown(sandbox.trialEndsAt)})`
+              ? `${new Date(sandbox.trialEndsAt).toLocaleString()} (${trialCountdown(t, sandbox.trialEndsAt)})`
               : t("platformAdmin.noTrialEndSet")}
           </dd>
         </dl>

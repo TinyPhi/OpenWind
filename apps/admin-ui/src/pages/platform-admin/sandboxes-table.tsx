@@ -163,7 +163,7 @@ export function SandboxesTable({
                           className="pa-muted"
                           title={new Date(s.trialEndsAt).toLocaleString()}
                         >
-                          {trialCountdown(s.trialEndsAt)}
+                          {trialCountdown(t, s.trialEndsAt)}
                         </span>
                       )}
                     </div>

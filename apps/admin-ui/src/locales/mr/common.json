@@ -729,7 +729,12 @@
       "today": "Today",
       "yesterday": "Yesterday",
       "endsToday": "Ends today",
-      "expiredToday": "Expired today"
+      "expiredToday": "Expired today",
+      "noTrial": "No trial",
+      "daysLeft_one": "{{count}} day left",
+      "daysLeft_other": "{{count}} days left",
+      "expiredDaysAgo_one": "Expired {{count}} day ago",
+      "expiredDaysAgo_other": "Expired {{count}} days ago"
     }
   },
   "format": {
