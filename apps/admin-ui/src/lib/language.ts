@@ -1,43 +1,14 @@
 import { useState, useEffect } from "react";
 import { i18n } from "../i18n.js";
+import {
+  SUPPORTED_LANGUAGES,
+  getSavedLanguage,
+  setSavedLanguage,
+  type SupportedLanguage,
+} from "./language-storage.js";
 
-export const SUPPORTED_LANGUAGES = [
-  "en",
-  "hi",
-  "mr",
-  "bn",
-  "ta",
-  "te",
-  "kn",
-  "fr",
-  "de",
-  "it",
-  "es",
-] as const;
-
-export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
-
-const STORAGE_KEY = "ow:language";
-
-export function getSavedLanguage(): string {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && (SUPPORTED_LANGUAGES as readonly string[]).includes(stored)) {
-      return stored;
-    }
-  } catch {
-    // localStorage unavailable (private browsing, etc.) — fall through to default
-  }
-  return "en";
-}
-
-export function setSavedLanguage(lng: string): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, lng);
-  } catch {
-    // localStorage unavailable — preference simply won't persist
-  }
-}
+export { SUPPORTED_LANGUAGES, getSavedLanguage, setSavedLanguage };
+export type { SupportedLanguage };
 
 export async function changeLocale(lng: string): Promise<void> {
   const validated = (SUPPORTED_LANGUAGES as readonly string[]).includes(lng)
