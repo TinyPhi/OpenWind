@@ -22,6 +22,8 @@ let rolesLookupFails = false;
 let deleteCalls = 0;
 let rolesLookups = 0;
 let memberRows: { teamId: string; userId: string; position: number }[] = [];
+// What the locked team really held when the write ran; null means the same as memberRows
+let lockedMembers: string[] | null = null;
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listUserRolesByUserId: () =>
@@ -37,7 +39,7 @@ vi.mock("../../lib/ensure-user-refs.js", () => ({
 vi.mock("@platform/teams", () => ({
   replaceTeamMembers: (...args: unknown[]) => {
     mockReplaceMembers(...args);
-    return Promise.resolve();
+    return Promise.resolve(lockedMembers ?? memberRows.map((m) => m.userId));
   },
 }));
 
@@ -160,6 +162,7 @@ function makeApp() {
 // the next describe block's tests (execution order, not describe order).
 beforeEach(() => {
   mockAuth.roles = ["admin"];
+  lockedMembers = null;
   insertShouldConflict = false;
   updateShouldConflict = false;
   updateReturnsRow = true;
@@ -445,6 +448,16 @@ describe("team members — review follow-ups", () => {
     const res = await putMembers(["u-gone", "u-customer"]);
     expect(res.status).toBe(422);
     expect((await res.json()).fields[0].field).toBe("memberUserIds[1]");
+  });
+
+  it("refuses with 409 when someone skipped by the pre-check left the team before the write", async () => {
+    // u-gone was on the team when the pre-check ran (so was not re-checked), then was removed
+    orgRoles = new Map([["u-1", ["agent"]]]);
+    memberRows = [{ teamId: mockTeamRow.id, userId: "u-gone", position: 0 }];
+    lockedMembers = [];
+    const res = await putMembers(["u-gone", "u-1"]);
+    expect(res.status).toBe(409);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
   it("answers 404 for a missing team without asking Zitadel", async () => {

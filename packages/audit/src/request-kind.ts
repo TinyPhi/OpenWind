@@ -90,6 +90,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "workflow.transition_conditions_updated": true,
   "workflow.state_overridden": true,
   "workflow.override_policy_updated": true,
+  "superset_erasure.completed": true,
+  "superset_erasure.failed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -167,6 +169,9 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "workflow.transition_conditions_updated",
   "workflow.state_overridden",
   "workflow.override_policy_updated",
+  // Erasing personal data from Superset deletes rows.
+  "superset_erasure.completed",
+  "superset_erasure.failed",
 ]);
 
 /**

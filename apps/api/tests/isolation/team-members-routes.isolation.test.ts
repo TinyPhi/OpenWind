@@ -97,7 +97,9 @@ async function storedMembers(
   return db
     .select({ userId: teamMembers.userId, position: teamMembers.position })
     .from(teamMembers)
-    .where(eq(teamMembers.teamId, teamId))
+    .where(
+      and(eq(teamMembers.teamId, teamId), eq(teamMembers.tenantId, TENANT_A)),
+    )
     .orderBy(asc(teamMembers.position));
 }
 

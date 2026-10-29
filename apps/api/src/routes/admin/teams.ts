@@ -38,7 +38,10 @@ const ListTeamsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+// Also set in apps/admin-ui/src/pages/teams/index.tsx, which cannot import @platform/teams.
 const MAX_TEAM_MEMBERS = 100;
+
+class TeamChangedError extends Error {}
 
 const MemberUserIdsSchema = z
   .array(z.string().trim().min(1).max(255))
@@ -89,7 +92,11 @@ async function loadMembers(
 
 // Duplicate and eligibility checks for a submitted member list. Returns the
 // refusal response, or null when the list is acceptable. Runs before any
-// transaction opens (the Zitadel lookup must not hold a connection, #952).
+// transaction opens (the Zitadel lookup must not hold a connection, #952). That
+// leaves two accepted windows: a role revoked at Zitadel after the check is not
+// seen by the write, and the next schedule create or patch re-checks membership
+// anyway; and the list of current members used to skip people already on the
+// team is re-checked against the locked rows by the PUT handler below.
 async function refuseBadMembers(
   c: Context<Vars>,
   auth: AuthContext,
@@ -530,11 +537,12 @@ router.put(
       if (!current) {
         return c.json({ error: "NOT_FOUND", message: "Team not found" }, 404);
       }
+      const alreadyChecked = new Set(current.map((m) => m.userId));
       const refused = await refuseBadMembers(
         c,
         auth,
         memberUserIds,
-        new Set(current.map((m) => m.userId)),
+        alreadyChecked,
       );
       if (refused) return refused;
       const row = await withTenantContext(auth.tenantId, async (tx) => {
@@ -550,8 +558,19 @@ router.put(
           )
           .limit(1);
         if (!team) return undefined;
-        const before = (await loadMembers(tx, auth.tenantId, [id])).get(id);
-        await replaceTeamMembers(tx, auth.tenantId, id, memberUserIds);
+        const previous = await replaceTeamMembers(
+          tx,
+          auth.tenantId,
+          id,
+          memberUserIds,
+        );
+        // The pre-check skipped people the team had when it ran. Anyone who left the team since
+        // was skipped without being checked, so refuse and roll back instead of writing them.
+        const nowOnTeam = new Set(previous);
+        const unchecked = memberUserIds.filter(
+          (u) => alreadyChecked.has(u) && !nowOnTeam.has(u),
+        );
+        if (unchecked.length > 0) throw new TeamChangedError();
         await writeAuditEntry(tx, {
           tenantId: auth.tenantId,
           actorId: auth.userId,
@@ -560,7 +579,7 @@ router.put(
           resourceId: id,
           action: "updated",
           beforeSnapshot: {
-            memberUserIds: (before ?? []).map((m) => m.userId),
+            memberUserIds: previous,
           },
           afterSnapshot: { memberUserIds },
         });
@@ -578,6 +597,15 @@ router.put(
       }
       return c.json({ data: row });
     } catch (err: unknown) {
+      if (err instanceof TeamChangedError) {
+        return c.json(
+          {
+            error: "CONFLICT",
+            message: "The team changed while saving. Reload it and try again.",
+          },
+          409,
+        );
+      }
       logger.error(
         { err, tenantId: auth.tenantId, teamId: id },
         "setTeamMembers failed",

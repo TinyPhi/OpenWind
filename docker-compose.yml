@@ -492,6 +492,11 @@ services:
       MIGRATION_DATABASE_URL: postgresql://migration_user:migration_user_dev_password@postgres:5432/platform
       REDIS_URL: redis://redis:6379
       SUPERSET_REDIS_URL: redis://redis:6379/2
+      # #728: the worker logs in to Superset as the service account to erase a user's or a
+      # purged tenant's data there. The same three variables as ow-backend; no new secret.
+      SUPERSET_INTERNAL_URL: ${SUPERSET_INTERNAL_URL:-http://superset:8088}
+      SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      SUPERSET_SERVICE_ACCOUNT_PASSWORD: ${SUPERSET_SERVICE_ACCOUNT_PASSWORD:-}
       REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect

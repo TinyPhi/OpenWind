@@ -208,6 +208,18 @@ vi.mock("./superset-cache-flush.js", () => ({
   enqueueSupersetCacheFlush: mockEnqueueFlush,
 }));
 
+const { mockEnqueueErasure } = vi.hoisted(() => ({
+  mockEnqueueErasure: vi.fn(),
+}));
+vi.mock("./superset-erasure.js", () => ({
+  enqueueSupersetErasure: mockEnqueueErasure,
+}));
+const { mockErasureMode } = vi.hoisted(() => ({ mockErasureMode: vi.fn() }));
+vi.mock("@platform/config", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  supersetErasureMode: mockErasureMode,
+}));
+
 await import("./tenant-purge.js");
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -221,6 +233,8 @@ function auditCall(action: string): unknown[] | undefined {
 beforeEach(() => {
   vi.clearAllMocks();
   mockTenantStatus.mockReturnValue([{ status: "deleted" }]);
+  mockErasureMode.mockReturnValue("full");
+  mockEnqueueErasure.mockResolvedValue(true);
   writes.plain.length = 0;
   writes.purge.length = 0;
   writes.eventLog.length = 0;
@@ -272,6 +286,57 @@ describe("tenant-purge Superset cache flush (#728)", () => {
     });
     expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
     expect(mockEnqueueFlush).toHaveBeenCalledWith(TENANT_ID, "tenant_purged");
+  });
+});
+
+describe("tenant-purge Superset erasure (#728)", () => {
+  it("queues the tenant's Superset erasure after the purge", async () => {
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 0,
+      data: { tenantId: TENANT_ID },
+    });
+    expect(mockEnqueueErasure).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueErasure).toHaveBeenCalledWith({
+      kind: "tenant",
+      tenantId: TENANT_ID,
+    });
+  });
+
+  it("queues it again on a retry after the purge committed, so a lost enqueue is not final", async () => {
+    mockTenantStatus.mockReturnValue([{ status: "purged" }]);
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 1,
+      data: { tenantId: TENANT_ID },
+    });
+    expect(mockEnqueueErasure).toHaveBeenCalledWith({
+      kind: "tenant",
+      tenantId: TENANT_ID,
+    });
+  });
+
+  it("fails the purge job when the erasure cannot be queued, so its retry queues it again", async () => {
+    mockEnqueueErasure.mockResolvedValueOnce(false);
+    await expect(
+      captured.processor?.({
+        id: "job-1",
+        attemptsMade: 0,
+        data: { tenantId: TENANT_ID },
+      }),
+    ).rejects.toThrow("the Superset erasure could not be queued");
+  });
+
+  it("does not fail the purge when Stage 2 is off and nothing is queued", async () => {
+    mockErasureMode.mockReturnValue("cache-only");
+    await expect(
+      captured.processor?.({
+        id: "job-1",
+        attemptsMade: 0,
+        data: { tenantId: TENANT_ID },
+      }),
+    ).resolves.toBeUndefined();
+    expect(mockEnqueueErasure).not.toHaveBeenCalled();
   });
 });
 

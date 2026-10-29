@@ -70,6 +70,7 @@ export {
   createHumanUser,
   grantProjectToOrg,
   authorizeUser,
+  setUserOrgMetadata,
   SANDBOX_GRANTED_ROLE_KEYS,
   listMachineKeys,
 } from "./zitadel-management.js";
@@ -93,12 +94,14 @@ export type {
 } from "./zitadel-management.js";
 export {
   generateSandboxOrgTemplate,
+  sandboxOrgPlacement,
   nextEmailCandidate,
 } from "./sandbox-org-template.js";
 export type {
   SandboxAccountTemplate,
   SandboxAccountRole,
   SandboxOrgTemplate,
+  SandboxOrgPlacement,
 } from "./sandbox-org-template.js";
 export {
   detectScopesFormat,

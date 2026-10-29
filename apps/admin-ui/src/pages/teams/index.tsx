@@ -43,6 +43,7 @@ interface OrgUser {
   email: string;
 }
 
+// Also set in apps/api/src/routes/admin/teams.ts; the UI does not import server packages.
 const MAX_TEAM_MEMBERS = 100;
 
 /**

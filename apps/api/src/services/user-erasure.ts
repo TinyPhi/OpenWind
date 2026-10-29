@@ -99,6 +99,12 @@ export const API_KEY_ROTATION_GRACE_DAYS = 30;
 export type UserErasureResult = {
   /** Keys the target created, now on a forced rotation window. */
   rotatedApiKeys: Array<{ id: string; expiresAt: Date | null }>;
+  /**
+   * Whether the target was a member of this tenant (had a tenant_users row) before the erasure.
+   * The route erases their Superset account only then (#728), so an admin cannot reach a person
+   * outside their organisation through Superset.
+   */
+  wasMember: boolean;
 };
 
 export async function eraseUserFromTenant(
@@ -621,7 +627,7 @@ export async function eraseUserFromTenant(
       ),
     );
 
-  return { rotatedApiKeys };
+  return { rotatedApiKeys, wasMember: member !== undefined };
 }
 
 /**

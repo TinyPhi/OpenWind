@@ -1,5 +1,5 @@
 import { Queue } from "@platform/telemetry";
-import { env } from "@platform/config";
+import { env, supersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
 import { connection } from "./redis.js";
 
@@ -28,6 +28,16 @@ export async function enqueueSupersetCacheFlush(
   reason: SupersetCacheFlushReason,
 ): Promise<boolean> {
   if (!env.SUPERSET_REDIS_URL) return false;
+  // D8 (docs/specs/superset-gdpr-erasure.md): with Stage 2 off, SUPERSET_ERASURE_ENABLED=false
+  // turns the Superset side of an erasure off entirely, the cache flush included. With Stage 2 on
+  // the setting cannot turn it off (supersetErasureMode returns "full").
+  if (supersetErasureMode(env) === "off") {
+    logger.warn(
+      { tenantId, reason },
+      "Superset erasure is turned off (SUPERSET_ERASURE_ENABLED=false): Superset's cached results were not flushed",
+    );
+    return false;
+  }
   try {
     await supersetCacheFlushQueue.add(
       "flush",

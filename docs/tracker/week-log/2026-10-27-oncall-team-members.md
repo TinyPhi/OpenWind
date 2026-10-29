@@ -54,7 +54,7 @@ No change to routing: `resolve_oncall` still reads schedule rows only.
 - `pnpm lint`: pass (after fixing two `??` findings).
 - Unit and route tests: teams routes 32, schedule routes 22, admin-ui teams + roster 16, admin-ui full
   suite 104 files; all pass.
-- Isolation, on a throwaway Postgres (migrations 0001–0156 applied): the two erasure coverage guards,
+- Isolation, on a throwaway Postgres (migrations 0001–0157 applied): the two erasure coverage guards,
   the user-data export guard, the user-erasure suites, the new positions and routes isolation tests,
   and all tenant-purge isolation files pass. On this Windows host the tenant-purge files need
   `--hookTimeout=120000` (the 10 s default times out while loading).
@@ -62,3 +62,14 @@ No change to routing: `resolve_oncall` still reads schedule rows only.
   `quarantine-flow` (file storage / AV), and `reporting-binding` / `reporting-grants` (reporting role
   and secret not provisioned on the throwaway database).
 - Root `pnpm test` was not run: `.env.local` points at the live dev database.
+
+- **Review follow-up (2026-10-29, PrabhuVijit's R1).** `PUT /admin/teams/:id/members` no longer
+  trusts the members it read before the Zitadel check: `replaceTeamMembers` now returns the members
+  it replaced, read under the team row lock, and the handler rolls back with 409 if someone it
+  skipped as "already on the team" has since left. The eligibility check and the write stay two
+  steps by design (the Zitadel call must not hold a connection, #952); a role revoked in between is
+  an accepted window, and the schedule create and patch re-check membership. Also: a comment on why
+  `compactTeamPositions` updates row by row, a cross-reference on the duplicated 100-member cap
+  (the UI cannot import `@platform/teams`), the isolation helper filters by tenant, and the
+  migration is renumbered `0157_team_members_table` because upstream took 0156 (#1100).
+  `main` merged in.

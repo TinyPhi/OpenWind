@@ -1,4 +1,5 @@
 import { Queue } from "@platform/telemetry";
+import { SUPERSET_ERASURE_JOB_OPTIONS } from "./superset-erasure-options.js";
 import Redis from "ioredis";
 import { env } from "@platform/config";
 
@@ -63,6 +64,16 @@ export const supersetCacheFlushQueue = new Queue("superset-cache-flush", {
     removeOnComplete: { age: 3_600 },
     removeOnFail: { age: 604_800 },
   },
+});
+
+// Superset erasure (#728) — erases a user's, or a purged tenant's, personal data from Superset's own
+// database through its erase endpoint, retrying until it finishes. Jobs are queued by apps/api (same
+// queue name) after a user erasure and by tenant-purge after a purge. The retry rules live in
+// superset-erasure.ts, which owns the consumer; they are repeated here because the queue that adds
+// a job sets its options (apps/api/src/lib/superset-erasure-queue.ts holds the same values).
+export const supersetErasureQueue = new Queue("superset-erasure", {
+  connection,
+  defaultJobOptions: { ...SUPERSET_ERASURE_JOB_OPTIONS },
 });
 
 // Export queue — generates CSV/xlsx/PDF for large entity list exports (> 5 000 rows).

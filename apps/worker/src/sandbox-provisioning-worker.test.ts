@@ -76,6 +76,7 @@ const mockDeleteOrg = vi.fn().mockResolvedValue(true);
 const mockCreateHumanUser = vi.fn();
 const mockGrantProjectToOrg = vi.fn();
 const mockAuthorizeUser = vi.fn();
+const mockSetUserOrgMetadata = vi.fn();
 const mockGenerateSandboxOrgTemplate = vi.fn();
 const mockStoreSandboxHandoverCredentials = vi
   .fn()
@@ -86,6 +87,7 @@ vi.mock("@platform/auth", () => ({
   createHumanUser: (...args: unknown[]) => mockCreateHumanUser(...args),
   grantProjectToOrg: (...args: unknown[]) => mockGrantProjectToOrg(...args),
   authorizeUser: (...args: unknown[]) => mockAuthorizeUser(...args),
+  setUserOrgMetadata: (...args: unknown[]) => mockSetUserOrgMetadata(...args),
   generateSandboxOrgTemplate: () => mockGenerateSandboxOrgTemplate(),
   nextEmailCandidate: (
     template: { emailLocalPart: string },
@@ -139,12 +141,18 @@ function makeTemplate(memberCount: number) {
       familyName: "Smith",
       emailLocalPart: "olivia.smith",
       role: "admin" as const,
+      department: "engineering",
+      title: "Engineering Manager",
+      reportsTo: null,
     },
     members: Array.from({ length: memberCount }, (_, i) => ({
       givenName: `Member${i}`,
       familyName: "Doe",
       emailLocalPart: `member${i}.doe`,
       role: "member" as const,
+      department: "engineering",
+      title: "Software Engineer",
+      reportsTo: 0 as number | null,
     })),
   };
 }
@@ -159,6 +167,7 @@ beforeEach(() => {
   mockDeleteOrg.mockResolvedValue(true);
   mockGrantProjectToOrg.mockResolvedValue(true);
   mockAuthorizeUser.mockResolvedValue(true);
+  mockSetUserOrgMetadata.mockResolvedValue(true);
   mockInstallCoreModulesForSandbox.mockResolvedValue({
     succeeded: [
       "helpdesk",
@@ -191,6 +200,46 @@ function lastProgressUpdate(): Record<string, unknown> {
 }
 
 describe("processSandboxProvisioningJob", () => {
+  it("writes department, title and manager metadata so the org chart has levels", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(2));
+    let n = 0;
+    mockCreateHumanUser.mockImplementation(() =>
+      Promise.resolve({ ok: true, userId: `user-${n++}` }),
+    );
+
+    await processSandboxProvisioningJob({
+      id: "job-1",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(mockSetUserOrgMetadata.mock.calls).toEqual([
+      [
+        "user-0",
+        {
+          managerId: null,
+          department: "engineering",
+          title: "Engineering Manager",
+        },
+      ],
+      [
+        "user-1",
+        {
+          managerId: "user-0",
+          department: "engineering",
+          title: "Software Engineer",
+        },
+      ],
+      [
+        "user-2",
+        {
+          managerId: "user-0",
+          department: "engineering",
+          title: "Software Engineer",
+        },
+      ],
+    ]);
+  });
+
   it("creates the org, the tenant row, every seeded account, and runs the directory sync", async () => {
     mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(2));
     mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "user-x" });
