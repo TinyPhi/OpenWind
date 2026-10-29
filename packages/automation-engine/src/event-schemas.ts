@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Some identity providers (e.g. AuthNexus) issue numeric-string user ids, not
-// UUIDs. These 5 fields previously required z.guid(), which threw
+// UUIDs. These 5 fields previously required z.string().uuid(), which threw
 // INVALID_EVENT_PAYLOAD for any non-UUID id and silently dead-lettered every
 // assignment/unassignment/creation/transition automation trigger for as long
 // as such a provider was in use. Bounded (not fully unbounded) so a

@@ -8,7 +8,7 @@ import {
 } from "./event-schemas.js";
 
 // docs/specs/port-nexus-ow-fixes.md R2 -- assigneeId/assignedBy/previousAssigneeId/
-// actorId/createdBy previously required z.guid(), which threw
+// actorId/createdBy previously required z.string().uuid(), which threw
 // INVALID_EVENT_PAYLOAD for non-UUID ids (e.g. AuthNexus's numeric-string ids),
 // silently dead-lettering every assignment/unassignment/creation/transition
 // automation trigger. Relaxed to z.string().min(1).max(255) -- these tests

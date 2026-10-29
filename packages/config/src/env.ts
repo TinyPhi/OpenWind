@@ -311,6 +311,9 @@ const EnvSchema = z
     // the caller's auth.tenantId matches this value — blocking a customer user
     // who has been granted 'superadmin' from accessing other tenants' lifecycle
     // routes. Unset in dev/test (where DEV_TENANT_ID already unifies tenantIds).
+    // z.guid() on purpose: it is zod 3's uuid() check; zod 4's uuid() also wants RFC 9562
+    // version and variant digits and would reject seeded ids like 00000000-0000-0000-0000-000000000001.
+    // It only gates by exact match against auth.tenantId, so the shape check adds no access.
     PLATFORM_ORG_ID: z.guid().optional(),
     // Service account key JSON (raw JSON string from Zitadel console).
     // Used to call the Zitadel Management API for live role/user queries.

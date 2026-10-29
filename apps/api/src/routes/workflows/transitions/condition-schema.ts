@@ -57,6 +57,10 @@ type TransitionConditionInput =
   | z.infer<typeof ActorIsCreatorSchema>
   | z.infer<typeof ActorNotPriorActorSchema>;
 
+// v3's ZodDiscriminatedUnionOption<"op"> is gone. zod 4's option type ($ZodTypeDiscriminable)
+// does not carry the key name in its type either, so naming the tuple shape loses nothing. `op`
+// is still checked: every option is built with a z.literal `op`, z.discriminatedUnion throws at
+// startup if one lacks it, and the compile-time guards at the bottom catch type drift.
 type DiscriminatedOptions = [z.ZodObject, ...z.ZodObject[]];
 
 const LEAVES = [

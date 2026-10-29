@@ -197,10 +197,13 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
   }
 }
 
-// Callers parse with { reportInput: true } so an invalid_type issue carries `input`: zod 4
-// dropped v3's `received`, and an undefined input is how a missing field is told apart from a
-// value of the wrong type. Only the fields below are copied out, so the input never reaches a
-// response.
+/**
+ * Callers must parse with `{ reportInput: true }`. zod 4 dropped v3's `received`, so an
+ * invalid_type issue's `input` is how a missing field (REQUIRED) is told apart from a value of
+ * the wrong type (INVALID_TYPE); without the option `input` is always absent and every wrong
+ * type is reported as REQUIRED. Only the fields below are copied out, so the input never
+ * reaches a response.
+ */
 export function transformZodErrors(error: z.ZodError): FieldError[] {
   return error.issues.map((issue) => {
     const meta = buildMeta(issue);
