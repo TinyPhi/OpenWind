@@ -76,6 +76,10 @@ overrides:
   # certificates as authorized — pulled in via packages/telemetry's OTel gRPC exporters
   # (8 paths). Bounded to <2 to stay on the 1.x line the exporters declare.
   "@grpc/grpc-js": ">=1.14.5 <2"
+  # GHSA-3f7j-7jwc-fxfj (high): systeminformation Windows command injection in services() via
+  # Unicode quotation marks — pulled in via packages/telemetry's OTel host-metrics
+  # instrumentation (1 path). Bounded to <6 to stay on the ^5 line it declares.
+  systeminformation: ">=5.33.16 <6"
   # GHSA-c83g-rgw3-j3cx (unbounded memory growth via distinct query results) +
   # GHSA-73wf-gq98-2v4g (prototype write via untrusted browserslist-stats.json normalizeStats):
   # pulled in via @vitejs/plugin-react → @babel/core → @babel/helper-compilation-targets
