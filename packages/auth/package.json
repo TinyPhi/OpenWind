@@ -21,7 +21,7 @@
     "@platform/logger": "workspace:*",
     "@platform/notifications": "workspace:*",
     "@platform/redis": "workspace:*",
-    "@hono/node-server": "^2.0.4",
+    "@hono/node-server": "^2.1.3",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.11",
     "ipaddr.js": "^2.4.0",
