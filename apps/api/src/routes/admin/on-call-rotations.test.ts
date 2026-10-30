@@ -56,6 +56,13 @@ let members: string[] = ["u-1", "u-2", "u-3"];
 let updateConflict = false;
 let teamDeleted = false;
 let updatedPatch: Record<string, unknown> | null = null;
+let upcomingWindows: Array<{
+  id: string;
+  label: string;
+  startsAt: Date;
+  endsAt: Date;
+}> = [];
+let deletedTables: unknown[] = [];
 
 vi.mock("@platform/db", () => ({
   db: {},
@@ -64,6 +71,18 @@ vi.mock("@platform/db", () => ({
     tenantId: "tenantId",
     teamId: "teamId",
     createdAt: "createdAt",
+  },
+  onCallSchedules: {
+    id: "sid",
+    tenantId: "stenantId",
+    rotationId: "srotationId",
+    startsAt: "sstartsAt",
+    label: "slabel",
+    endsAt: "sendsAt",
+  },
+  onCallScheduleNotices: {
+    tenantId: "ntenantId",
+    scheduleId: "nscheduleId",
   },
   teams: { id: "id", tenantId: "tenantId", deletedAt: "deletedAt" },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
@@ -75,6 +94,12 @@ vi.mock("@platform/db", () => ({
         return tx;
       },
       where: () => tx,
+      // awaiting a bare select(...).where(...) is the "upcoming windows" query
+      then: (resolve: (rows: unknown) => unknown) => resolve(upcomingWindows),
+      delete: (table: unknown) => {
+        deletedTables.push(table);
+        return tx;
+      },
       orderBy: () =>
         Object.assign(Promise.resolve(found ? [existingRow] : []), {
           limit: () => Promise.resolve(found ? [existingRow] : []),
@@ -111,6 +136,14 @@ vi.mock("@platform/db", () => ({
 vi.mock("@platform/teams", () => ({
   loadTeamMemberIds: () => Promise.resolve(members),
   loadPreviousHolders: () => Promise.resolve({ primary: "u-1", backup: "u-2" }),
+  projectWindows: (input: { count: number }) =>
+    Array.from({ length: Math.min(input.count, 2) }, (_, i) => ({
+      startsAt: new Date(Date.UTC(2026, 10, 9 + i * 7)),
+      endsAt: new Date(Date.UTC(2026, 10, 16 + i * 7)),
+      primary: "u-2",
+      backup: "u-3",
+      escalationManager: "u-3",
+    })),
   nextAssignment: (m: string[]) =>
     m.length === 0 ? null : { primary: "u-2", backup: "u-3" },
 }));
@@ -131,6 +164,9 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   desc: (...args: unknown[]) => ({ op: "desc", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
+  gt: (...args: unknown[]) => ({ op: "gt", args }),
+  ne: (...args: unknown[]) => ({ op: "ne", args }),
+  inArray: (...args: unknown[]) => ({ op: "inArray", args }),
 }));
 
 const { onCallRotationsRouter } = await import("./on-call-rotations.js");
@@ -155,6 +191,8 @@ beforeEach(() => {
   existingRow = { ...rotationRow };
   members = ["u-1", "u-2", "u-3"];
   updateConflict = false;
+  upcomingWindows = [];
+  deletedTables = [];
   teamDeleted = false;
   updatedPatch = null;
   mockWriteAuditEntry.mockReset();
@@ -218,6 +256,63 @@ describe("PATCH /admin/on-call-rotations/:id", () => {
       beforeSnapshot: { status: "active" },
       afterSnapshot: { status: "stopped" },
     });
+  });
+
+  it("lists projected windows for a running rotation and none for a paused one", async () => {
+    const running = (await (await patch({ endsOn: null })).json()) as {
+      data: { projected: unknown[] };
+    };
+    expect(running.data.projected).toHaveLength(2);
+    expect(running.data.projected[0]).toMatchObject({
+      primaryUserId: "u-2",
+      backupUserId: "u-3",
+    });
+    existingRow = { ...rotationRow, status: "stopped" };
+    const paused = (await (await patch({ endsOn: null })).json()) as {
+      data: { projected: unknown[] };
+    };
+    expect(paused.data.projected).toEqual([]);
+  });
+
+  it("pausing removes the windows that have not started and rewinds the cursor", async () => {
+    upcomingWindows = [
+      {
+        id: "w-2",
+        label: "Rotation 2",
+        startsAt: new Date("2026-11-16T00:00:00Z"),
+        endsAt: new Date("2026-11-23T00:00:00Z"),
+      },
+      {
+        id: "w-1",
+        label: "Rotation 1",
+        startsAt: new Date("2026-11-09T00:00:00Z"),
+        endsAt: new Date("2026-11-16T00:00:00Z"),
+      },
+    ];
+    const res = await patch({ status: "stopped" });
+    expect(res.status).toBe(200);
+    expect(deletedTables).toHaveLength(2); // notices, then windows
+    expect(updatedPatch).toMatchObject({
+      nextStartsAt: new Date("2026-11-09T00:00:00Z"),
+    });
+    const deletedAudits = mockWriteAuditEntry.mock.calls
+      .map((c) => c[1] as Record<string, unknown>)
+      .filter((a) => a.action === "deleted");
+    expect(deletedAudits.map((a) => a.resourceId)).toEqual(["w-2", "w-1"]);
+  });
+
+  it("resuming never removes windows", async () => {
+    existingRow = { ...rotationRow, status: "stopped" };
+    upcomingWindows = [
+      {
+        id: "w-1",
+        label: "Rotation 1",
+        startsAt: new Date("2026-11-09T00:00:00Z"),
+        endsAt: new Date("2026-11-16T00:00:00Z"),
+      },
+    ];
+    expect((await patch({ status: "active" })).status).toBe(200);
+    expect(deletedTables).toHaveLength(0);
   });
 
   it("sets and clears the end date", async () => {
@@ -288,7 +383,7 @@ describe("DELETE /admin/on-call-rotations/:id", () => {
       method: "DELETE",
     });
 
-  it("stops the rotation (windows stay) and audits it", async () => {
+  it("stops the rotation and audits it", async () => {
     const res = await del();
     expect(res.status).toBe(204);
     expect(updatedPatch).toMatchObject({ status: "stopped" });

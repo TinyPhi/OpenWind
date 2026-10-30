@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   nextAssignment,
   planWindows,
+  projectWindows,
   shouldAnnounceWindow,
   ROTATION_MAX_STEPS_PER_RUN,
   ROTATION_NOTICE_LEAD_MS,
@@ -266,5 +267,42 @@ describe("shouldAnnounceWindow", () => {
   it("never announces a window that has already started", () => {
     expect(shouldAnnounceWindow(T0, T0)).toBe(false);
     expect(shouldAnnounceWindow(new Date(T0.getTime() - 1), T0)).toBe(false);
+  });
+});
+
+describe("projectWindows", () => {
+  const base = {
+    members: ["a", "b", "c"],
+    cycleDays: 7,
+    nextStartsAt: T0,
+    previous: { primary: "a", backup: "b" },
+    escalationManager: null,
+    endsOn: null,
+    count: 4,
+  };
+
+  it("lists back-to-back windows that rotate through the team", () => {
+    const out = projectWindows(base);
+    expect(out.map((w) => w.primary)).toEqual(["b", "c", "a", "b"]);
+    expect(out.map((w) => w.backup)).toEqual(["c", "a", "b", "c"]);
+    expect(out[0]!.startsAt).toEqual(T0);
+    expect(out[0]!.endsAt).toEqual(new Date(T0.getTime() + 7 * DAY));
+    expect(out[1]!.startsAt).toEqual(out[0]!.endsAt);
+  });
+
+  it("stops at the end date and for a team with no members", () => {
+    expect(
+      projectWindows({ ...base, endsOn: "2026-11-09" }).map((w) =>
+        w.startsAt.toISOString().slice(0, 10),
+      ),
+    ).toEqual(["2026-11-02", "2026-11-09"]);
+    expect(projectWindows({ ...base, members: [] })).toEqual([]);
+  });
+
+  it("leaves out an escalation manager who left the team", () => {
+    expect(
+      projectWindows({ ...base, escalationManager: "gone" })[0]!
+        .escalationManager,
+    ).toBeNull();
   });
 });

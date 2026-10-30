@@ -12,7 +12,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { and, asc, eq, gt, inArray, or, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, ne, or, isNull } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
 import type { DbOrTx } from "@platform/db";
@@ -102,6 +102,7 @@ async function refuseBadMembers(
   auth: AuthContext,
   memberUserIds: string[],
   alreadyMembers: ReadonlySet<string> = new Set(),
+  thisTeamId?: string,
 ): Promise<Response | null> {
   const seen = new Set<string>();
   const duplicates: { field: string; message: string }[] = [];
@@ -123,6 +124,45 @@ async function refuseBadMembers(
       },
       422,
     );
+  }
+  // A person belongs to one team at a time: someone being added who is on another team is refused.
+  const adding = memberUserIds.filter((userId) => !alreadyMembers.has(userId));
+  if (adding.length > 0) {
+    const taken = await withTenantContext(auth.tenantId, (tx) =>
+      tx
+        .select({ userId: teamMembers.userId, teamName: teams.name })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+        .where(
+          and(
+            eq(teamMembers.tenantId, auth.tenantId),
+            eq(teams.tenantId, auth.tenantId),
+            isNull(teams.deletedAt),
+            inArray(teamMembers.userId, adding),
+            ...(thisTeamId ? [ne(teams.id, thisTeamId)] : []),
+          ),
+        ),
+    );
+    if (taken.length > 0) {
+      const byUser = new Map(taken.map((t) => [t.userId, t.teamName]));
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          message: "Validation failed",
+          fields: memberUserIds.flatMap((userId, i) =>
+            byUser.has(userId)
+              ? [
+                  {
+                    field: `memberUserIds[${i}]`,
+                    message: `Already a member of the team "${byUser.get(userId)}". Remove them there first.`,
+                  },
+                ]
+              : [],
+          ),
+        },
+        422,
+      );
+    }
   }
   // Only people being added need an on-call role today: someone already on the
   // team who has since lost theirs must not block every later edit.
@@ -543,6 +583,7 @@ router.put(
         auth,
         memberUserIds,
         alreadyChecked,
+        id,
       );
       if (refused) return refused;
       const row = await withTenantContext(auth.tenantId, async (tx) => {

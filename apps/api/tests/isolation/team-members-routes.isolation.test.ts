@@ -86,6 +86,15 @@ async function createTeam(
   name: string,
   memberUserIds: string[],
 ): Promise<string> {
+  // A person is on one team at a time, and these tests reuse a few people, so free them first.
+  await db
+    .delete(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.tenantId, TENANT_A),
+        inArray(teamMembers.userId, memberUserIds),
+      ),
+    );
   const res = await appA.request("/admin/teams", json({ name, memberUserIds }));
   expect(res.status).toBe(201);
   return ((await res.json()) as { data: { id: string } }).data.id;
@@ -142,6 +151,40 @@ describe("team members — tenant isolation", () => {
       data: { members: { userId: string }[] };
     };
     expect(data.members.map((m) => m.userId)).toEqual([BEN, ASHA, CHEN]);
+  });
+
+  it("a person can be on only one team: refused while on another, accepted once removed", async () => {
+    const first = await createTeam("one-team-first", [ASHA]);
+    const second = await createTeam("one-team-second", [BEN]);
+    const refused = await appA.request(`/admin/teams/${second}/members`, {
+      ...json({ memberUserIds: [BEN, ASHA] }),
+      method: "PUT",
+    });
+    expect(refused.status).toBe(422);
+    const body = (await refused.json()) as {
+      fields: { field: string; message: string }[];
+    };
+    expect(body.fields[0]).toMatchObject({ field: "memberUserIds[1]" });
+    expect(body.fields[0]!.message).toMatch(/one-team-first/);
+    expect(await storedMembers(second)).toEqual([{ userId: BEN, position: 0 }]);
+
+    // removed from the first team, ASHA is free for the second
+    await appA.request(`/admin/teams/${first}/members`, {
+      ...json({ memberUserIds: [] }),
+      method: "PUT",
+    });
+    const accepted = await appA.request(`/admin/teams/${second}/members`, {
+      ...json({ memberUserIds: [BEN, ASHA] }),
+      method: "PUT",
+    });
+    expect(accepted.status).toBe(200);
+
+    // a new team cannot take someone who is on another team either
+    const create = await appA.request(
+      "/admin/teams",
+      json({ name: "one-team-third", memberUserIds: [ASHA] }),
+    );
+    expect(create.status).toBe(422);
   });
 
   it("another tenant cannot read, replace or list a team's members", async () => {

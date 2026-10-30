@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
@@ -468,6 +468,62 @@ describe("PATCH /admin/on-call-schedules/:id — future-window-only (R5)", () =>
       },
     );
     expect(res.status).toBe(200);
+  });
+});
+
+describe("PATCH /admin/on-call-schedules/:id — a window running now", () => {
+  const url = `/admin/on-call-schedules/${mockScheduleRow.id}`;
+  const patch = (body: object): Promise<Response> =>
+    makeApp().request(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const original = {
+    startsAt: mockScheduleRow.startsAt,
+    endsAt: mockScheduleRow.endsAt,
+  };
+
+  beforeEach(() => {
+    mockScheduleRow.startsAt = new Date(Date.now() - 24 * 3_600_000);
+    mockScheduleRow.endsAt = new Date(Date.now() + 6 * 24 * 3_600_000);
+  });
+  afterEach(() => {
+    mockScheduleRow.startsAt = original.startsAt;
+    mockScheduleRow.endsAt = original.endsAt;
+  });
+
+  it("lets the end move to another time in the future", async () => {
+    const res = await patch({
+      startsAt: mockScheduleRow.startsAt.toISOString(),
+      endsAt: new Date(Date.now() + 2 * 24 * 3_600_000).toISOString(),
+      primaryUserId: mockScheduleRow.primaryUserId,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses an end that is already past", async () => {
+    const res = await patch({
+      endsAt: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("refuses to change the start or the people", async () => {
+    expect(
+      (
+        await patch({
+          startsAt: new Date(Date.now() - 2 * 24 * 3_600_000).toISOString(),
+        })
+      ).status,
+    ).toBe(422);
+    expect((await patch({ primaryUserId: "u-other" })).status).toBe(422);
+  });
+
+  it("refuses any change once the window is over", async () => {
+    mockScheduleRow.startsAt = new Date(Date.now() - 3 * 24 * 3_600_000);
+    mockScheduleRow.endsAt = new Date(Date.now() - 24 * 3_600_000);
+    expect((await patch({ label: "late" })).status).toBe(422);
   });
 });
 

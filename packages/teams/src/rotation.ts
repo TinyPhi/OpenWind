@@ -164,6 +164,50 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
   };
 }
 
+export type ProjectWindowsInput = {
+  members: readonly string[];
+  cycleDays: number;
+  /** Start of the first window not made yet: the rotation's cursor. */
+  nextStartsAt: Date;
+  previous: RotationHolders;
+  escalationManager: string | null;
+  endsOn: string | null;
+  count: number;
+};
+
+/**
+ * The windows a rotation would make next, for display only. Same rules as
+ * planWindows (wrap, collision skip, ends-on) but with no clock: nothing here
+ * is created, and the real windows may differ if the team changes first.
+ */
+export function projectWindows(input: ProjectWindowsInput): GeneratedWindow[] {
+  const cycleMs = input.cycleDays * DAY_MS;
+  const startLimitMs = input.endsOn
+    ? Date.parse(`${input.endsOn}T00:00:00Z`) + DAY_MS
+    : Number.POSITIVE_INFINITY;
+  const escalationManager =
+    input.escalationManager && input.members.includes(input.escalationManager)
+      ? input.escalationManager
+      : null;
+  const out: GeneratedWindow[] = [];
+  let startMs = input.nextStartsAt.getTime();
+  let previous = input.previous;
+  while (out.length < input.count && startMs < startLimitMs) {
+    const next = nextAssignment(input.members, previous);
+    if (!next) break;
+    out.push({
+      startsAt: new Date(startMs),
+      endsAt: new Date(startMs + cycleMs),
+      primary: next.primary,
+      backup: next.backup,
+      escalationManager,
+    });
+    previous = next;
+    startMs += cycleMs;
+  }
+  return out;
+}
+
 /** A window that has already started is never announced (R8). */
 export function shouldAnnounceWindow(startsAt: Date, now: Date): boolean {
   return startsAt.getTime() > now.getTime();

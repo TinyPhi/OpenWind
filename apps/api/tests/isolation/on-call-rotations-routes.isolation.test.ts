@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import {
@@ -311,7 +311,7 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
     ).toBe(422);
   });
 
-  it("DELETE stops the rotation and keeps its windows", async () => {
+  it("DELETE stops the rotation and removes windows that have not started", async () => {
     const teamId = await newTeam([ASHA, BEN]);
     const { rotationId, scheduleId } = await createRotation(teamId);
     const res = await appA.request(
@@ -324,11 +324,211 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
       .from(onCallRotations)
       .where(eq(onCallRotations.id, rotationId));
     expect(row!.status).toBe("stopped");
-    const [window] = await db
+    const windows = await db
       .select()
       .from(onCallSchedules)
       .where(eq(onCallSchedules.id, scheduleId));
-    expect(window!.deletedAt).toBeNull();
+    expect(windows).toHaveLength(0);
+  });
+
+  it("pausing keeps the window running now, frees the upcoming time for a new roster, and then the paused one cannot resume", async () => {
+    const teamId = await newTeam([ASHA, BEN]);
+    const running = await createRotation(teamId, {
+      label: "Running",
+      startsAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      endsAt: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+    });
+    const upcomingStart = new Date(Date.now() + 5 * 86_400_000);
+    const upcoming = await appA.request(
+      "/admin/on-call-schedules",
+      send(
+        "POST",
+        windowBody(teamId, {
+          label: "Manual next",
+          startsAt: upcomingStart.toISOString(),
+          endsAt: new Date(
+            upcomingStart.getTime() + 7 * 86_400_000,
+          ).toISOString(),
+        }),
+      ),
+    );
+    expect(upcoming.status).toBe(201);
+    const { data: nextWindow } = (await upcoming.json()) as {
+      data: { id: string };
+    };
+    // make the next window part of the rotation, as the worker would have
+    await db
+      .update(onCallSchedules)
+      .set({ rotationId: running.rotationId })
+      .where(eq(onCallSchedules.id, nextWindow.id));
+
+    const pause = await appA.request(
+      `/admin/on-call-rotations/${running.rotationId}`,
+      send("PATCH", { status: "stopped" }),
+    );
+    expect(pause.status).toBe(200);
+
+    const left = await db
+      .select({ id: onCallSchedules.id })
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.rotationId, running.rotationId));
+    expect(left.map((w) => w.id)).toEqual([running.scheduleId]);
+    const [rotation] = await db
+      .select()
+      .from(onCallRotations)
+      .where(eq(onCallRotations.id, running.rotationId));
+    expect(rotation!.nextStartsAt.getTime()).toBe(upcomingStart.getTime());
+
+    // the freed time can take a new repeating roster
+    const replacement = await appA.request(
+      "/admin/on-call-schedules",
+      send(
+        "POST",
+        windowBody(teamId, {
+          label: "Replacement",
+          startsAt: upcomingStart.toISOString(),
+          endsAt: new Date(
+            upcomingStart.getTime() + 7 * 86_400_000,
+          ).toISOString(),
+          repeat: { cycleDays: 7 },
+        }),
+      ),
+    );
+    expect(replacement.status).toBe(201);
+
+    // only one roster runs at a time for a team
+    const resume = await appA.request(
+      `/admin/on-call-rotations/${running.rotationId}`,
+      send("PATCH", { status: "active" }),
+    );
+    expect(resume.status).toBe(409);
+  });
+
+  it("shortening a running window re-plans the rotation: cycle, next start, and later windows", async () => {
+    const teamId = await newTeam([ASHA, BEN]);
+    const start = new Date(Date.now() - 86_400_000);
+    start.setMilliseconds(0);
+    const running = await createRotation(teamId, {
+      startsAt: start.toISOString(),
+      endsAt: new Date(start.getTime() + 7 * 86_400_000).toISOString(),
+    });
+    // the worker already made the next window
+    const nextStart = new Date(start.getTime() + 7 * 86_400_000);
+    const [next] = await db
+      .insert(onCallSchedules)
+      .values({
+        tenantId: TENANT_A,
+        teamId,
+        rotationId: running.rotationId,
+        label: "Rotation next",
+        startsAt: nextStart,
+        endsAt: new Date(nextStart.getTime() + 7 * 86_400_000),
+        primaryUserId: BEN,
+        backupUserId: ASHA,
+        createdBy: ADMIN_A,
+      })
+      .returning();
+
+    const newEnd = new Date(start.getTime() + 3 * 86_400_000);
+    const res = await appA.request(
+      `/admin/on-call-schedules/${running.scheduleId}`,
+      send("PATCH", { endsAt: newEnd.toISOString() }),
+    );
+    expect(res.status).toBe(200);
+
+    const [rotation] = await db
+      .select()
+      .from(onCallRotations)
+      .where(eq(onCallRotations.id, running.rotationId));
+    expect(rotation).toMatchObject({ cycleDays: 3 });
+    expect(rotation!.nextStartsAt.getTime()).toBe(newEnd.getTime());
+    const gone = await db
+      .select({ id: onCallSchedules.id })
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.id, next!.id));
+    expect(gone).toHaveLength(0);
+
+    const list = (await (
+      await appA.request(`/admin/on-call-rotations?teamId=${teamId}`)
+    ).json()) as {
+      data: { projected: { startsAt: string; endsAt: string }[] }[];
+    };
+    const first = list.data[0]!.projected[0]!;
+    expect(new Date(first.startsAt).getTime()).toBe(newEnd.getTime());
+    expect(
+      new Date(first.endsAt).getTime() - new Date(first.startsAt).getTime(),
+    ).toBe(3 * 86_400_000);
+  });
+
+  it("editing a later window leaves earlier unstarted windows alone, and a longer end replaces the next window", async () => {
+    const teamId = await newTeam([ASHA, BEN]);
+    const DAY = 86_400_000;
+    const base = new Date(Date.now() + 2 * DAY);
+    base.setMilliseconds(0);
+    const first = await createRotation(teamId, {
+      label: "W1",
+      startsAt: base.toISOString(),
+      endsAt: new Date(base.getTime() + 7 * DAY).toISOString(),
+    });
+    const addWindow = async (label: string, startMs: number) => {
+      const [row] = await db
+        .insert(onCallSchedules)
+        .values({
+          tenantId: TENANT_A,
+          teamId,
+          rotationId: first.rotationId,
+          label,
+          startsAt: new Date(startMs),
+          endsAt: new Date(startMs + 7 * DAY),
+          primaryUserId: BEN,
+          backupUserId: ASHA,
+          createdBy: ADMIN_A,
+        })
+        .returning();
+      return row!;
+    };
+    const w2 = await addWindow("W2", base.getTime() + 7 * DAY);
+    const w3 = await addWindow("W3", base.getTime() + 14 * DAY);
+
+    // lengthen W2 across W3's start: W3 goes, W1 stays
+    const newEnd = new Date(w2.startsAt.getTime() + 10 * DAY);
+    const res = await appA.request(
+      `/admin/on-call-schedules/${w2.id}`,
+      send("PATCH", { endsAt: newEnd.toISOString() }),
+    );
+    expect(res.status).toBe(200);
+
+    const left = await db
+      .select({ label: onCallSchedules.label })
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.rotationId, first.rotationId))
+      .orderBy(asc(onCallSchedules.startsAt));
+    expect(left.map((w) => w.label)).toEqual(["W1", "W2"]);
+    expect(w3.id).toBeTruthy();
+    const [rotation] = await db
+      .select()
+      .from(onCallRotations)
+      .where(eq(onCallRotations.id, first.rotationId));
+    expect(rotation!.nextStartsAt.getTime()).toBe(newEnd.getTime());
+  });
+
+  it("refuses an end before the start with 422 and changes nothing", async () => {
+    const teamId = await newTeam([ASHA, BEN]);
+    const { scheduleId } = await createRotation(teamId);
+    const before = await db
+      .select()
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.id, scheduleId));
+    const res = await appA.request(
+      `/admin/on-call-schedules/${scheduleId}`,
+      send("PATCH", { endsAt: "2020-01-01T00:00:00Z" }),
+    );
+    expect(res.status).toBe(422);
+    const after = await db
+      .select()
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.id, scheduleId));
+    expect(after[0]!.endsAt).toEqual(before[0]!.endsAt);
   });
 
   it("another tenant cannot list, change or stop a rotation, and it is unchanged", async () => {

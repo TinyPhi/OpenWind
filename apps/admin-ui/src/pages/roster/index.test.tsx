@@ -31,12 +31,13 @@ const TEAM_A = {
 
 const USER_A = { userId: "u-1", displayName: "Ada Lovelace" };
 
+const SCHEDULE_START = Date.now();
 const SCHEDULE_A = {
   id: "sched-1",
   teamId: "team-1",
   label: "Week 1",
-  startsAt: new Date().toISOString(),
-  endsAt: new Date(Date.now() + 3 * 24 * 3_600_000).toISOString(),
+  startsAt: new Date(SCHEDULE_START).toISOString(),
+  endsAt: new Date(SCHEDULE_START + 3 * 24 * 3_600_000).toISOString(),
   primaryUserId: "u-1",
   backupUserId: null,
   escalationManagerUserId: null,
@@ -216,7 +217,7 @@ describe("RosterPage schedule modal — team first, members only", () => {
     });
     fireEvent.click(screen.getByText("Select a user"));
     fireEvent.click(await screen.findByText("Cara Diaz"));
-    fireEvent.click(screen.getByText("Create schedule"));
+    fireEvent.click(screen.getByLabelText("Create schedule"));
 
     await waitFor(() => {
       const post = mockFetchWithAuth.mock.calls.find(
@@ -310,14 +311,11 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. Week 1"), {
       target: { value: "Week A" },
     });
-    const [starts, ends] = Array.from(
+    const [starts] = Array.from(
       document.querySelectorAll('input[type="datetime-local"]'),
     );
     fireEvent.change(starts as Element, {
       target: { value: "2031-03-11T09:00" },
-    });
-    fireEvent.change(ends as Element, {
-      target: { value: "2031-03-18T09:00" },
     });
   }
 
@@ -327,11 +325,11 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     fillWindow();
     fireEvent.click(screen.getByText("Select a user"));
     fireEvent.click(await screen.findByText("Ben Cole"));
-    fireEvent.click(screen.getByLabelText(/Repeat every/));
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
     fireEvent.change(screen.getByLabelText("Cycle length in days"), {
       target: { value: "14" },
     });
-    fireEvent.click(screen.getByText("Create schedule"));
+    fireEvent.click(screen.getByLabelText("Create schedule"));
 
     await waitFor(() =>
       expect(bodiesFor("POST", "/admin/on-call-schedules")).toEqual([
@@ -339,9 +337,25 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
           teamId: "team-1",
           primaryUserId: "u-2",
           repeat: { cycleDays: 14 },
+          endsAt: new Date(
+            new Date("2031-03-11T09:00").getTime() + 14 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
         }),
       ]),
     );
+  });
+
+  it("works out the end from the start and cycle length and keeps it read-only", async () => {
+    routeFetch();
+    await openCreateModal();
+    fillWindow();
+    const ends = document.querySelectorAll('input[type="datetime-local"]')[1];
+    expect((ends as HTMLInputElement).disabled).toBe(true);
+    expect((ends as HTMLInputElement).value).toBe("2031-03-18T09:00");
+    fireEvent.change(screen.getByLabelText("Cycle length in days"), {
+      target: { value: "14" },
+    });
+    expect((ends as HTMLInputElement).value).toBe("2031-03-25T09:00");
   });
 
   it("does not send a repeat when the option is off", async () => {
@@ -350,7 +364,7 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     fillWindow();
     fireEvent.click(screen.getByText("Select a user"));
     fireEvent.click(await screen.findByText("Ben Cole"));
-    fireEvent.click(screen.getByText("Create schedule"));
+    fireEvent.click(screen.getByLabelText("Create schedule"));
     await waitFor(() =>
       expect(bodiesFor("POST", "/admin/on-call-schedules")).toHaveLength(1),
     );
@@ -366,7 +380,8 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
       target: { value: "team-2" },
     });
     expect(
-      (screen.getByLabelText(/Repeat every/) as HTMLInputElement).disabled,
+      (screen.getByLabelText(/Repeat automatically/) as HTMLInputElement)
+        .disabled,
     ).toBe(true);
     expect(
       screen.getByText(/Repeating needs a team with at least one member/),
@@ -379,45 +394,67 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     fillWindow();
     fireEvent.click(screen.getByText("Select a user"));
     fireEvent.click(await screen.findByText("Ben Cole"));
-    fireEvent.click(screen.getByLabelText(/Repeat every/));
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
     for (const bad of ["2", "91", "7.5", ""]) {
       fireEvent.change(screen.getByLabelText("Cycle length in days"), {
         target: { value: bad },
       });
       expect(
-        (screen.getByText("Create schedule") as HTMLButtonElement).disabled,
+        (screen.getByLabelText("Create schedule") as HTMLButtonElement)
+          .disabled,
       ).toBe(true);
     }
     fireEvent.change(screen.getByLabelText("Cycle length in days"), {
       target: { value: "3" },
     });
     expect(
-      (screen.getByText("Create schedule") as HTMLButtonElement).disabled,
+      (screen.getByLabelText("Create schedule") as HTMLButtonElement).disabled,
     ).toBe(false);
   });
 
-  it("shows the rotation panel with cycle, next window and who is next", async () => {
+  async function openRotationEdit(): Promise<void> {
+    schedulesData = [
+      {
+        ...SCHEDULE_A,
+        id: "s-rot",
+        label: "Rotation week",
+        rotationId: "rot-1",
+      },
+    ];
+    routeFetch();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Rotation week")).toBeTruthy());
+    fireEvent.click(
+      screen.getByText("Rotation week").closest("button") as Element,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Repeat automatically/)).toBeTruthy(),
+    );
+  }
+
+  it("has no separate repeating roster box on the page", async () => {
     rotations = [ROTATION];
     routeFetch();
     renderPage();
-    await waitFor(() =>
-      expect(screen.getByText("Repeating roster")).toBeTruthy(),
-    );
-    expect(screen.getByText("Active")).toBeTruthy();
-    expect(screen.getByText(/Every 7 days/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("New Schedule")).toBeTruthy());
+    expect(screen.queryByText("Repeating roster")).toBeNull();
+    expect(screen.queryByText("Stop repeating")).toBeNull();
+    expect(screen.queryByLabelText("End date")).toBeNull();
+  });
+
+  it("shows the repeat state and who is next inside the edit modal", async () => {
+    rotations = [ROTATION];
+    await openRotationEdit();
+    expect(
+      (screen.getByLabelText(/Repeat automatically/) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
     expect(
       screen.getByText(/primary Ben Cole, backup Ada Lovelace/),
     ).toBeTruthy();
   });
 
-  it("shows no panel for a team without a rotation", async () => {
-    routeFetch();
-    renderPage();
-    await waitFor(() => expect(screen.getByText("New Schedule")).toBeTruthy());
-    expect(screen.queryByText("Repeating roster")).toBeNull();
-  });
-
-  it("shows a blocked rotation with its reason", async () => {
+  it("shows a blocked rotation's reason in the edit modal", async () => {
     rotations = [
       {
         ...ROTATION,
@@ -425,20 +462,15 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
         blockedReason: "The window manual cover overlaps the next window",
       },
     ];
-    routeFetch();
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Blocked")).toBeTruthy());
+    await openRotationEdit();
     expect(screen.getByText(/manual cover overlaps/)).toBeTruthy();
   });
 
-  it("stops an active rotation", async () => {
+  it("stops the rotation when repeat is unticked and the window is saved", async () => {
     rotations = [ROTATION];
-    routeFetch();
-    renderPage();
-    await waitFor(() =>
-      expect(screen.getByText("Stop repeating")).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByText("Stop repeating"));
+    await openRotationEdit();
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
+    fireEvent.click(screen.getByLabelText("Save changes"));
     await waitFor(() =>
       expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
         { status: "stopped" },
@@ -446,15 +478,15 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     );
   });
 
-  it("resumes a stopped rotation", async () => {
+  it("resumes a stopped rotation when repeat is ticked and the window is saved", async () => {
     rotations = [{ ...ROTATION, status: "stopped" }];
-    routeFetch();
-    renderPage();
-    await waitFor(() =>
-      expect(screen.getByText("Resume repeating")).toBeTruthy(),
-    );
-    expect(screen.getByText("Stopped")).toBeTruthy();
-    fireEvent.click(screen.getByText("Resume repeating"));
+    await openRotationEdit();
+    expect(
+      (screen.getByLabelText(/Repeat automatically/) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
+    fireEvent.click(screen.getByLabelText("Save changes"));
     await waitFor(() =>
       expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
         { status: "active" },
@@ -462,20 +494,140 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     );
   });
 
-  it("sets and clears the end date", async () => {
+  it("asks what to do with this cycle's end when repeat is unticked, and sends a changed end", async () => {
     rotations = [ROTATION];
-    routeFetch();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("End date")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("End date"), {
-      target: { value: "2031-12-31" },
+    await openRotationEdit();
+    expect(screen.queryByText(/Keep it as set/)).toBeNull();
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
+    expect(screen.getByText(/Keep it as set/)).toBeTruthy();
+    const ends = document.querySelectorAll('input[type="datetime-local"]')[1];
+    expect((ends as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText(/Change it/));
+    expect((ends as HTMLInputElement).disabled).toBe(false);
+    fireEvent.change(ends as Element, {
+      target: { value: "2031-01-02T10:00" },
     });
-    fireEvent.click(screen.getByText("Set end date"));
+    fireEvent.click(screen.getByLabelText("Save changes"));
     await waitFor(() =>
-      expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
-        { endsOn: "2031-12-31" },
+      expect(bodiesFor("PATCH", "/admin/on-call-schedules/s-rot")).toEqual([
+        expect.objectContaining({
+          endsAt: new Date("2031-01-02T10:00").toISOString(),
+        }),
       ]),
     );
+  });
+
+  it("pauses the roster only after a warning", async () => {
+    rotations = [ROTATION];
+    await openRotationEdit();
+    fireEvent.click(screen.getByLabelText("Pause roster"));
+    expect(screen.getByText(/only one roster can run at a time/)).toBeTruthy();
+    expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([]);
+    fireEvent.click(screen.getByText("Pause roster"));
+    await waitFor(() =>
+      expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
+        { status: "stopped" },
+      ]),
+    );
+  });
+
+  it("offers Resume roster for a paused roster", async () => {
+    rotations = [{ ...ROTATION, status: "stopped" }];
+    await openRotationEdit();
+    fireEvent.click(screen.getByLabelText("Resume roster"));
+    await waitFor(() =>
+      expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
+        { status: "active" },
+      ]),
+    );
+  });
+
+  it("warns before deleting a window of a repeating roster", async () => {
+    rotations = [ROTATION];
+    await openRotationEdit();
+    fireEvent.click(screen.getByLabelText("Delete schedule"));
+    await waitFor(() =>
+      expect(screen.getByText(/part of a repeating roster/)).toBeTruthy(),
+    );
+  });
+
+  it("on a running window sends only the changed end, not the start or people", async () => {
+    schedulesData = [{ ...SCHEDULE_A, id: "s-run", label: "Running" }];
+    routeFetch();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Running")).toBeTruthy());
+    fireEvent.click(screen.getByText("Running").closest("button") as Element);
+    await waitFor(() =>
+      expect(screen.getByText(/already running/)).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText("Cycle length in days"), {
+      target: { value: "5" },
+    });
+    fireEvent.click(screen.getByLabelText("Save changes"));
+    await waitFor(() => {
+      const [body] = bodiesFor(
+        "PATCH",
+        "/admin/on-call-schedules/s-run",
+      ) as Record<string, unknown>[];
+      expect(body).toBeTruthy();
+      expect(body).toHaveProperty("endsAt");
+      expect(body).not.toHaveProperty("startsAt");
+      expect(body).not.toHaveProperty("primaryUserId");
+    });
+  });
+
+  it("shows upcoming windows of a running roster lightly and opens them read-only", async () => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    rotations = [
+      {
+        ...ROTATION,
+        projected: [
+          {
+            startsAt: new Date(start.getTime() + 24 * 3_600_000).toISOString(),
+            endsAt: new Date(
+              start.getTime() + 3 * 24 * 3_600_000,
+            ).toISOString(),
+            primaryUserId: "u-2",
+            backupUserId: "u-1",
+            escalationManagerUserId: null,
+          },
+        ],
+      },
+    ];
+    routeFetch();
+    renderPage();
+    const bar = await screen.findByText("Upcoming");
+    expect(screen.queryByText(/No on-call schedules this week/)).toBeNull();
+    fireEvent.click(bar.closest("button") as Element);
+    await waitFor(() =>
+      expect(screen.getByText("Upcoming window")).toBeTruthy(),
+    );
+    expect(screen.getByText(/Not active yet/)).toBeTruthy();
+    expect(screen.queryByLabelText("Save changes")).toBeNull();
+    expect(screen.queryByLabelText("Create schedule")).toBeNull();
+  });
+
+  it("shows no upcoming windows for a roster without projections", async () => {
+    rotations = [{ ...ROTATION, projected: [] }];
+    routeFetch();
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText(/No on-call schedules this week/)).toBeTruthy(),
+    );
+    expect(screen.queryByText("Upcoming")).toBeNull();
+  });
+
+  it("leaves the rotation alone when repeat is not changed", async () => {
+    rotations = [ROTATION];
+    await openRotationEdit();
+    fireEvent.click(screen.getByLabelText("Save changes"));
+    await waitFor(() =>
+      expect(bodiesFor("PATCH", "/admin/on-call-schedules/s-rot")).toHaveLength(
+        1,
+      ),
+    );
+    expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([]);
   });
 
   it("marks windows that belong to a repeating roster", async () => {
@@ -498,5 +650,19 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     const manualBar = screen.getByText("Manual week").closest("button");
     expect(rotationBar?.textContent).toContain("↻");
     expect(manualBar?.textContent).not.toContain("↻");
+  });
+
+  it("edits a window with the same start, cycle and read-only end layout", async () => {
+    schedulesData = [{ ...SCHEDULE_A, id: "s-edit", label: "Edit me" }];
+    routeFetch();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Edit me")).toBeTruthy());
+    fireEvent.click(screen.getByText("Edit me").closest("button") as Element);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Cycle length in days")).toBeTruthy(),
+    );
+    const ends = document.querySelectorAll('input[type="datetime-local"]')[1];
+    expect((ends as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByLabelText(/Repeat automatically/)).toBeNull();
   });
 });

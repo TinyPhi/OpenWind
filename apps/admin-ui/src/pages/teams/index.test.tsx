@@ -147,6 +147,37 @@ describe("TeamsPage members", () => {
     );
   });
 
+  it("offers only people who are not on another team", async () => {
+    routeFetch([TEAM_WITH_MEMBERS]); // Ben and Asha are on Platform On-Call
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Platform On-Call")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("New Team"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Add member")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByLabelText("Add member"));
+    expect(screen.getByLabelText("Chen Wu")).toBeTruthy();
+    expect(screen.queryByLabelText("Ben Cole")).toBeNull();
+    expect(screen.queryByLabelText("Asha Rao")).toBeNull();
+  });
+
+  it("keeps a team's own members in the picker when editing it", async () => {
+    routeFetch([TEAM_WITH_MEMBERS]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Platform On-Call")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByLabelText("Edit team"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Add member")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByLabelText("Add member"));
+    expect(screen.getByLabelText("Ben Cole")).toBeTruthy();
+    expect(screen.getByLabelText("Chen Wu")).toBeTruthy();
+  });
+
   it("creates a team with the chosen members in the chosen order", async () => {
     routeFetch([]);
     renderPage();
@@ -159,12 +190,9 @@ describe("TeamsPage members", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Add member")).toBeTruthy(),
     );
-    fireEvent.change(screen.getByLabelText("Add member"), {
-      target: { value: "u-1" },
-    });
-    fireEvent.change(screen.getByLabelText("Add member"), {
-      target: { value: "u-3" },
-    });
+    fireEvent.click(screen.getByLabelText("Add member"));
+    fireEvent.click(screen.getByLabelText("Asha Rao"));
+    fireEvent.click(screen.getByLabelText("Chen Wu"));
     fireEvent.click(screen.getByLabelText("Move Chen Wu up"));
     fireEvent.click(screen.getByText("Create team"));
 
@@ -187,9 +215,8 @@ describe("TeamsPage members", () => {
       expect(screen.getByLabelText("Move Ben Cole down")).toBeTruthy(),
     );
     fireEvent.click(screen.getByLabelText("Move Ben Cole down"));
-    fireEvent.change(screen.getByLabelText("Add member"), {
-      target: { value: "u-3" },
-    });
+    fireEvent.click(screen.getByLabelText("Add member"));
+    fireEvent.click(screen.getByLabelText("Chen Wu"));
     fireEvent.click(screen.getByText("Save changes"));
 
     await waitFor(() =>

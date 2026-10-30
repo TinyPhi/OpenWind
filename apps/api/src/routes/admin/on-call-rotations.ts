@@ -2,8 +2,10 @@
  * Admin on-call rotations -- docs/specs/oncall-team-rotation.md R4, R9, R10.
  *
  * A rotation is created together with its first window (POST /admin/on-call-schedules
- * with `repeat`); this router lists, stops, resumes, ends and "deletes" (stops) it.
- * Generated windows are never removed here: stopping only keeps new ones from being made.
+ * with `repeat`); this router lists, pauses (stops), resumes, ends and "deletes" (stops) it.
+ * Pausing keeps new windows from being made and removes the windows that have not started
+ * yet, so the team's time is free for another roster; the window running now stays. Only one
+ * rotation per team can be active, so a paused one cannot resume once another is active.
  */
 
 import { Hono } from "hono";
@@ -18,8 +20,10 @@ import {
   loadPreviousHolders,
   loadTeamMemberIds,
   nextAssignment,
+  projectWindows,
 } from "@platform/teams";
 import { writeAuditEntry } from "@platform/audit";
+import { releaseUpcomingWindows } from "../../lib/rotation-windows.js";
 import { logger } from "@platform/logger";
 
 type Vars = { Variables: { auth: AuthContext } };
@@ -76,8 +80,18 @@ interface RotationView {
   nextPrimaryUserId: string | null;
   nextBackupUserId: string | null;
   escalationManagerUserId: string | null;
+  /** Windows the roster will make next, for display only. Empty unless it is running unblocked. */
+  projected: Array<{
+    startsAt: Date;
+    endsAt: Date;
+    primaryUserId: string;
+    backupUserId: string | null;
+    escalationManagerUserId: string | null;
+  }>;
   createdAt: Date;
 }
+
+const PROJECTED_WINDOWS = 12;
 
 async function presentRotation(
   tx: DbOrTx,
@@ -87,6 +101,24 @@ async function presentRotation(
   const members = await loadTeamMemberIds(tx, tenantId, row.teamId);
   const previous = await loadPreviousHolders(tx, tenantId, row);
   const next = nextAssignment(members, previous);
+  const projected =
+    row.status === "active" && row.blockedReason === null
+      ? projectWindows({
+          members,
+          cycleDays: row.cycleDays,
+          nextStartsAt: row.nextStartsAt,
+          previous,
+          escalationManager: row.escalationManagerUserId,
+          endsOn: row.endsOn,
+          count: PROJECTED_WINDOWS,
+        }).map((w) => ({
+          startsAt: w.startsAt,
+          endsAt: w.endsAt,
+          primaryUserId: w.primary,
+          backupUserId: w.backup,
+          escalationManagerUserId: w.escalationManager,
+        }))
+      : [];
   return {
     id: row.id,
     teamId: row.teamId,
@@ -99,6 +131,7 @@ async function presentRotation(
     nextPrimaryUserId: next?.primary ?? null,
     nextBackupUserId: next?.backup ?? null,
     escalationManagerUserId: row.escalationManagerUserId,
+    projected,
     createdAt: row.createdAt,
   };
 }
@@ -203,6 +236,10 @@ router.patch(
           .returning();
         if (!row) return { status: "not_found" as const };
 
+        if (input.status === "stopped" && before.status === "active") {
+          await releaseUpcomingWindows(tx, auth.tenantId, auth.userId, row);
+        }
+
         await writeAuditEntry(tx, {
           tenantId: auth.tenantId,
           actorId: auth.userId,
@@ -266,7 +303,8 @@ router.patch(
         return c.json(
           {
             error: "CONFLICT",
-            message: "This team already has an active rotation",
+            message:
+              "This team already has an active repeating roster, so only one can run at a time",
           },
           409,
         );
@@ -283,7 +321,7 @@ router.patch(
   },
 );
 
-// DELETE /admin/on-call-rotations/:id -- stops the rotation; generated windows stay
+// DELETE /admin/on-call-rotations/:id -- stops the rotation; upcoming windows are removed, the running one stays
 router.delete(
   "/:id",
   requireRole("admin"),
@@ -306,7 +344,7 @@ router.delete(
           .limit(1);
         if (!before) return false;
         if (before.status === "stopped") return true;
-        await tx
+        const [stopped] = await tx
           .update(onCallRotations)
           .set({ status: "stopped", updatedAt: new Date() })
           .where(
@@ -314,7 +352,11 @@ router.delete(
               eq(onCallRotations.id, id),
               eq(onCallRotations.tenantId, auth.tenantId),
             ),
-          );
+          )
+          .returning();
+        if (stopped) {
+          await releaseUpcomingWindows(tx, auth.tenantId, auth.userId, stopped);
+        }
         await writeAuditEntry(tx, {
           tenantId: auth.tenantId,
           actorId: auth.userId,

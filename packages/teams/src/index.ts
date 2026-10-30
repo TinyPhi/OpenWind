@@ -25,6 +25,7 @@ export { loadTeamMemberIds, loadPreviousHolders } from "./rotation-state.js";
 export {
   nextAssignment,
   planWindows,
+  projectWindows,
   shouldAnnounceWindow,
   ROTATION_MIN_CYCLE_DAYS,
   ROTATION_MAX_CYCLE_DAYS,
@@ -36,6 +37,7 @@ export {
   type GeneratedWindow,
   type PlanWindowsInput,
   type PlanWindowsResult,
+  type ProjectWindowsInput,
 } from "./rotation.js";
 
 export {

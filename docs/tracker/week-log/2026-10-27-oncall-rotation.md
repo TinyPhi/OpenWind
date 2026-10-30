@@ -1,7 +1,7 @@
 ## 2026-10-27 — Recurring on-call rotation (PR B of oncall-team-rotation)
 
 **Session type:** implementation (spec-driven; plan-lock approved)
-**PR:** none yet. Built locally on top of PR A (#1103); the PR opens after #1103 merges and the branch is replayed onto `main`.
+**PR:** PR B, opened after PR A (#1103) merged.
 **Branch:** `feat/oncall-rotation`
 **Spec:** [oncall-team-rotation](../../specs/oncall-team-rotation.md), PR B (T7–T12); ADR-016 addendum A2–A4 (human-authored).
 

@@ -15,6 +15,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The roster page shows which windows belong to a repeating roster and has a panel with the cycle, status,
   next window and who is next, with stop, resume and end-date controls. Stopping keeps every window.
   New endpoints: `/admin/on-call-rotations` (list, patch, delete = stop).
+- Upcoming windows of a running roster show on the roster calendar as a light, dashed preview; clicking one
+  opens a read-only view.
+
+### Changed
+
+- All repeating-roster controls moved into the roster edit modal: a Repeat automatically checkbox, pause and
+  resume, delete with a clear warning, and a choice to keep or change this window's end when repeat is turned
+  off. Round green, yellow and red buttons (save, pause, delete) sit at the bottom right.
+- Pausing a roster removes the windows that have not started, so another roster can use that time; only one
+  roster runs per team, so a paused roster cannot be resumed once another is active.
+- A window's end is calculated from its start and the cycle length. A window that is running can have its end
+  moved; editing a repeating window's length updates the roster's cycle and the next window.
+- A person can be on only one team at a time. The team member picker is a searchable multi-select that lists
+  only people not on another team.
 
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
