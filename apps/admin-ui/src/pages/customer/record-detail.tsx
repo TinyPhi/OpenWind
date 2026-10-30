@@ -3273,7 +3273,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             type="button"
             className="portal-btn-secondary"
             style={{ marginTop: "16px" }}
-            onClick={() => navigate("/records")}
+            onClick={() => void navigate("/records")}
           >
             ← Back to Records
           </button>
@@ -3297,7 +3297,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             cursor: "pointer",
             padding: 0,
           }}
-          onClick={() => navigate(-1)}
+          onClick={() => void navigate(-1)}
         >
           ← Back
         </button>
@@ -3965,7 +3965,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               <button
                 type="button"
                 className="portal-btn-secondary"
-                onClick={() => navigate("/records")}
+                onClick={() => void navigate("/records")}
               >
                 Go Back
               </button>
@@ -3991,7 +3991,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <button
           type="button"
           className="rcd-bc-link"
-          onClick={() => navigate(-1)}
+          onClick={() => void navigate(-1)}
         >
           <svg
             width="13"
@@ -5256,7 +5256,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 key={child.id}
                                 className={`rcd-table-row ${isClosed ? "rcd-table-row-closed" : ""}`}
                                 onClick={() =>
-                                  navigate(
+                                  void navigate(
                                     `/records/${typeSlug ?? ""}/${child.id}`,
                                   )
                                 }
@@ -5406,7 +5406,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 isDeleted
                                   ? undefined
                                   : () =>
-                                      navigate(
+                                      void navigate(
                                         `/records/${lt.typeSlug}/${lt.targetId}`,
                                       )
                               }

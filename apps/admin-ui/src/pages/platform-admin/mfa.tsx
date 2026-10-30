@@ -46,7 +46,7 @@ export function PlatformAdminMfa(): React.ReactElement {
         </p>
         <OtpVerification
           onVerified={() =>
-            navigate("/platform-admin/dashboard", { replace: true })
+            void navigate("/platform-admin/dashboard", { replace: true })
           }
         />
         <div className="pa-auth-footer">

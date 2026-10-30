@@ -140,7 +140,7 @@ export function NotificationBell(): React.ReactElement {
       );
       await markNotificationRead(n.id);
     }
-    if (n.link) navigate(n.link);
+    if (n.link) void navigate(n.link);
   }
 
   return (

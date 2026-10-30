@@ -100,7 +100,7 @@ export function ApiKeys(): React.ReactElement {
               type="button"
               className="data-panel"
               onClick={() =>
-                navigate(`/admin/api-keys/${encodeURIComponent(app.slug)}`)
+                void navigate(`/admin/api-keys/${encodeURIComponent(app.slug)}`)
               }
               style={{
                 padding: "16px",

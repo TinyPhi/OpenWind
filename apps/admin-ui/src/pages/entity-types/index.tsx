@@ -44,11 +44,14 @@ const EMPTY_FORM: CreateEntityTypeForm = {
 };
 
 export function EntityTypes(): React.ReactElement {
-  const { data, isLoading, refetch } = useList<EntityType>({
+  const {
+    result: data,
+    query: { isLoading, refetch },
+  } = useList<EntityType>({
     resource: "entity-types",
   });
   const navigate = useNavigate();
-  const types = data?.data ?? [];
+  const types = data.data;
 
   const [form, setForm] = useState<CreateEntityTypeForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -150,7 +153,7 @@ export function EntityTypes(): React.ReactElement {
                 <TableRow
                   key={type.id}
                   clickable
-                  onClick={() => navigate(`/entity-types/${type.id}`)}
+                  onClick={() => void navigate(`/entity-types/${type.id}`)}
                 >
                   <TableCell>
                     <div
@@ -223,7 +226,7 @@ export function EntityTypes(): React.ReactElement {
                       className="btn-icon"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/entity-types/${type.id}`);
+                        void navigate(`/entity-types/${type.id}`);
                       }}
                     >
                       →
