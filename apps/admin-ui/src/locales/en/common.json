@@ -32,6 +32,19 @@
     "planDegraded": "Plan degraded: {{metrics}} limit exceeded. Please check usage.",
     "viewUsage": "View usage"
   },
+  "toast": {
+    "dismiss": "Dismiss"
+  },
+  "confirmDelete": {
+    "defaultTitle": "Delete this item?",
+    "defaultConfirmLabel": "Delete",
+    "defaultBusyLabel": "Deleting…",
+    "cancel": "Cancel",
+    "cannotBeUndone": "This action cannot be undone.",
+    "typePrefix": "Type",
+    "typeSuffix": "to confirm.",
+    "typeAriaLabel": "Type {{name}} to confirm"
+  },
   "accessDenied": {
     "checking": "Checking your access…",
     "checkFailed": "We couldn't check your access just now.",
@@ -322,7 +335,20 @@
     "active": "Active",
     "inactive": "Inactive",
     "invite": "Invite User",
-    "inviteSent": "Invitation sent."
+    "inviteSent": "Invitation sent.",
+    "eraseButtonTitle": "Erase this user's personal data",
+    "eraseButton": "Erase",
+    "erasingButton": "Erasing…",
+    "eraseAriaLabel": "Erase {{name}}",
+    "eraseDialogTitle": "Erase this user?",
+    "eraseDialogMessageBefore": "This permanently erases",
+    "eraseDialogMessageAfter": "'s personal data from your organization and deletes their sign-in account.",
+    "eraseSuccessToast": "{{name}} was erased.",
+    "eraseIncompleteTitle": "Erase incomplete",
+    "eraseIncompleteMessage": "{{name}}'s data was erased, but their sign-in could not be removed, so they can still sign in. Erase them again to retry.",
+    "eraseFailedTitle": "Erase failed",
+    "eraseFailedMessage": "{{name}} was not erased: {{error}}.",
+    "requestFailed": "the request failed"
   },
   "teams": {
     "title": "Teams",
@@ -719,6 +745,9 @@
     "noSandboxesYet": "No sandboxes yet.",
     "noSandboxesMatch": "No sandboxes match these filters.",
     "confirmItsYou": "Confirm it's you",
+    "seedOrgChart": "Seed org chart",
+    "seedOrgChartDialogTitle": "Seed the org chart?",
+    "seedOrgChartDialogMessage": "This sets the default departments, titles and managers on every account in {{name}} (overwriting those three fields in Zitadel) and rebuilds its org chart from them. Safe to run again.",
     "format": {
       "sandboxCreated": "Created sandbox",
       "sandboxReset": "Reset sandbox",

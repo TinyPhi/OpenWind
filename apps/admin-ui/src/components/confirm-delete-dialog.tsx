@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -7,6 +8,7 @@ import {
   AlertDialogFooter,
   AlertDialogAction,
   AlertDialogCancel,
+  TOKENS,
 } from "@platform/ui";
 
 /**
@@ -39,21 +41,40 @@ export interface ConfirmDeleteDialogProps {
   busyLabel?: string;
   /** See the component doc: only meaningful while the dialog stays open during the work. */
   busy?: boolean;
+  /**
+   * For deletes that cannot be undone and hit a person or a whole record set: the user must type
+   * this text exactly before the confirm button is enabled. Omit it for ordinary deletes.
+   */
+  typeToConfirm?: string | undefined;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
 export function ConfirmDeleteDialog({
   open,
-  title = "Delete this item?",
+  title,
   message,
   errorMessage,
-  confirmLabel = "Delete",
-  busyLabel = "Deleting…",
+  confirmLabel,
+  busyLabel,
   busy = false,
+  typeToConfirm,
   onConfirm,
   onCancel,
 }: ConfirmDeleteDialogProps): React.ReactElement {
+  const { t } = useTranslation();
+  const resolvedTitle = title ?? t("confirmDelete.defaultTitle");
+  const resolvedConfirmLabel =
+    confirmLabel ?? t("confirmDelete.defaultConfirmLabel");
+  const resolvedBusyLabel = busyLabel ?? t("confirmDelete.defaultBusyLabel");
+  const [typed, setTyped] = useState("");
+  // A new target, or reopening, starts empty: text typed for one person must never confirm another.
+  useEffect(() => {
+    setTyped("");
+  }, [open, typeToConfirm]);
+  const typedMatches =
+    typeToConfirm === undefined || typed.trim() === typeToConfirm.trim();
+
   return (
     <AlertDialog
       open={open}
@@ -78,7 +99,7 @@ export function ConfirmDeleteDialog({
         >
           🗑
         </div>
-        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogTitle>{resolvedTitle}</AlertDialogTitle>
         <AlertDialogDescription>{message}</AlertDialogDescription>
         <p
           style={{
@@ -87,8 +108,46 @@ export function ConfirmDeleteDialog({
             color: "var(--danger, hsl(350, 80%, 60%))",
           }}
         >
-          This action cannot be undone.
+          {t("confirmDelete.cannotBeUndone")}
         </p>
+        {typeToConfirm !== undefined && (
+          <label
+            style={{
+              display: "block",
+              margin: "16px 0 0",
+              fontSize: 13,
+              color: TOKENS.textSecondary,
+            }}
+          >
+            {t("confirmDelete.typePrefix")}{" "}
+            <strong
+              style={{
+                color: TOKENS.textPrimary,
+                background: TOKENS.bgTertiary,
+                border: `1px solid ${TOKENS.borderColor}`,
+                borderRadius: 4,
+                padding: "1px 6px",
+                fontFamily: "monospace",
+                userSelect: "all",
+              }}
+            >
+              {typeToConfirm}
+            </strong>{" "}
+            {t("confirmDelete.typeSuffix")}
+            <input
+              type="text"
+              className="form-input"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoComplete="off"
+              aria-label={t("confirmDelete.typeAriaLabel", {
+                name: typeToConfirm,
+              })}
+              placeholder={typeToConfirm}
+              style={{ marginTop: 8, width: "100%" }}
+            />
+          </label>
+        )}
         {errorMessage && (
           <p
             style={{
@@ -104,13 +163,15 @@ export function ConfirmDeleteDialog({
           {/* No onClick here: Cancel already triggers onOpenChange(false)
               on click, which calls onCancel below - an explicit handler
               here would double-fire it. */}
-          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>
+            {t("confirmDelete.cancel")}
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || !typedMatches}
             style={{ minWidth: 90 }}
           >
-            {busy ? busyLabel : confirmLabel}
+            {busy ? resolvedBusyLabel : resolvedConfirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
