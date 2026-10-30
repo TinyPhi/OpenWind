@@ -117,7 +117,7 @@ export function useIdleLogout(timeoutMs?: number): void {
           // Ignore logout errors (e.g. storage or network unavailable)
         })
         .finally(() => {
-          navigate("/login");
+          void navigate("/login");
         });
     };
 

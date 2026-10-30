@@ -11,8 +11,8 @@ import { platformAdminFactory } from "./factory.js";
  */
 const AuditLogQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  before: z.string().uuid().optional(),
-  targetTenantId: z.string().uuid().optional(),
+  before: z.guid().optional(),
+  targetTenantId: z.guid().optional(),
 });
 
 export const auditLogHandler = platformAdminFactory.createHandlers(

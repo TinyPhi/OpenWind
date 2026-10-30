@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
+import { useLocale } from "../lib/language.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../entity-type-context.js";
 import {
@@ -177,9 +178,9 @@ function slaSeverityColor(hoursOver: number): string {
   return "hsl(35,90%,50%)";
 }
 
-function formatDueDateLong(iso: string | null): string {
+function formatDueDateLong(iso: string | null, locale: string): string {
   if (iso === null) return "—";
-  return new Date(iso).toLocaleDateString("en-IN", {
+  return new Date(iso).toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -612,6 +613,7 @@ function TicketRow({
   item: TicketSummary;
   onOpen: (entityTypeId: string, entityId: string) => void;
 }): React.ReactElement {
+  const { locale } = useLocale();
   return (
     <tr
       onClick={() => onOpen(item.entityTypeId, item.entityId)}
@@ -651,7 +653,7 @@ function TicketRow({
           whiteSpace: "nowrap",
         }}
       >
-        {formatDueDateLong(item.dueDate)}
+        {formatDueDateLong(item.dueDate, locale)}
       </td>
       <td
         style={{
@@ -1174,7 +1176,7 @@ export function Dashboard(): React.ReactElement {
     // R6 — reuses /records's existing filter-chip contract exactly (§V): the
     // "assigned to me" chip is the closest existing equivalent to a
     // workflow+assigned-to-me filter for a workflow-level (not per-ticket) drill-down.
-    navigate(
+    void navigate(
       `/workflows/${toWorkflowSlug(workflowName)}/records?filter=assigned`,
     );
   }
@@ -1182,11 +1184,13 @@ export function Dashboard(): React.ReactElement {
   function openRecord(entityTypeId: string, entityId: string): void {
     const type = getTypeById(entityTypeId);
     if (!type) return;
-    navigate(`/records/${toTypeSlug(type.plural || type.name)}/${entityId}`);
+    void navigate(
+      `/records/${toTypeSlug(type.plural || type.name)}/${entityId}`,
+    );
   }
 
   function openAdminWorkflow(workflowName: string): void {
-    navigate(`/workflows/${toWorkflowSlug(workflowName)}`);
+    void navigate(`/workflows/${toWorkflowSlug(workflowName)}`);
   }
 
   function openNotification(n: NotificationItem): void {
@@ -1195,7 +1199,7 @@ export function Dashboard(): React.ReactElement {
       prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)),
     );
     setUnreadCount((prev) => (n.read ? prev : Math.max(0, prev - 1)));
-    if (n.link) navigate(n.link);
+    if (n.link) void navigate(n.link);
   }
 
   // R11 — saved_views has no consumer UI anywhere in admin-ui yet (no page
@@ -1203,7 +1207,7 @@ export function Dashboard(): React.ReactElement {
   // quick link to the general records page rather than a true "apply this
   // view" deep link. Building that is future work, not part of this pass.
   function openSavedView(): void {
-    navigate("/records");
+    void navigate("/records");
   }
 
   const hasWorkload = view.workflows.length > 0;
@@ -1238,7 +1242,10 @@ export function Dashboard(): React.ReactElement {
             👥 Viewing <strong>{viewingAsName}</strong>&apos;s dashboard —
             read-only.
           </span>
-          <Button variant="secondary" onClick={() => navigate("/dashboard")}>
+          <Button
+            variant="secondary"
+            onClick={() => void navigate("/dashboard")}
+          >
             ← Back to my dashboard
           </Button>
         </div>

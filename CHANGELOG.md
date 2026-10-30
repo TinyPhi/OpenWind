@@ -12,6 +12,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - A signed-in session now logs out after 15 minutes of inactivity by default (was 5).
   `VITE_IDLE_LOGOUT_TIMEOUT_MINUTES` still overrides it.
 
+## [Unreleased — multi-lingual support Phase 1 (#200)]
+
+### Added
+
+- 11-language i18n infrastructure: English (default) + Hindi, Marathi, Bengali, Tamil, Telugu,
+  Kannada, French, German, Italian, Spanish. Language preference is stored in `localStorage`
+  (`ow:language`) and validated against the supported list on every read — unrecognised or
+  injected values silently fall back to English.
+- Language selector tab in Settings (available to all users, not admin-only). The active
+  language is reflected on `document.documentElement.lang` for screen readers.
+- Noto Sans + Noto Sans Devanagari loaded via Google Fonts with `unicode-range` blocks so
+  Indic-script fonts (~1.5 MB) download only for users who need them.
+- Refine `i18nProvider` wired in `App.tsx` (`translate`, `changeLocale`, `getLocale`).
+- Locale-completeness CI test — fails if any non-English `common.json` is missing a key
+  present in the English baseline.
+
+### Changed
+
+- `analytics.tsx` `getTodayLabel` and `dashboard.tsx` `formatDueDateLong` now read the active
+  locale from `useLocale()` instead of hardcoding `"en-IN"`.
+
 ## [Unreleased — erase a user from the Users page (#728)]
 
 ### Added
@@ -24,6 +45,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   #1100) it says "Erase incomplete" and that erasing again retries it.
 - `ConfirmDeleteDialog` takes an optional `typeToConfirm` for deletes that cannot be undone, and
   the admin-ui has a toast (`showToast`, mounted once in `App.tsx`).
+
+## [Unreleased — on-call teams with members]
+
+### Added
+
+- A team can now hold an ordered list of members. The team page builds a team from org users, shows
+  who is on it in rotation order, and lets an admin add, remove and reorder members
+  (`PUT /admin/teams/:id/members`; `memberUserIds` on team create). Removing a member, erasing a user
+  or deleting a team closes the order up so it has no gaps.
+- A team's members are included in the personal-data export.
+- Saving a team's members answers 409 when someone left the team between the eligibility check and the write, instead of saving a person who was never checked.
+
+### Changed
+
+- The on-call roster modal picks the team first, then offers only that team's members for primary,
+  backup and escalation manager. The API enforces the same rule for new and changed roles. A team with
+  no members keeps the old behaviour, and an existing window that names a former member stays editable.
 
 ## [Unreleased — Superset erasure runs automatically (#728)]
 

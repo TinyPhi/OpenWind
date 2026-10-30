@@ -28,7 +28,7 @@ import { platformAdminFactory } from "./factory.js";
  * Done inline rather than on a queue: it is one metadata write per account (10-20) plus a
  * sync. A race with the org-directory sync is handled by that sync's own advisory lock.
  */
-const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
+const TenantIdParamSchema = z.object({ tenantId: z.guid() });
 
 const importer = new ZitadelOrgSourceImporter();
 

@@ -57,10 +57,7 @@ const CreateThirdPartyCommentSchema = z.object({
   mentions: z.array(z.string().trim().min(1).max(256)).max(20).default([]),
   // ADR-012 Phase D, spec R3 -- references completed attachment uploads;
   // never file content itself (spec R2, see attachments-presign.ts).
-  attachmentIds: z
-    .array(z.string().uuid())
-    .max(MAX_ATTACHMENTS_PER_TICKET)
-    .default([]),
+  attachmentIds: z.array(z.guid()).max(MAX_ATTACHMENTS_PER_TICKET).default([]),
 });
 
 /**

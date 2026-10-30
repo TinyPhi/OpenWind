@@ -8,10 +8,10 @@ import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 
 const ExecuteTransitionSchema = z.object({
-  transitionId: z.string().uuid(),
+  transitionId: z.guid(),
   comment: z.string().optional(),
   idempotencyKey: z.string().min(1).max(255).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const executeTransitionHandler = factory.createHandlers(

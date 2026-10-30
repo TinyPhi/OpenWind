@@ -11,7 +11,7 @@ import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 const UpdateFieldSchema = z
   .object({
     label: z.string().min(1).max(200).optional(),
-    config: z.record(z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
     isRequired: z.boolean().optional(),
     sortOrder: z.number().int().min(0).optional(),
     sensitivity: z.enum(["public", "internal", "pii", "financial"]).optional(),

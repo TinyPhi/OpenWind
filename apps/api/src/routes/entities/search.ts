@@ -7,7 +7,7 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 const SearchQuerySchema = z.object({
-  type: z.string().uuid(),
+  type: z.guid(),
   q: z.string().min(1).max(500),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),

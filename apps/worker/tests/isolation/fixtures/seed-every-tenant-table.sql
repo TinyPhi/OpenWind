@@ -59,6 +59,7 @@ BEGIN
   INSERT INTO ticket_labels (tenant_id, ticket_instance_id, label_id, assigned_by) VALUES (t, inst, lbl, u);
 
   INSERT INTO teams (tenant_id, name, created_by) VALUES (t, 'team', u) RETURNING id INTO team;
+  INSERT INTO team_members (tenant_id, team_id, user_id, position) VALUES (t, team, u, 0);
   INSERT INTO services (tenant_id, name, created_by) VALUES (t, 'svc', u);
   INSERT INTO on_call_schedules (tenant_id, team_id, label, starts_at, ends_at, primary_user_id, backup_user_id, escalation_manager_user_id, created_by)
     VALUES (t, team, 'week', now(), now() + interval '7 days', u, u, u, u);

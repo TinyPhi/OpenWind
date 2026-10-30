@@ -381,7 +381,7 @@ export async function createEntity(
     tenantId,
     "create",
   );
-  const result = schema.safeParse(input.fields);
+  const result = schema.safeParse(input.fields, { reportInput: true });
 
   if (!result.success) {
     throw new ValidationError(transformZodErrors(result.error));
@@ -746,7 +746,9 @@ export async function updateEntity(
       tenantId,
       "update",
     );
-    const partialResult = partialSchema.safeParse(input.fields);
+    const partialResult = partialSchema.safeParse(input.fields, {
+      reportInput: true,
+    });
     if (!partialResult.success) {
       throw new ValidationError(transformZodErrors(partialResult.error));
     }
@@ -777,7 +779,7 @@ export async function updateEntity(
         tenantId,
         "create",
       );
-      const fullResult = fullSchema.safeParse(merged);
+      const fullResult = fullSchema.safeParse(merged, { reportInput: true });
       if (!fullResult.success) {
         throw new ValidationError(transformZodErrors(fullResult.error));
       }
@@ -1983,7 +1985,7 @@ export async function bulkCreateEntities(
       tenantId,
       "create",
     );
-    const result = schema.safeParse(input.fields);
+    const result = schema.safeParse(input.fields, { reportInput: true });
 
     if (!result.success) {
       errors.push({ index: i, fields: transformZodErrors(result.error) });
@@ -2330,7 +2332,9 @@ export async function bulkUpdateEntities(
           tenantId,
           "update",
         );
-        const partialResult = partialSchema.safeParse(input.fields);
+        const partialResult = partialSchema.safeParse(input.fields, {
+          reportInput: true,
+        });
         if (!partialResult.success) {
           errors.push({
             index: i,
@@ -2351,7 +2355,7 @@ export async function bulkUpdateEntities(
           tenantId,
           "create",
         );
-        const fullResult = fullSchema.safeParse(merged);
+        const fullResult = fullSchema.safeParse(merged, { reportInput: true });
         if (!fullResult.success) {
           errors.push({
             index: i,

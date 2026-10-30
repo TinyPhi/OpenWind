@@ -21,10 +21,10 @@ const router = new Hono<Vars>();
 
 router.use("*", requireAuth(db));
 
-const LabelIdParamSchema = z.object({ id: z.string().uuid() });
+const LabelIdParamSchema = z.object({ id: z.guid() });
 
 const ListLabelsQuerySchema = z.object({
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

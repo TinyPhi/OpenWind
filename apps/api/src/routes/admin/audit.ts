@@ -26,12 +26,12 @@ const AuditQuerySchema = z.object({
   actorId: z.string().optional(),
   actorType: z.enum(["user", "api_key", "system"]).optional(),
   resourceType: z.string().optional(),
-  resourceId: z.string().uuid().optional(),
+  resourceId: z.guid().optional(),
   action: z.enum(AUDIT_ACTION_VALUES).optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   /** cursor = id of the last row in the previous page */
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

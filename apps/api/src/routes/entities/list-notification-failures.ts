@@ -8,7 +8,7 @@ import { zValidator } from "../../lib/validator.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 
-const ParamsSchema = z.object({ id: z.string().uuid() });
+const ParamsSchema = z.object({ id: z.guid() });
 
 export const NOTIFICATION_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_FAILURES = 50;

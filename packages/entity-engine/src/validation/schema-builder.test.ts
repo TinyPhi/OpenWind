@@ -595,6 +595,20 @@ describe("transformZodErrors", () => {
     }
   });
 
+  it("maps a value of the wrong type to INVALID_TYPE when parsed with reportInput", () => {
+    const schema = buildZodSchema(
+      [makeField({ name: "subject", fieldType: "text", isRequired: true })],
+      "create",
+    );
+    const result = schema.safeParse({ subject: 42 }, { reportInput: true });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const errors = transformZodErrors(result.error);
+      expect(errors[0]?.field).toBe("subject");
+      expect(errors[0]?.code).toBe("INVALID_TYPE");
+    }
+  });
+
   it("maps too_big string to TOO_LONG", () => {
     const schema = buildZodSchema(
       [

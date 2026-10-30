@@ -31,13 +31,13 @@ const AccessLogsQuerySchema = z.object({
         .map((id) => id.trim())
         .filter(Boolean),
     )
-    .pipe(z.array(z.string().uuid()).min(1))
+    .pipe(z.array(z.guid()).min(1))
     .optional(),
   // PR #489 review, F-02 -- a cleared form field submits "" not undefined;
   // .min(1) rejects it at the boundary instead of silently generating
   // WHERE acting_person_id = '' (zero rows, no explanation to the admin).
   personId: z.string().min(1).optional(),
-  ticketId: z.string().uuid().optional(),
+  ticketId: z.guid().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   outcome: z.enum(["allowed", "denied"]).optional(),
@@ -45,7 +45,7 @@ const AccessLogsQuerySchema = z.object({
   // stored -- same "filter by the set of actions matching a derived
   // property" shape as `outcome` above.
   type: z.enum(["read", "write"]).optional(),
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 

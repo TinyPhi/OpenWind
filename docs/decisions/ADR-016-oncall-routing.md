@@ -214,3 +214,69 @@ ends_at`) on a GIST-indexed column; p99 target ≤ 100 ms enforced by an integra
 1. Create GitHub issues linking to this ADR for the 4-phase task breakdown in
    `docs/specs/oncall-routing.md`.
 2. Begin Phase 1 (DB migrations) once the ADR is accepted — see `§T` in the spec.
+
+---
+
+## Addendum 2026-10-28 — Team membership and recurring on-call rosters
+
+**Status:** Proposed. Source: `docs/specs/oncall-team-rotation.md`. Delivered as two PRs:
+A (team membership), B (recurring rotation).
+
+### Context
+
+Decision 1 made a team a name only, and Decision 2 left roster building manual, with "Recurring
+roster templates" under Deferred Decisions. The roster modal therefore picks primary, backup and
+escalation manager from the whole org. The owner wants real teams, roster pickers limited to a
+team's members, a recurring rotation, and advance notice to the people chosen.
+
+### Decision A1 — Team membership is a table
+
+`team_members(id, tenant_id, team_id, user_id text, position int, created_at)`. Tenant-scoped with
+RLS (ADR-001). Unique `(team_id, user_id)` and `(team_id, position)`. Membership is hard-deleted
+(it is not history). `user_id` is a Zitadel `sub`, validated in the app layer against the tenant,
+never by FK. A team holds at most 100 members; zero members stays valid, and existing teams start
+empty. User erasure and tenant purge delete membership rows. Schedule create/patch require only the
+roles being changed to be members of the schedule's team, so old rows with outsiders still edit.
+"One person in two roles" is not enforced.
+
+### Decision A2 — Recurring rosters are decided (removed from Deferred Decisions)
+
+`on_call_rotations(id, tenant_id, team_id, cycle_days, status, ends_on, blocked_reason,
+next_starts_at, last_primary_user_id, last_backup_user_id, escalation_manager_user_id, created_by,
+created_at, updated_at)`, at most one `active` per `(tenant_id, team_id)`. Add
+`on_call_schedules.rotation_id` with a partial unique index on `(rotation_id, starts_at)`, which
+makes generation exactly-once. Generated windows are ordinary `on_call_schedules` rows, so
+`resolve_oncall` is unchanged.
+
+- Cycle is whole days, 3 to 90, default 7; windows are UTC, no DST adjustment.
+- The first window uses the people the admin picked. Later primary = the member after the previous
+  primary in team order, wrapping. Backup likewise; if it equals the primary, move on; a
+  one-member team has no backup. "Previous" is the rotation's latest existing window, else the
+  stored cursor. A departed holder is replaced by the member at the start of the list.
+- The escalation manager is carried over unchanged, and left empty if they left the team.
+- The next window is created when the current one is within 2 days of ending. Catch-up steps
+  through missed cycles (cap 52 per run), never back-fills past windows, never announces a window
+  that already started. A deleted window is not regenerated. A manual window overlapping the next
+  generated one sets the rotation `blocked` with a reason and never overwrites.
+
+### Decision A3 — Rotation worker follows ADR-017
+
+`oncall-rotation-worker` in `apps/worker`: DB polling with `FOR UPDATE SKIP LOCKED`, tenant
+active/trial guard, interval `ONCALL_ROTATION_TICK_INTERVAL_SECONDS` (default 300). RLS hides
+rotations across tenants from a worker with no tenant context, so it uses its own narrowly scoped
+sweeper role with column-scoped grants only, as `outbox_sweeper` and the schedule sweeper do.
+Name and exact grants: `oncall_rotation_sweeper`, fixed in the PR B migration.
+
+### Decision A4 — Advance notice
+
+`on_call_schedule_notices(id, tenant_id, schedule_id, user_id, role, sent_at)`, unique
+`(schedule_id, user_id, role)`, guarantees at most one notice per person per role per window.
+Primary and backup are told 2 days ahead, "from <start> to <end>", in-app
+(`notifications`/`notification_recipients`) and by email via `notifyOutboundQueue`. A window created
+with under 2 days to start notifies at creation. SMS/WhatsApp/voice stay out of scope (#570).
+
+### Consequences
+
+New tables are tenant-scoped with RLS, isolation tests and analytics annotations. New audit actions
+may need `admin_audit_log`'s action CHECK widened (check the current list at T1/T7). Per-service
+rotations (OQ-1), shift-swap and rotating the escalation manager remain deferred.

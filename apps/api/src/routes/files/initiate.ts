@@ -48,7 +48,7 @@ const UploadFieldsSchema = z.object({
     .min(1)
     .max(100)
     .regex(/^[a-z0-9-]+$/),
-  entityId: z.string().uuid().optional(),
+  entityId: z.guid().optional(),
 });
 
 export const initiateUploadHandler = factory.createHandlers(

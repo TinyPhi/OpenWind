@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 
 const mockFetchWithAuth = vi.fn(
   (..._args: unknown[]): Promise<unknown> => Promise.resolve(null),
@@ -112,5 +118,114 @@ describe("RosterPage", () => {
     await waitFor(() =>
       expect(screen.getByText("No team selected")).toBeTruthy(),
     );
+  });
+});
+
+describe("RosterPage schedule modal — team first, members only", () => {
+  const ADA = { userId: "u-1", displayName: "Ada Lovelace", email: "a@x.io" };
+  const BEN = { userId: "u-2", displayName: "Ben Cole", email: "b@x.io" };
+  const CARA = { userId: "u-3", displayName: "Cara Diaz", email: "c@x.io" };
+  const TEAM_WITH_MEMBERS = {
+    ...TEAM_A,
+    members: [
+      { userId: "u-2", position: 0 },
+      { userId: "u-1", position: 1 },
+    ],
+  };
+  const TEAM_EMPTY = {
+    id: "team-2",
+    name: "Support",
+    description: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    members: [],
+  };
+
+  function routeFetch(): void {
+    mockFetchWithAuth.mockImplementation((...args: unknown[]) => {
+      const url = String(args[0]);
+      if (url.endsWith("/admin/teams"))
+        return Promise.resolve({ data: [TEAM_WITH_MEMBERS, TEAM_EMPTY] });
+      if (url.endsWith("/admin/members"))
+        return Promise.resolve({ data: [ADA, BEN, CARA] });
+      if (url.includes("/admin/on-call-schedules?"))
+        return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  beforeEach(() => {
+    mockFetchWithAuth.mockReset();
+    mockShowAlert.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  async function openCreateModal(): Promise<void> {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("New Schedule")).toBeTruthy());
+    fireEvent.click(screen.getByText("New Schedule"));
+    await waitFor(() => expect(screen.getByLabelText(/Team \*/)).toBeTruthy());
+  }
+
+  it("offers only the chosen team's members in the pickers, in rotation order", async () => {
+    routeFetch();
+    await openCreateModal();
+
+    fireEvent.click(screen.getByText("Select a user"));
+    await waitFor(() => expect(screen.getAllByText("Ben Cole").length).toBe(1));
+    expect(screen.getAllByText("Ada Lovelace")).toHaveLength(1);
+    expect(screen.queryByText("Cara Diaz")).toBeNull();
+    expect(screen.queryByText(/has no members yet/)).toBeNull();
+  });
+
+  it("clears the picks and lists everyone, with a hint, when the team has no members", async () => {
+    routeFetch();
+    await openCreateModal();
+
+    fireEvent.click(screen.getByText("Select a user"));
+    fireEvent.click(await screen.findByText("Ben Cole"));
+    fireEvent.change(screen.getByLabelText(/Team \*/), {
+      target: { value: "team-2" },
+    });
+
+    expect(screen.queryByText("Ben Cole")).toBeNull();
+    expect(screen.getByText(/has no members yet/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Select a user"));
+    await waitFor(() => expect(screen.getByText("Cara Diaz")).toBeTruthy());
+  });
+
+  it("creates the window on the team picked in the modal", async () => {
+    routeFetch();
+    await openCreateModal();
+    fireEvent.change(screen.getByLabelText(/Team \*/), {
+      target: { value: "team-2" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. Week 1"), {
+      target: { value: "Cover" },
+    });
+    const [starts, ends] = Array.from(
+      document.querySelectorAll('input[type="datetime-local"]'),
+    );
+    fireEvent.change(starts as Element, {
+      target: { value: "2030-01-01T09:00" },
+    });
+    fireEvent.change(ends as Element, {
+      target: { value: "2030-01-08T09:00" },
+    });
+    fireEvent.click(screen.getByText("Select a user"));
+    fireEvent.click(await screen.findByText("Cara Diaz"));
+    fireEvent.click(screen.getByText("Create schedule"));
+
+    await waitFor(() => {
+      const post = mockFetchWithAuth.mock.calls.find(
+        (c) => (c[1] as { method?: string } | undefined)?.method === "POST",
+      );
+      expect(post).toBeTruthy();
+      expect(
+        JSON.parse((post?.[1] as { body: string }).body) as unknown,
+      ).toMatchObject({ teamId: "team-2", primaryUserId: "u-3" });
+    });
   });
 });

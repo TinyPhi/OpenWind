@@ -352,6 +352,18 @@ describe("the job", () => {
     });
   });
 
+  // zod 4's uuid() rejects ids without an RFC 9562 version digit, which would drop the dev
+  // tenant's erasure as a job that can never succeed.
+  it("accepts a fixed tenant id like the dev tenant's", async () => {
+    fakeSuperset([done()]);
+    const devTenant = "00000000-0000-0000-0000-000000000001";
+    await processSupersetErasure(job({ kind: "tenant", tenantId: devTenant }));
+    expect(mockWrite.mock.calls[0]?.[1]).toMatchObject({
+      tenantId: devTenant,
+      action: "superset_erasure.completed",
+    });
+  });
+
   it("keeps the counts on the job, so a retry after a failed audit write does not record zeros", async () => {
     fakeSuperset([done()]);
     mockWrite.mockRejectedValueOnce(new Error("db down"));
