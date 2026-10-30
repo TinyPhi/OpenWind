@@ -43,8 +43,8 @@ function rawTimeoutMinutesSetting(): string | undefined {
   );
 }
 
-// Config-driven (docs/specs/auto-logout-on-inactivity.md): the fixed timeout was too strict for local dev with no way to relax it short of
-// editing source.
+// Config-driven (docs/specs/auto-logout-on-inactivity.md): the fixed timeout
+// was too strict for local dev with no way to relax it short of editing source.
 function isEnabledFromEnv(): boolean {
   const raw = rawEnabledSetting();
   if (raw === undefined) return DEFAULT_ENABLED;
@@ -78,7 +78,7 @@ const ACTIVITY_EVENTS = [
  * VITE_IDLE_LOGOUT_ENABLED="false" is still a no-op. When timeoutMs is
  * omitted, the timeout also comes from env — VITE_IDLE_LOGOUT_ENABLED
  * ("false" to disable, anything else/unset defaults to enabled) and
- * VITE_IDLE_LOGOUT_TIMEOUT_MINUTES (whole minutes, defaults to 5 if
+ * VITE_IDLE_LOGOUT_TIMEOUT_MINUTES (whole minutes, defaults to 15 if
  * unset/invalid).
  */
 export function useIdleLogout(timeoutMs?: number): void {

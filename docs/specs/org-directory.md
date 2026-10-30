@@ -142,6 +142,12 @@ a small organisation behind collapsed cards.
 ✓ For a tenant with ≤500 synced employees, the page becomes interactive (default depth-3 view
 rendered, fold/search controls responsive) within 200ms of data arriving client-side.
 
+Idle logout (policy, 2026-10-30): the admin UI signs a person out after 15 minutes without input
+(`useIdleLogout`; `VITE_IDLE_LOGOUT_TIMEOUT_MINUTES` overrides, `VITE_IDLE_LOGOUT_ENABLED=false`
+disables). The default was 5; the owner accepted 15 because 5 was too short on sandboxes and for
+admins reading long pages. Token and refresh lifetimes are unchanged, so this only bounds an unattended
+browser. A deployment holding sensitive data can set a shorter value.
+
 R9: Search finds a person by name or email, highlights their card, and reveals it in context.
 ✓ Match is case-insensitive substring match against name or email (e.g. "jan" matches "Jane
 Doe" and "janitor@co.com").

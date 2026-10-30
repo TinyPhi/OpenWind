@@ -50,12 +50,18 @@ const DEFAULT_EXPAND_DEPTH = 3;
 // DEFAULT_EXPAND_DEPTH and would otherwise hide most of a small organisation behind collapsed cards.
 const EXPAND_ALL_UP_TO = 60;
 
+// Counts what the chart can reach from the root, the same nodes collectDefaultExpanded walks.
 function countNodes(tree: OrgTree): number {
-  let total = 1;
-  for (const children of Object.values(tree.nodesByParentId)) {
-    total += children.length;
+  const seen = new Set<string>();
+  const pending = [tree.root.userId];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    for (const child of tree.nodesByParentId[id] ?? [])
+      pending.push(child.userId);
   }
-  return total;
+  return seen.size;
 }
 
 function collectDefaultExpanded(tree: OrgTree, maxDepth: number): Set<string> {
