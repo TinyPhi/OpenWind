@@ -3,6 +3,20 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — Superset production config (#1142)]
+
+### Fixed
+
+- Production compose now requires `SUPERSET_SERVICE_ACCOUNT_PASSWORD` for `ow-worker` and passes it
+  `SUPERSET_INTERNAL_URL` and `SUPERSET_SERVICE_ACCOUNT_USER`, so GDPR erasure jobs no longer retry for
+  about 26 hours against a worker that cannot log in to Superset. The Superset erasure runbook lists
+  the four OpenBao paths to set when Stage 2 is enabled.
+
+### Upgrade note
+
+- Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to `openwind/<env>/worker` in OpenBao before deploying this
+  compose file, even with reporting off, or `ow-worker` refuses to start (exit 78).
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added

@@ -378,3 +378,37 @@ describe.skipIf(!hasCompose)("docker-compose.rollback.yml", () => {
     expect(problems).not.toMatch(/published on every interface/);
   });
 });
+
+describe("Superset keys in docker-compose.prod.yml BAO_REQUIRED_KEYS (#1142)", () => {
+  const prodFile = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../docker-compose.prod.yml",
+  );
+
+  async function requiredKeys(service: string): Promise<string[]> {
+    const { readFileSync } = await import("node:fs");
+    const text = readFileSync(prodFile, "utf8");
+    const start = text.search(new RegExp(`^ {2}${service}:\\s*$`, "m"));
+    expect(start, `${service} block`).toBeGreaterThanOrEqual(0);
+    const rest = text.slice(start + 1);
+    const end = rest.search(/^ {2}[a-z][\w-]*:\s*$/m);
+    const block = end === -1 ? rest : rest.slice(0, end);
+    const m = /^ {6}BAO_REQUIRED_KEYS: (\S+)\s*$/m.exec(block);
+    expect(m, `${service} BAO_REQUIRED_KEYS`).not.toBeNull();
+    return m![1]!.split(","); // non-null asserted by the expect above
+  }
+
+  it("requires the service account password at backend, worker and superset-init", async () => {
+    for (const s of ["ow-backend", "ow-worker", "superset-init"]) {
+      expect(await requiredKeys(s)).toContain(
+        "SUPERSET_SERVICE_ACCOUNT_PASSWORD",
+      );
+    }
+  });
+
+  it("never requires the OAuth client id: it is what turns Stage 2 on", async () => {
+    for (const s of ["ow-backend", "ow-worker", "superset", "superset-init"]) {
+      expect(await requiredKeys(s)).not.toContain("SUPERSET_OAUTH_CLIENT_ID");
+    }
+  });
+});

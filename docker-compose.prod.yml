@@ -111,7 +111,10 @@ services:
       <<: *openbao
       BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/backend
       # Only what the API uses (ADR-023 Decision 3): of the Superset secrets,
-      # just the service account password it logs in with.
+      # just the service account password it logs in with. SUPERSET_OAUTH_CLIENT_ID
+      # is deliberately not required: it is what turns Superset Stage 2 on (ADR-019),
+      # so requiring it would force Stage 2 on. When Stage 2 is on, store it at this
+      # path too, or the API treats Stage 2 as off (docs/runbooks/superset-erasure.md).
       BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SERVICE_ACCOUNT_PASSWORD
       # Backend calls Transit at runtime, so it keeps its AppRole login.
       BAO_KEEP_LOGIN: "1"
@@ -150,8 +153,14 @@ services:
     environment: !override
       <<: *openbao
       BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/worker
-      # The worker uses no Superset secret, so its path holds none.
-      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN
+      # The worker logs in to Superset as the service account to erase people's
+      # Superset data (apps/worker/src/superset-erasure.ts), so it needs
+      # SUPERSET_SERVICE_ACCOUNT_PASSWORD, required like the backend's. Without it a
+      # job retries for about 26 hours before it fails. SUPERSET_OAUTH_CLIENT_ID is
+      # deliberately not required (it turns Stage 2 on, ADR-019); when Stage 2 is on,
+      # store it at this path too, or the worker treats Stage 2 as off
+      # (docs/runbooks/superset-erasure.md).
+      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SERVICE_ACCOUNT_PASSWORD
       # Worker decrypts connector credentials with Transit at runtime.
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
@@ -160,6 +169,8 @@ services:
       REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
+      SUPERSET_INTERNAL_URL: ${SUPERSET_INTERNAL_URL:-http://superset:8088}
+      SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
       FILES_STORAGE_PATH: /data/files
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
