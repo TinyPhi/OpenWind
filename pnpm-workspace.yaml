@@ -15,8 +15,11 @@ overrides:
   # GHSA-gv7w-rqvm-qjhr (high): tsx@4.x and vite@6.x pull in the vulnerable esbuild transitively
   esbuild: ">=0.28.1"
   # GHSA-587h-7wmj-h5pm (high): launch-editor fs.existsSync check can be bypassed on Windows
+  # dev-server path traversal: server.fs restriction checked before query-string strip, so
+  # GET /sensitive.ts?bypass=1 could escape the allowlist — patched in 6.4.5 (dev-only, no
+  # production impact). Floor raised >=6.4.4 → >=6.4.5 (#1127).
   # Bounded to <7 to stay on Vite 6 without introducing breaking bundler changes from Vite 7/8.
-  vite: ">=6.4.4 <7"
+  vite: ">=6.4.5 <7"
   # Source of truth for the minimum hono version across the workspace (#182) — package.json
   # "hono" specifiers in individual apps/packages should match this floor, not drift below it.
   # GHSA-8j4g-w8fx-2239: ReDoS in CORS middleware via Access-Control-Request-Headers
