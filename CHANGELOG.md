@@ -3,6 +3,21 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — schedule rules page]
+
+### Changed
+
+- New schedule rules default to India time (Asia/Kolkata) instead of UTC. Existing rules keep the zone they
+  were saved with.
+- The rule list uses round icon buttons (pause or resume, edit, delete). Pausing and deleting now ask for
+  confirmation first, and the warning says what happens to missed fire times and to records already created.
+  Resuming has no warning.
+
+### Removed
+
+- The Archive button on the rule list. Pausing a rule does the same job. The API still accepts the archived
+  status, and rules archived earlier still show.
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added
