@@ -40,6 +40,17 @@
   - `record-detail.tsx` hardcoded strings deferred — 5906-line file, not in scope of phase 2
 - Verification: typecheck PASS, lint PASS, admin-ui 108/108 files 1144/1144 tests PASS
 
+### Next (third merge round — PR #1084 react-router v7)
+
+- Third `git merge origin/main` incorporating PR #1084 (react-router v6 → v7 migration):
+  - 4 merge conflicts resolved — all same pattern: our `const { t } = useTranslation()` line
+    vs main's updated `useList` return-value destructuring (`result: data, query: { ... }`)
+    - `dashboard.tsx`: kept our t() calls + added `void` to navigate call (v7 returns a promise)
+    - `entity-types/index.tsx`, `plugins.tsx`, `workflows/index.tsx`: merged both sides
+  - Raised bundle budget in `scripts/check-entry-size.mjs` from 210 → 215 kB: bundling
+    ~230 en/common.json keys grew the entry chunk to 212.5 kB gzip
+- Verification: typecheck PASS, lint PASS, admin-ui 108/108 files 1147/1147 tests PASS
+
 ### Open questions
 
 - `record-detail.tsx`: 3 hardcoded strings (`"The comment could not be posted"` ×2,

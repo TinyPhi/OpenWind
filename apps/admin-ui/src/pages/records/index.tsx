@@ -293,7 +293,7 @@ export function AdminRecords(): React.ReactElement {
               <Button
                 variant="primary"
                 style={{ marginTop: "16px" }}
-                onClick={() => navigate("/workflows/new")}
+                onClick={() => void navigate("/workflows/new")}
               >
                 {t("records.newWorkflow")}
               </Button>
@@ -319,7 +319,7 @@ export function AdminRecords(): React.ReactElement {
               transitionCount: wf.transitions.length,
               etMap,
             }))}
-            onNavigate={(slug) => navigate(`/workflows/${slug}/records`)}
+            onNavigate={(slug) => void navigate(`/workflows/${slug}/records`)}
           />
         )}
       </div>
@@ -431,7 +431,7 @@ export function AdminRecords(): React.ReactElement {
             const url = filterParam
               ? `/workflows/${slug}/records?filter=${filterParam}`
               : `/workflows/${slug}/records`;
-            navigate(url);
+            void navigate(url);
           }}
         />
       )}

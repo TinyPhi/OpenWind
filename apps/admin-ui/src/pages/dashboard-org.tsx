@@ -205,7 +205,7 @@ function TeamMemberRow({ member }: { member: TeamMember }): React.ReactElement {
             link existing is not itself a grant of access. */}
         <button
           type="button"
-          onClick={() => navigate(`/dashboard/team/${member.userId}`)}
+          onClick={() => void navigate(`/dashboard/team/${member.userId}`)}
           style={{
             background: "none",
             border: "none",

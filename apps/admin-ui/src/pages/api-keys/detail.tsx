@@ -237,7 +237,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
         <Button
           variant="secondary"
           style={{ marginTop: "16px" }}
-          onClick={() => navigate("/admin/api-keys")}
+          onClick={() => void navigate("/admin/api-keys")}
         >
           Back to API Keys
         </Button>
@@ -254,7 +254,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
           <Button
             variant="secondary"
             style={{ marginBottom: "12px" }}
-            onClick={() => navigate("/admin/api-keys")}
+            onClick={() => void navigate("/admin/api-keys")}
           >
             ← All applications
           </Button>

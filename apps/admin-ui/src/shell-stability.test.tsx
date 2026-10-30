@@ -57,7 +57,7 @@ let navigateFn: (to: string) => void = (): void => {};
 function NavigationBridge(): React.ReactElement {
   const navigate = useNavigate();
   useEffect(() => {
-    navigateFn = navigate;
+    navigateFn = (to) => void navigate(to);
   }, [navigate]);
   return null as unknown as React.ReactElement;
 }
@@ -126,8 +126,10 @@ describe("Shell Stability during Route Transitions and Lazy Loading", () => {
       await Promise.resolve();
     });
 
-    // While /page-b is loading, RouteLoadingFallback displays INSIDE outlet
-    expect(screen.getByTestId("route-loading-fallback")).toBeDefined();
+    // While /page-b is loading, react-router 7 runs the navigation as a React
+    // transition, so the previous page stays on screen instead of the fallback.
+    expect(screen.getByTestId("page-a")).toBeDefined();
+    expect(screen.queryByTestId("route-loading-fallback")).toBeNull();
 
     // Critical shell invariant: Layout, Header, and Sidebar MUST STAY MOUNTED!
     expect(screen.getByTestId("app-shell-layout")).toBeDefined();

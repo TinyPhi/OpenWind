@@ -38,13 +38,16 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function Plugins(): React.ReactElement {
   const { t } = useTranslation();
-  const { data, isLoading, refetch } = useList<PluginListEntry>({
+  const {
+    result: data,
+    query: { isLoading, refetch },
+  } = useList<PluginListEntry>({
     resource: "plugins",
   });
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const plugins = data?.data ?? [];
+  const plugins = data.data;
 
   async function handleUninstall(slug: string): Promise<void> {
     setBusySlug(slug);

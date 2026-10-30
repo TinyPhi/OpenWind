@@ -20,7 +20,7 @@ export function RejectPlatformAdmin({
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
-  const { data: roles, isLoading } = usePermissions<string[]>();
+  const { data: roles, isLoading } = usePermissions<string[]>({});
 
   if (isLoading) return <></>;
 

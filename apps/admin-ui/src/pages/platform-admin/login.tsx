@@ -15,7 +15,7 @@ import { userManager } from "../../authProvider.js";
 export function PlatformAdminLogin(): React.ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: roles, isLoading } = usePermissions<string[]>();
+  const { data: roles, isLoading } = usePermissions<string[]>({});
   const [loading, setLoading] = React.useState(false);
   const [signInFailed, setSignInFailed] = React.useState(false);
 
@@ -27,7 +27,7 @@ export function PlatformAdminLogin(): React.ReactElement {
 
   React.useEffect(() => {
     if (isAuthenticated && isPlatformAdmin) {
-      navigate("/platform-admin/dashboard", { replace: true });
+      void navigate("/platform-admin/dashboard", { replace: true });
     }
   }, [isAuthenticated, isPlatformAdmin, navigate]);
 

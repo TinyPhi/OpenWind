@@ -105,7 +105,7 @@ export function AccessLogsPanel({
           setError("Could not resolve this ticket's record type.");
           return;
         }
-        navigate(`/records/${toTypeSlug(type.name)}/${ticketId}`);
+        void navigate(`/records/${toTypeSlug(type.name)}/${ticketId}`);
       })
       .catch(() => setError("Failed to open ticket — it may be deleted."))
       .finally(() => setResolvingTicketId(null));

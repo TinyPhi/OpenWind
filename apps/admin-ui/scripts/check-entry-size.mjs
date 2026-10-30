@@ -10,10 +10,11 @@ import { fileURLToPath } from "node:url";
 
 // Main application entry chunk gzip ceiling in kB of 1024 bytes (Vite's build
 // output uses 1000, so it prints ~202 kB for the same file). Set to the measured
-// entry (197.4 kB gzip, 2026-10-05) plus ~6% headroom. If a change has to grow
-// the entry past this, raise the number in the same PR and say why in the PR
-// description; prefer lazy-loading the new code instead.
-const ENTRY_GZIP_BUDGET_KB = 210;
+// entry (212.5 kB gzip, 2026-10-30) plus ~1% headroom. Raised from 210 in PR
+// #1107 (i18n phase 2): bundling ~230 en/common.json keys added ~2.5 kB.
+// If a change has to grow the entry past this, raise the number in the same PR
+// and say why in the PR description; prefer lazy-loading the new code instead.
+const ENTRY_GZIP_BUDGET_KB = 215;
 const distDir = fileURLToPath(new URL("../dist", import.meta.url));
 
 const html = readFileSync(join(distDir, "index.html"), "utf8");

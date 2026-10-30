@@ -81,7 +81,11 @@ function MiniFlow({
 
 export function Workflows(): React.ReactElement {
   const { t } = useTranslation();
-  const { data, isLoading } = useList<Workflow>({ resource: "workflows" });
+  const {
+    result: data,
+    query: { isLoading },
+  } = useList<Workflow>({ resource: "workflows" });
+
   const { getTypeById } = useEntityTypes();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -103,7 +107,7 @@ export function Workflows(): React.ReactElement {
       .catch(() => setIsAdmin(false));
   }, []);
 
-  const allWorkflows = data?.data ?? [];
+  const allWorkflows = data.data;
   const workflows = search.trim()
     ? allWorkflows.filter((w) =>
         w.name.toLowerCase().includes(search.toLowerCase()),
@@ -147,12 +151,12 @@ export function Workflows(): React.ReactElement {
         key={wf.id}
         className="wfl-row"
         style={{ "--row-accent": accent } as React.CSSProperties}
-        onClick={() => navigate(`/workflows/${toWorkflowSlug(wf.name)}`)}
+        onClick={() => void navigate(`/workflows/${toWorkflowSlug(wf.name)}`)}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ")
-            navigate(`/workflows/${toWorkflowSlug(wf.name)}`);
+            void navigate(`/workflows/${toWorkflowSlug(wf.name)}`);
         }}
       >
         {/* 3px left accent */}
@@ -263,7 +267,7 @@ export function Workflows(): React.ReactElement {
           {isAdmin && (
             <Button
               variant="primary"
-              onClick={() => navigate("/workflows/new")}
+              onClick={() => void navigate("/workflows/new")}
             >
               <svg
                 width="13"
@@ -368,7 +372,7 @@ export function Workflows(): React.ReactElement {
           <Button
             variant="primary"
             style={{ marginTop: "16px" }}
-            onClick={() => navigate("/workflows/new")}
+            onClick={() => void navigate("/workflows/new")}
           >
             {t("workflows.createWorkflow")}
           </Button>
