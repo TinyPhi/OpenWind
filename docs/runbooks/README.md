@@ -11,7 +11,9 @@ behind it lives in an ADR under [docs/decisions/](../decisions/) and is linked f
 
 Other operational docs that are not runbooks: [deployment hardening](../deployment-hardening.md)
 (go-live controls), [local setup](../local-setup.md), and the
-[backup and DR runbook](../specs/backup-dr-runbook.md) (kept with the specs).
+[backup and DR runbook](../specs/backup-dr-runbook.md) (kept with the specs),
+and the [client onboarding guide](../client-onboarding.md) (contracts, representatives, registers and
+go-live gates for a new customer; a working draft, not legal advice).
 
 ## Adding a runbook
 
