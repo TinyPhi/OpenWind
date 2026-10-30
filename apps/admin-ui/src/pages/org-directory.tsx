@@ -30,8 +30,8 @@ import { relativeTime } from "../lib/format.js";
 // admin-gated (also enforced server-side by the route itself — this is a UX
 // affordance, not the security boundary).
 //
-// Loads expanded to depth 3 by default; deeper levels expand on demand per
-// node (R8). Search matches name or email, highlights the match, and
+// Loads fully expanded for a small organisation, and to depth 3 for a large one;
+// deeper levels expand on demand per node (R8). Search matches name or email, highlights the match, and
 // auto-expands its ancestor path so it's visible in context (R9).
 
 // Same duplicated profile-role-parsing pattern as users.tsx (no shared
@@ -46,11 +46,30 @@ function getRolesFromProfile(
 }
 
 const DEFAULT_EXPAND_DEPTH = 3;
+// Up to this many people the whole chart opens expanded: a chain of managers is deeper than
+// DEFAULT_EXPAND_DEPTH and would otherwise hide most of a small organisation behind collapsed cards.
+const EXPAND_ALL_UP_TO = 60;
+
+// Counts what the chart can reach from the root, the same nodes collectDefaultExpanded walks.
+function countNodes(tree: OrgTree): number {
+  const seen = new Set<string>();
+  const pending = [tree.root.userId];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    for (const child of tree.nodesByParentId[id] ?? [])
+      pending.push(child.userId);
+  }
+  return seen.size;
+}
 
 function collectDefaultExpanded(tree: OrgTree, maxDepth: number): Set<string> {
+  const limit =
+    countNodes(tree) <= EXPAND_ALL_UP_TO ? Number.POSITIVE_INFINITY : maxDepth;
   const expanded = new Set<string>();
   function walk(node: OrgNode, depth: number): void {
-    if (depth >= maxDepth) return;
+    if (depth >= limit) return;
     expanded.add(node.userId);
     for (const child of tree.nodesByParentId[node.userId] ?? []) {
       walk(child, depth + 1);

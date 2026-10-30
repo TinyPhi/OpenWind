@@ -103,6 +103,30 @@ const TREE = {
   },
 };
 
+// Over the small-organisation limit, so the chart opens to the default depth only.
+const FILLER = Array.from({ length: 60 }, (_, i) => ({
+  userId: `filler-${i}`,
+  parentId: "ceo",
+  name: `Filler ${i}`,
+  title: "Engineer",
+  department: "engineering",
+  email: `filler-${i}@example.com`,
+  isRoot: false,
+}));
+const BIG_TREE = {
+  root: ROOT,
+  nodesByParentId: { ...TREE.nodesByParentId, ceo: [VP, ...FILLER] },
+};
+
+// TREE padded with fillers under the CEO to exactly `total` people; "Hidden Report" stays at depth 4.
+function treeOfSize(total: number): typeof BIG_TREE {
+  const fillers = FILLER.slice(0, total - 5);
+  return {
+    root: ROOT,
+    nodesByParentId: { ...TREE.nodesByParentId, ceo: [VP, ...fillers] },
+  };
+}
+
 const SYNC_STATUS = {
   lastSyncedAt: new Date().toISOString(),
   lastSyncOk: true,
@@ -127,6 +151,47 @@ describe("OrgDirectoryPage", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("opens a small organisation fully expanded, even a long chain of managers", async () => {
+    render(<OrgDirectoryPage />);
+
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
+    // Hidden Report is four levels down: collapsed under the old depth-3 default
+    expect(screen.getByText("Hidden Report")).toBeTruthy();
+  });
+
+  it("still opens fully expanded at exactly 60 people", async () => {
+    mockGetOrgTree.mockResolvedValue(treeOfSize(60));
+    render(<OrgDirectoryPage />);
+
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
+    expect(screen.getByText("Hidden Report")).toBeTruthy();
+  });
+
+  it("falls back to the default depth at 61 people", async () => {
+    mockGetOrgTree.mockResolvedValue(treeOfSize(61));
+    render(<OrgDirectoryPage />);
+
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
+    expect(screen.queryByText("Hidden Report")).toBeNull();
+  });
+
+  it("keeps a large organisation collapsed below the default depth", async () => {
+    mockGetOrgTree.mockResolvedValue(BIG_TREE);
+    render(<OrgDirectoryPage />);
+
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
+      timeout: CHART_TIMEOUT_MS,
+    });
+    expect(screen.getByText("VP Person")).toBeTruthy();
+    expect(screen.queryByText("Hidden Report")).toBeNull();
   });
 
   it("renders the tree with the root and default-expanded levels visible", async () => {
@@ -211,6 +276,7 @@ describe("OrgDirectoryPage", () => {
 
   describe("search (R9 -- highlight a match and auto-expand its ancestor path)", () => {
     it("reveals a node that starts collapsed below the default expand depth", async () => {
+      mockGetOrgTree.mockResolvedValue(BIG_TREE);
       render(<OrgDirectoryPage />);
 
       await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {
@@ -232,6 +298,7 @@ describe("OrgDirectoryPage", () => {
     });
 
     it("leaves the tree unchanged and highlights nothing when the search matches no one", async () => {
+      mockGetOrgTree.mockResolvedValue(BIG_TREE);
       render(<OrgDirectoryPage />);
 
       await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy(), {

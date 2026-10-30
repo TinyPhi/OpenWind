@@ -3,6 +3,15 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — org chart and idle logout]
+
+### Changed
+
+- The org chart opens fully expanded for an organisation of 60 people or fewer. Before, it showed only the
+  first three levels, so a chain of managers hid most people behind collapsed cards.
+- A signed-in session now logs out after 15 minutes of inactivity by default (was 5).
+  `VITE_IDLE_LOGOUT_TIMEOUT_MINUTES` still overrides it.
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added
