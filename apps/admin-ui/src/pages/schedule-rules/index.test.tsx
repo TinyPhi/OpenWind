@@ -429,8 +429,36 @@ describe("ScheduleRulesPage", () => {
 
     const tzSelect = screen.getByLabelText(/Timezone/) as HTMLSelectElement;
     expect(tzSelect.tagName).toBe("SELECT");
-    fireEvent.change(tzSelect, { target: { value: "Asia/Kolkata" } });
-    expect(tzSelect.value).toBe("Asia/Kolkata");
+    fireEvent.change(tzSelect, { target: { value: "Europe/London" } });
+    expect(tzSelect.value).toBe("Europe/London");
+  });
+
+  it("defaults a new rule to India time, not UTC", async () => {
+    queueRefresh([]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("No schedule rules yet")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByText("New Rule"));
+
+    expect((screen.getByLabelText(/Timezone/) as HTMLSelectElement).value).toBe(
+      "Asia/Kolkata",
+    );
+  });
+
+  it("keeps UTC on an existing rule saved with it", async () => {
+    queueRefresh([RULE_A]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+
+    expect(
+      ((await screen.findByLabelText(/Timezone/)) as HTMLSelectElement).value,
+    ).toBe("UTC");
   });
 
   it("preserves an existing timezone that is not in the picker options", async () => {
@@ -475,9 +503,17 @@ describe("ScheduleRulesPage", () => {
       expect(screen.getByText("Weekly Standup")).toBeTruthy(),
     );
 
+    fireEvent.click(screen.getByLabelText("Pause rule"));
+    expect(screen.getByText("Pause schedule rule?")).toBeTruthy();
+    expect(
+      mockFetchWithAuth.mock.calls.some(
+        (c) => (c[1] as { method?: string } | undefined)?.method === "PATCH",
+      ),
+    ).toBe(false);
+
     mockFetchWithAuth.mockResolvedValueOnce({ data: {} });
     queueRefresh([{ ...RULE_A, status: "paused" }]);
-    fireEvent.click(screen.getByLabelText("Pause rule"));
+    fireEvent.click(screen.getByRole("button", { name: "Pause rule" }));
 
     await waitFor(() =>
       expect(mockFetchWithAuth).toHaveBeenCalledWith(
@@ -490,33 +526,58 @@ describe("ScheduleRulesPage", () => {
     );
   });
 
-  it("archives a rule after confirmation", async () => {
+  it("resumes a paused rule straight away, without a warning", async () => {
+    queueRefresh([{ ...RULE_A, status: "paused" }]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    mockFetchWithAuth.mockResolvedValueOnce({ data: {} });
+    queueRefresh([RULE_A]);
+    fireEvent.click(screen.getByLabelText("Resume rule"));
+
+    expect(screen.queryByText("Pause schedule rule?")).toBeNull();
+    await waitFor(() =>
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        "/api/admin/schedule-rules/rule-1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "active" }),
+        }),
+      ),
+    );
+  });
+
+  it("warns before deleting and only deletes on confirm", async () => {
     queueRefresh([RULE_A]);
     renderPage();
     await waitFor(() =>
       expect(screen.getByText("Weekly Standup")).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByLabelText("Archive rule"));
-    expect(screen.getByText("Archive schedule rule?")).toBeTruthy();
-    expect(screen.getByText(/Archived rules cannot be resumed/)).toBeTruthy();
+    expect(screen.queryByLabelText("Archive rule")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Delete rule"));
+    expect(screen.getByText("Delete schedule rule?")).toBeTruthy();
+    expect(screen.getByText(/This cannot be undone/)).toBeTruthy();
+    expect(
+      mockFetchWithAuth.mock.calls.some(
+        (c) => (c[1] as { method?: string } | undefined)?.method === "DELETE",
+      ),
+    ).toBe(false);
 
     mockFetchWithAuth.mockResolvedValueOnce({ data: {} });
-    queueRefresh([{ ...RULE_A, status: "archived" }]);
-    fireEvent.click(screen.getByText("Archive"));
-
+    queueRefresh([]);
+    fireEvent.click(screen.getByText("Delete"));
     await waitFor(() =>
       expect(mockFetchWithAuth).toHaveBeenCalledWith(
         "/api/admin/schedule-rules/rule-1",
-        expect.objectContaining({
-          method: "PATCH",
-          body: JSON.stringify({ status: "archived" }),
-        }),
+        expect.objectContaining({ method: "DELETE" }),
       ),
     );
   });
 
-  it("does not offer archive or resume actions for an archived rule", async () => {
+  it("has no archive button, and cannot pause an already archived rule", async () => {
     queueRefresh([{ ...RULE_A, status: "archived" }]);
     renderPage();
     await waitFor(() =>
