@@ -12,7 +12,7 @@ import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 import { initials } from "../lib/format.js";
 import { avatarColor } from "../lib/theme.js";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { OrgChartPanel } from "./org-directory.js";
 import { ConfirmDeleteDialog } from "../components/confirm-delete-dialog.js";
 import { showAlert } from "../components/global-alert-dialog.js";
@@ -358,11 +358,11 @@ export function UsersPage(): React.ReactElement {
         title={t("users.eraseDialogTitle")}
         message={
           eraseTarget ? (
-            <>
-              {t("users.eraseDialogMessageBefore")}{" "}
-              <strong>{eraseConfirmText(eraseTarget)}</strong>
-              {t("users.eraseDialogMessageAfter")}
-            </>
+            <Trans
+              i18nKey="users.eraseDialogMessage"
+              values={{ name: eraseConfirmText(eraseTarget) }}
+              components={{ strong: <strong /> }}
+            />
           ) : (
             ""
           )
