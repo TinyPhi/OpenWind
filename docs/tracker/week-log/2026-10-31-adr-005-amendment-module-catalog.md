@@ -2,7 +2,7 @@
 
 ## Done
 
-- Drafted Amendment 1 to ADR-005 (status Proposed, owner to accept): the module catalog is
+- Drafted Amendment 1 to ADR-005 (accepted by the repo owner 2026-10-31): the module catalog is
   written by `migration_user` in a post-migrate sync step, not by `app_user` at API runtime.
 - Added two inline "superseded in part" pointers and an `Amended by` header line in ADR-005.
 - Verified inputs: `app_user` has SELECT only on `modules` (live check, 2026-10-30); no migration,
@@ -11,7 +11,7 @@
 
 ## Next
 
-- Owner reviews and accepts or edits the amendment; then #1079 is implemented with a fresh-database
+- #1079 is implemented with a fresh-database
   test that logs in as a real `app_user`.
 
 ## Open

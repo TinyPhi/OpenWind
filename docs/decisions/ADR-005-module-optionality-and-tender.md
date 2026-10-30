@@ -9,8 +9,8 @@
 an optionality dimension ADR-004 didn't need at the time it was written (Phase 2, 7-module
 catalog, no concept of "not every tenant needs this one").  
 **Superseded by:** —  
-**Amended by:** Amendment 1 (2026-10-31, #1079) at the end of this document — status Proposed; it
-replaces the runtime-seeding mechanism described below, not the `core`/`optional` decision.
+**Amended by:** Amendment 1 (2026-10-31, #1079) at the end of this document — status Accepted
+(2026-10-31, repo owner); it replaces the runtime-seeding mechanism described below, not the `core`/`optional` decision.
 
 ---
 
@@ -287,8 +287,8 @@ happened as a result of it.
 
 ## Amendment 1 (2026-10-31): the module catalog is written by the migration role, not at API runtime
 
-**Status:** Proposed. Drafted from issue #1079 for the repo owner to review and accept. Until
-accepted, treat the decisions below as recommendations, not settled architecture.
+**Status:** Accepted (2026-10-31, repo owner). Drafted from issue #1079. The open questions at the
+end are not yet answered; settle them in the implementation PR for #1079 or record the answer there.
 **Amends:** this ADR's "`category` lives in code" and "Implementation sketch" sections.
 **Related:** ADR-001 (`modules` is platform-wide, written by no tenant-facing role), ADR-004,
 ADR-020 (Proposed, ownership and reclassification), migration 0061 (#404).
