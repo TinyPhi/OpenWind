@@ -20,7 +20,7 @@ const CreateFieldSchema = z.object({
     .regex(/^[a-z_][a-z0-9_]*$/, "field name must be snake_case"),
   label: z.string().min(1).max(200),
   fieldType: z.enum(FIELD_TYPES),
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
   isRequired: z.boolean().default(false),
   isIndexed: z.boolean().default(false),
   sortOrder: z.number().int().min(0).default(0),

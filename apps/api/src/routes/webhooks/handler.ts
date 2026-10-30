@@ -48,8 +48,8 @@ import { connectorInboundQueue } from "../../lib/connector-inbound-queue.js";
 import { factory } from "./factory.js";
 
 const ParamsSchema = z.object({
-  connectorId: z.string().uuid(),
-  tenantId: z.string().uuid(),
+  connectorId: z.guid(),
+  tenantId: z.guid(),
 });
 
 // Same tolerance window Stripe/Svix use, cited in ADR-009 Decision #3.

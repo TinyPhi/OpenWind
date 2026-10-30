@@ -38,8 +38,8 @@ const MAX_MENTIONS = 50;
 const AddCommentSchema = z.object({
   text: z.string().min(1).max(4000),
   mentions: z.array(MentionSchema).max(MAX_MENTIONS).default([]),
-  replyTo: z.string().uuid().nullable().default(null),
-  fileIds: z.array(z.string().uuid()).max(10).default([]),
+  replyTo: z.guid().nullable().default(null),
+  fileIds: z.array(z.guid()).max(10).default([]),
 });
 
 export const addCommentHandler = factory.createHandlers(

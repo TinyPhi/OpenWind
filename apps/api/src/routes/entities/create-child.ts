@@ -23,10 +23,10 @@ const DUE_DATE_GRACE_MS = 15_000;
 // most one of an assignee or a team (unassigned is allowed, 2026-10-19).
 const CreateChildSchema = z
   .object({
-    entityTypeId: z.string().uuid(),
-    fields: z.record(z.unknown()).default({}),
+    entityTypeId: z.guid(),
+    fields: z.record(z.string(), z.unknown()).default({}),
     assignedTo: z.string().min(1).optional(),
-    teamId: z.string().uuid().optional(),
+    teamId: z.guid().optional(),
     dueDate: z
       .string()
       .datetime()

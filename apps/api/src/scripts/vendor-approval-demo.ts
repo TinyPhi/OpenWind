@@ -91,7 +91,7 @@ const APPROVAL_PATH: Array<{ from: string; to: string; roles: string[] }> = [
 ];
 
 const ArgsSchema = z.object({
-  tenant: z.string().uuid(),
+  tenant: z.guid(),
   assignee: z.string().min(1).optional(),
   notify: z.record(
     z.enum(["it_security", "legal", "finance_approver"]),

@@ -42,6 +42,7 @@ import {
   savedViews,
   scheduleRules,
   services,
+  teamMembers,
   teams,
   tenantUsers,
   ticketAlerts,
@@ -372,6 +373,13 @@ function buildSectionList(): readonly SectionSpec[] {
       table: teams,
       keys: ["id", "name", "description", "createdBy", "createdAt"],
       userColumns: [{ key: "createdBy" }],
+      orderBy: "id",
+    },
+    {
+      name: "teamMembers",
+      table: teamMembers,
+      keys: ["id", "teamId", "userId", "position", "createdAt"],
+      userColumns: [{ key: "userId" }],
       orderBy: "id",
     },
     {

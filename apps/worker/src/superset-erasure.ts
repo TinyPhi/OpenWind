@@ -52,7 +52,7 @@ export type SupersetErasureSummary = z.infer<typeof SummarySchema>;
 const JobSchema = z
   .object({
     kind: z.enum(["user", "tenant"]),
-    tenantId: z.string().uuid(),
+    tenantId: z.guid(),
     subject: z.string().regex(SUBJECT_PATTERN).optional(),
     // Kept on the job once Superset has answered, so a retry after a failed audit write reuses the
     // counts instead of recording the zero a second run reports.

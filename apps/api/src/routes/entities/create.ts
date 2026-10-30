@@ -24,8 +24,8 @@ import { logger } from "@platform/logger";
 
 const CreateEntitySchema = z
   .object({
-    entityTypeId: z.string().uuid(),
-    fields: z.record(z.unknown()),
+    entityTypeId: z.guid(),
+    fields: z.record(z.string(), z.unknown()),
     // Mandatory platform-wide invariant on every creation path (admin-ui here,
     // third-party/tickets.ts, third-party/children.ts) -- title and dueDate
     // are required on every ticket, on every workflow, no exceptions.
@@ -42,12 +42,12 @@ const CreateEntitySchema = z
     // PR #659 review (Vijit), G6: was z.string().min(1) -- a non-UUID value
     // passed schema validation and only failed at the team lookup below,
     // surfacing as "Must be an existing team in this tenant" rather than a
-    // structured invalid-format error. TemplateSchema uses .uuid() for the
+    // structured invalid-format error. TemplateSchema uses z.guid() for the
     // same field.
-    teamId: z.string().uuid().optional(),
+    teamId: z.guid().optional(),
     dueDate: z.string().datetime(),
     remark: z.string().trim().min(1).max(4000),
-    workflowId: z.string().uuid().optional(),
+    workflowId: z.guid().optional(),
     currentState: z.string().optional(),
     // docs/specs/ticket-severity-and-tags.md R1 — optional on the wire; the
     // handler below defaults to Medium when omitted. Never NULL once past

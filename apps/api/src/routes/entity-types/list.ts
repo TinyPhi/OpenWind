@@ -7,7 +7,7 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 const ListEntityTypesQuerySchema = z.object({
-  moduleId: z.string().uuid().optional(),
+  moduleId: z.guid().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),
 });

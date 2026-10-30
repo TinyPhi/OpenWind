@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ActionConfigSchema } from "./schemas.js";
+import { ActionConfigSchema, TriggerTypeSchema } from "./schemas.js";
 
 // docs/specs/mandatory-ticket-fields.md R7: a rule's ticket template survives the API (zod
 // drops unknown keys) and anything it sets is valid.
@@ -51,5 +51,22 @@ describe("ActionConfigSchema — ticket template", () => {
         config: {},
       }).success,
     ).toBe(true);
+  });
+});
+
+// #684: a retired trigger type is rejected with a hint at its replacement.
+describe("TriggerTypeSchema", () => {
+  it("names the replacement for a retired type", () => {
+    const result = TriggerTypeSchema.safeParse("field.changed");
+    expect(result.error?.issues[0]?.message).toBe(
+      "field.changed is no longer supported: use entity.updated with triggerConfig.field",
+    );
+  });
+
+  it("keeps zod's own message for an unknown type", () => {
+    const result = TriggerTypeSchema.safeParse("no.such.type");
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).not.toMatch(/no longer supported/);
+    expect(result.error?.issues[0]?.message).not.toBe("");
   });
 });

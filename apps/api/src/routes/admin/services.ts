@@ -28,17 +28,17 @@ const router = new Hono<Vars>();
 
 router.use("*", requireAuth(db));
 
-const ServiceIdParamSchema = z.object({ id: z.string().uuid() });
+const ServiceIdParamSchema = z.object({ id: z.guid() });
 
 const ListServicesQuerySchema = z.object({
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 const CreateServiceSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional(),
-  teamId: z.string().uuid().optional(),
+  teamId: z.guid().optional(),
 });
 
 const UpdateServiceSchema = CreateServiceSchema.partial();

@@ -395,6 +395,24 @@ function HistoryIcon({
 }
 
 /* ── Comment composer with @mention + file attachments ──────── */
+// A validation failure's message is the generic "Request validation failed"; the reason is in
+// its per-field list, so show that when there is one.
+function commentErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return "The comment could not be posted";
+  const fields = (err as Error & { fields?: Array<{ message?: string }> })
+    .fields;
+  const reasons = (fields ?? [])
+    .map((f) => f.message)
+    .filter((m): m is string => typeof m === "string" && m !== "");
+  if (reasons.length > 0) return reasons.join("; ");
+  return err.message || "The comment could not be posted";
+}
+// The API's limit on a comment (apps/api/src/routes/entities/add-comment.ts). The composer
+// sends the trimmed text, so the count here trims too.
+const COMMENT_MAX_LENGTH = 4000;
+// The counter appears once this few characters are left, like X's composer.
+const COMMENT_COUNTER_FROM = 200;
+
 function CommentComposer({
   users,
   replyTo,
@@ -407,12 +425,14 @@ function CommentComposer({
   users: OrgUser[];
   replyTo: WorkflowEvent | null;
   onCancel?: () => void;
+  // Resolves true once posted, false if the user backed out (e.g. cancelled the access
+  // dialog) — the text is kept then. Rejects if the post failed.
   onSubmit: (
     text: string,
     mentions: string[],
     replyTo: string | null,
     fileIds: string[],
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   placeholder?: string;
   entityId: string;
   moduleSlug: string;
@@ -423,7 +443,16 @@ function CommentComposer({
   const [mentionAnchor, setMentionAnchor] = useState(0);
   const [mentionIdx, setMentionIdx] = useState(0);
   const [mentionedIds, setMentionedIds] = useState<Set<string>>(new Set());
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const leadingSpace = text.length - text.trimStart().length;
+  const remaining = COMMENT_MAX_LENGTH - text.trim().length;
+  const overLimit = remaining < 0;
+  // Where the red part starts. The count is in UTF-16 units, as the API's is, so the limit can
+  // fall inside an emoji; start the red part at the emoji then, rather than splitting it.
+  let overflowAt = leadingSpace + COMMENT_MAX_LENGTH;
+  if (/[\uD800-\uDBFF]/.test(text.charAt(overflowAt - 1))) overflowAt -= 1;
   const {
     stagedFiles,
     addFiles,
@@ -449,6 +478,7 @@ function CommentComposer({
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>): void {
     const val = e.target.value;
     setText(val);
+    setSubmitError(null);
     const cursor = e.target.selectionStart;
     const atMatch = /@([\w.]*)$/.exec(val.slice(0, cursor));
     if (atMatch) {
@@ -500,19 +530,24 @@ function CommentComposer({
   }
 
   async function handleSubmit(): Promise<void> {
-    if (!text.trim() || submitting) return;
+    if (!text.trim() || submitting || overLimit) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
-      await onSubmit(
+      const posted = await onSubmit(
         text.trim(),
         [...mentionedIds],
         replyTo?.id ?? null,
         cleanFileIds,
       );
+      if (!posted) return;
       setText("");
       setMentionQuery(null);
       setMentionedIds(new Set());
       clearFiles();
+    } catch (err) {
+      // Keep the text so it can be fixed and posted again; before this the failure was silent.
+      setSubmitError(commentErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -551,10 +586,32 @@ function CommentComposer({
         </div>
       )}
       <div className="cmt-input-wrap">
+        {/* Mirrors the textarea's text behind it so the part past the limit can be painted
+            red, as X does; a textarea cannot style part of its own text. */}
+        <div ref={backdropRef} className="cmt-backdrop" aria-hidden="true">
+          {overLimit ? (
+            <>
+              {text.slice(0, overflowAt)}
+              <mark className="cmt-overflow">{text.slice(overflowAt)}</mark>
+            </>
+          ) : (
+            text
+          )}
+          {/* Zero-width space: a trailing newline only takes up a line when something follows
+              it, so without this the backdrop is a line short and drifts from the textarea. */}
+          {"​"}
+        </div>
         <textarea
           ref={textareaRef}
           className="cmt-textarea"
           rows={3}
+          aria-invalid={overLimit || undefined}
+          onScroll={(e) => {
+            if (backdropRef.current) {
+              backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+              backdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            }
+          }}
           placeholder={
             placeholder ??
             "Add a comment… Use @ to mention someone (Ctrl+Enter to post)"
@@ -606,8 +663,23 @@ function CommentComposer({
           ))}
         </div>
       )}
+      {submitError && (
+        <div className="cmt-submit-error" role="alert">
+          {submitError}
+        </div>
+      )}
       <div className="cmt-composer-footer">
-        <span className="cmt-hint">@ mention · Ctrl+Enter to post</span>
+        {overLimit ? (
+          <span className="cmt-counter cmt-counter-over" role="status">
+            Remove {-remaining} character{remaining === -1 ? "" : "s"} to post
+          </span>
+        ) : remaining <= COMMENT_COUNTER_FROM ? (
+          <span className="cmt-counter" role="status">
+            {remaining} character{remaining === 1 ? "" : "s"} left
+          </span>
+        ) : (
+          <span className="cmt-hint">@ mention · Ctrl+Enter to post</span>
+        )}
         <div className="cmt-footer-actions">
           <label className="cmt-attach-btn" title="Attach files">
             <svg
@@ -640,8 +712,16 @@ function CommentComposer({
           <button
             type="button"
             className="portal-btn-primary cmt-post-btn"
-            disabled={!text.trim() || submitting || pendingCount > 0}
-            title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
+            disabled={
+              !text.trim() || submitting || pendingCount > 0 || overLimit
+            }
+            title={
+              pendingCount > 0
+                ? "Waiting for file scan…"
+                : overLimit
+                  ? `Comments can be at most ${COMMENT_MAX_LENGTH} characters`
+                  : undefined
+            }
             onClick={() => void handleSubmit()}
           >
             {submitting ? (
@@ -1422,6 +1502,20 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [accessChangeSaving, setAccessChangeSaving] = useState(false);
 
   // Pending mention-grant: comment waiting for access level confirmation
+  // Settles the composer's pending post once the mention-grant dialog is answered: true when
+  // posted, false when cancelled, rejected with the API error when the post failed.
+  const mentionGrantSettleRef = useRef<{
+    resolve: (posted: boolean) => void;
+    reject: (err: unknown) => void;
+  } | null>(null);
+  // Leaving the page with the dialog open: settle the composer's pending post as not posted.
+  useEffect(
+    () => () => {
+      mentionGrantSettleRef.current?.resolve(false);
+      mentionGrantSettleRef.current = null;
+    },
+    [],
+  );
   const [pendingMentionGrant, setPendingMentionGrant] = useState<{
     text: string;
     mentions: string[]; // all mention userIds
@@ -2662,21 +2756,24 @@ export function CustomerRecordDetail(): React.ReactElement {
     mentionIds: string[],
     replyTo: string | null,
     fileIds: string[] = [],
-  ): Promise<void> {
-    if (!id) return;
+  ): Promise<boolean> {
+    if (!id) return false;
     const existingIds = new Set(accessList.map((e) => e.userId));
     const newToAccess = mentionIds.filter((uid) => !existingIds.has(uid));
     if (newToAccess.length > 0) {
       const newUsers = users.filter((u) => newToAccess.includes(u.userId));
-      setPendingMentionGrant({
-        text,
-        mentions: mentionIds,
-        replyTo,
-        newUsers,
-        selectedLevel: "read_comment",
-        fileIds,
+      // The composer waits for the dialog, so a failed or cancelled post keeps its text.
+      return new Promise<boolean>((resolve, reject) => {
+        mentionGrantSettleRef.current = { resolve, reject };
+        setPendingMentionGrant({
+          text,
+          mentions: mentionIds,
+          replyTo,
+          newUsers,
+          selectedLevel: "read_comment",
+          fileIds,
+        });
       });
-      return;
     }
     // All mentioned users already have access — post directly
     const mentionEntries = mentionIds.map((uid) => {
@@ -2687,6 +2784,13 @@ export function CustomerRecordDetail(): React.ReactElement {
       };
     });
     await doSubmitComment(text, mentionEntries, replyTo, fileIds);
+    return true;
+  }
+
+  function cancelMentionGrant(): void {
+    setPendingMentionGrant(null);
+    mentionGrantSettleRef.current?.resolve(false);
+    mentionGrantSettleRef.current = null;
   }
 
   useEffect(() => {
@@ -4898,7 +5002,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                       onCancel={() => setReplyTo(null)}
                       onSubmit={(text, mentions, replyToId, fileIds) =>
                         submitComment(text, mentions, replyToId, fileIds).then(
-                          () => setReplyTo(null),
+                          (posted) => {
+                            if (posted) setReplyTo(null);
+                            return posted;
+                          },
                         )
                       }
                     />
@@ -5651,7 +5758,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       <Dialog
         open={pendingMentionGrant !== null}
         onOpenChange={(next) => {
-          if (!next) setPendingMentionGrant(null);
+          if (!next) cancelMentionGrant();
         }}
       >
         <DialogContent
@@ -5789,10 +5896,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
           <div className="modal-footer">
-            <Button
-              variant="secondary"
-              onClick={() => setPendingMentionGrant(null)}
-            >
+            <Button variant="secondary" onClick={cancelMentionGrant}>
               Cancel
             </Button>
             <Button
@@ -5801,6 +5905,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                 if (!pendingMentionGrant) return;
                 const { text, mentions, replyTo, selectedLevel } =
                   pendingMentionGrant;
+                const settle = mentionGrantSettleRef.current;
+                mentionGrantSettleRef.current = null;
                 setPendingMentionGrant(null);
                 const existingIds = new Set(accessList.map((e) => e.userId));
                 const mentionEntries = mentions.map((uid) => ({
@@ -5810,11 +5916,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                         "read_comment") as AccessLevel)
                     : selectedLevel,
                 }));
-                void doSubmitComment(
+                doSubmitComment(
                   text,
                   mentionEntries,
                   replyTo,
                   pendingMentionGrant.fileIds ?? [],
+                ).then(
+                  () => settle?.resolve(true),
+                  (err: unknown) => settle?.reject(err),
                 );
               }}
             >

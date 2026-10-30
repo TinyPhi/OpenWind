@@ -52,6 +52,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ConfirmDeleteDialog` takes an optional `typeToConfirm` for deletes that cannot be undone, and
   the admin-ui has a toast (`showToast`, mounted once in `App.tsx`).
 
+## [Unreleased — on-call teams with members]
+
+### Added
+
+- A team can now hold an ordered list of members. The team page builds a team from org users, shows
+  who is on it in rotation order, and lets an admin add, remove and reorder members
+  (`PUT /admin/teams/:id/members`; `memberUserIds` on team create). Removing a member, erasing a user
+  or deleting a team closes the order up so it has no gaps.
+- A team's members are included in the personal-data export.
+- Saving a team's members answers 409 when someone left the team between the eligibility check and the write, instead of saving a person who was never checked.
+
+### Changed
+
+- The on-call roster modal picks the team first, then offers only that team's members for primary,
+  backup and escalation manager. The API enforces the same rule for new and changed roles. A team with
+  no members keeps the old behaviour, and an existing window that names a former member stays editable.
+
 ## [Unreleased — Superset erasure runs automatically (#728)]
 
 ### Security

@@ -56,12 +56,12 @@ const router = new Hono<Vars>();
 
 router.use("*", requireAuth(db));
 
-const RuleIdParamSchema = z.object({ id: z.string().uuid() });
+const RuleIdParamSchema = z.object({ id: z.guid() });
 
 const ListRulesQuerySchema = z.object({
   status: z.enum(["active", "paused", "archived"]).optional(),
   includeDeleted: z.coerce.boolean().default(false),
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
@@ -82,8 +82,8 @@ const CreateRuleSchema = z.object({
   // change). Team assignment works for every entity type: the resolve_oncall
   // automation rules are unscoped (migration 0153, owner decision 2026-10-19)
   // and ship with the core helpdesk module, so every tenant has them.
-  entityTypeId: z.string().uuid().optional(),
-  workflowId: z.string().uuid().optional(),
+  entityTypeId: z.guid().optional(),
+  workflowId: z.guid().optional(),
   catchUp: z.boolean().default(false),
   template: TemplateSchema,
 });
@@ -147,7 +147,7 @@ const UpdateRuleSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   cronExpr: z.string().min(1).optional(),
   timezone: z.string().min(1).optional(),
-  workflowId: z.string().uuid().optional(),
+  workflowId: z.guid().optional(),
   catchUp: z.boolean().optional(),
   template: TemplateSchema.optional(),
   status: z.enum(["active", "paused", "archived"]).optional(),
@@ -155,7 +155,7 @@ const UpdateRuleSchema = z.object({
 
 const ExecutionsQuerySchema = z.object({
   status: z.enum(["success", "failed", "skipped"]).optional(),
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 

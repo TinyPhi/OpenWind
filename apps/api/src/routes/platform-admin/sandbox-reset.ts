@@ -35,7 +35,7 @@ import { platformAdminFactory } from "./factory.js";
  * fine: the worker's own acquisition is what actually prevents two resets from running
  * concurrently against the same tenant.
  */
-const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
+const TenantIdParamSchema = z.object({ tenantId: z.guid() });
 
 const WAIT_FOR_RESET_TTL_MS = 60_000;
 
