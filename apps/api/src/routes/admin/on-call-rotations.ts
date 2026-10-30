@@ -192,7 +192,9 @@ router.patch(
               eq(onCallRotations.tenantId, auth.tenantId),
             ),
           )
-          .limit(1);
+          .limit(1)
+          // the worker moves the cursor and blocked reason; lock first so `before` is not stale
+          .for("update");
         if (!before) return { status: "not_found" as const };
 
         const resuming =

@@ -24,3 +24,7 @@ Owner testing of the rebuilt local stack changed how repeating rosters are edite
 - Pausing deletes rows for good (with audit entries), unlike a soft delete, so a later resume does not collide with the `(rotation_id, starts_at)` unique index.
 - The ADR-016 addendum (A2) still says stopping keeps generated windows and does not mention one team per person; a human needs to update it.
 - Local dev data: the one existing rotation was corrected by hand (cycle 3, cursor at its window's end) after the fix.
+- Security review of PR B (2026-10-30): no blocking findings. `PATCH /admin/on-call-rotations/:id` now
+  locks the rotation row before reading it, so the audit snapshot and the resume check cannot go stale
+  against the worker. Known and accepted: the one-team-per-person race (see the spec's open items);
+  messages already sent are not retracted when pausing removes a future window.

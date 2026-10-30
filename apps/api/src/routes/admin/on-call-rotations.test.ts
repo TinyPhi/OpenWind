@@ -63,6 +63,7 @@ let upcomingWindows: Array<{
   endsAt: Date;
 }> = [];
 let deletedTables: unknown[] = [];
+let lockModes: string[] = [];
 
 vi.mock("@platform/db", () => ({
   db: {},
@@ -105,13 +106,21 @@ vi.mock("@platform/db", () => ({
           limit: () => Promise.resolve(found ? [existingRow] : []),
         }),
       limit: () =>
-        Promise.resolve(
-          (fromTable as { deletedAt?: string } | undefined)?.deletedAt &&
-            teamDeleted
-            ? []
-            : found
-              ? [existingRow]
-              : [],
+        Object.assign(
+          Promise.resolve(
+            (fromTable as { deletedAt?: string } | undefined)?.deletedAt &&
+              teamDeleted
+              ? []
+              : found
+                ? [existingRow]
+                : [],
+          ),
+          {
+            for: (mode: string) => {
+              lockModes.push(mode);
+              return Promise.resolve(found ? [existingRow] : []);
+            },
+          },
         ),
       update: () => tx,
       set: (patch: Record<string, unknown>) => {
@@ -193,6 +202,7 @@ beforeEach(() => {
   updateConflict = false;
   upcomingWindows = [];
   deletedTables = [];
+  lockModes = [];
   teamDeleted = false;
   updatedPatch = null;
   mockWriteAuditEntry.mockReset();
@@ -246,6 +256,12 @@ describe("GET /admin/on-call-rotations", () => {
 });
 
 describe("PATCH /admin/on-call-rotations/:id", () => {
+  it("locks the rotation row before reading it, so the audit snapshot is not stale", async () => {
+    const res = await patch({ status: "stopped" });
+    expect(res.status).toBe(200);
+    expect(lockModes).toEqual(["update"]);
+  });
+
   it("stops a rotation and audits the change", async () => {
     const res = await patch({ status: "stopped" });
     expect(res.status).toBe(200);
