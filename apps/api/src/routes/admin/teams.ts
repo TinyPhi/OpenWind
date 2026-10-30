@@ -43,6 +43,38 @@ const MAX_TEAM_MEMBERS = 100;
 
 class TeamChangedError extends Error {}
 
+// The refuseBadMembers check and the write are separate transactions, so two admins adding the same
+// person to two teams at once both pass it; the unique index is what stops the second.
+function isOneTeamViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object" || !("cause" in err)) return false;
+  const cause = err.cause;
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    "code" in cause &&
+    cause.code === "23505" &&
+    "constraint_name" in cause &&
+    cause.constraint_name === "team_members_tenant_user_unique"
+  );
+}
+
+function oneTeamViolationResponse(c: Context<Vars>): Response {
+  return c.json(
+    {
+      error: "VALIDATION_ERROR",
+      message: "Validation failed",
+      fields: [
+        {
+          field: "memberUserIds",
+          message:
+            "Someone in this list was just added to another team. Reload and try again.",
+        },
+      ],
+    },
+    422,
+  );
+}
+
 const MemberUserIdsSchema = z
   .array(z.string().trim().min(1).max(255))
   .max(MAX_TEAM_MEMBERS);
@@ -365,6 +397,7 @@ router.post(
       }
       return c.json({ data: row }, 201);
     } catch (err: unknown) {
+      if (isOneTeamViolation(err)) return oneTeamViolationResponse(c);
       // Postgres unique_violation on teams_tenant_name_unique (R3: duplicate
       // name within a tenant returns 409).
       if (
@@ -638,6 +671,7 @@ router.put(
       }
       return c.json({ data: row });
     } catch (err: unknown) {
+      if (isOneTeamViolation(err)) return oneTeamViolationResponse(c);
       if (err instanceof TeamChangedError) {
         return c.json(
           {

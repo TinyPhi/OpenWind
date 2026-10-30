@@ -70,6 +70,15 @@ async function seed(opts: {
     .returning({ id: teams.id });
   const teamId = team!.id;
   if (members.length > 0) {
+    // a person is on one team at a time, and every seed reuses the same few people
+    await db
+      .delete(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.tenantId, tenantId),
+          inArray(teamMembers.userId, members),
+        ),
+      );
     await db.insert(teamMembers).values(
       members.map((userId, position) => ({
         tenantId,
@@ -300,6 +309,10 @@ describe("generation (R5, R6)", () => {
     for (const r of [stopped, deletedTeam, suspended]) {
       expect(await windows(r.rotationId)).toHaveLength(1);
     }
+    expect((await rotation(deletedTeam.rotationId)).blockedReason).toMatch(
+      /team was deleted/,
+    );
+    expect((await rotation(stopped.rotationId)).blockedReason).toBeNull();
   });
 
   it("generates nothing past the end date", async () => {

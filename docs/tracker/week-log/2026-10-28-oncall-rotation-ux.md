@@ -26,5 +26,11 @@ Owner testing of the rebuilt local stack changed how repeating rosters are edite
 - Local dev data: the one existing rotation was corrected by hand (cycle 3, cursor at its window's end) after the fix.
 - Security review of PR B (2026-10-30): no blocking findings. `PATCH /admin/on-call-rotations/:id` now
   locks the rotation row before reading it, so the audit snapshot and the resume check cannot go stale
-  against the worker. Known and accepted: the one-team-per-person race (see the spec's open items);
-  messages already sent are not retracted when pausing removes a future window.
+  against the worker. Known and accepted: messages already sent are not retracted when pausing removes a
+  future window.
+- Review follow-up (2026-10-30): migration 0158 now adds a unique index on `team_members (tenant_id,
+user_id)` in place of the plain one, so the one-team-per-person race ends in a `422`; schedule `PATCH`
+  also filters deleted windows in its write; a rotation whose team was deleted shows why it makes no
+  windows; Escape closes the member picker. Not changed: the worker still polls every active rotation,
+  because a rotation's next start is past the notice lead as soon as its windows exist, so filtering on it
+  would skip the notices still due on those windows.

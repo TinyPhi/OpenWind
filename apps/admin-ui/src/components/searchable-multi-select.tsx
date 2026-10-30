@@ -51,7 +51,16 @@ export function SearchableMultiSelect({
   }
 
   return (
-    <div ref={containerRef}>
+    <div
+      ref={containerRef}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          // keep a surrounding modal open: Escape only closes the list
+          e.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
       <button
         type="button"
         className="form-input"

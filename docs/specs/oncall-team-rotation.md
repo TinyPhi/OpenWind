@@ -274,7 +274,7 @@ integration tests pass before the next phase; isolation tests in every phase tha
 - Spec review 2026-10-28 (fixes applied): a deleted window is not regenerated; catch-up does not
   back-fill past windows; the "one person, two roles" rule was dropped (not enforced today); a team is
   capped at 100 members; the worker interval is configurable (default 300 s).
-- Known gap: the one-team-per-person check (R1) runs in its own transaction and `team_members` has no unique index on (tenant, user), so two admins adding the same person to two teams at the same moment can both pass; a unique index or an advisory lock would close it.
+- Closed in the review of PR B (2026-10-30): the one-team-per-person check (R1) runs in its own transaction, so migration 0158 adds a unique index on `team_members (tenant_id, user_id)`; a race loses with a `422`. The migration stops with a clear message if a deployment already has someone on two teams.
 - Defaults chosen with the owner on 2026-10-28: escalation manager fixed; notice in-app and email,
   once, 2 days ahead, lead fixed at 2 days for v1; rotation continues from admin edits; member-less
   teams keep the old behaviour; cycle minimum 3 days; stop with optional end date.

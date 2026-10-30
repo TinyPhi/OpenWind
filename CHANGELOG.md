@@ -27,8 +27,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   roster runs per team, so a paused roster cannot be resumed once another is active.
 - A window's end is calculated from its start and the cycle length. A window that is running can have its end
   moved; editing a repeating window's length updates the roster's cycle and the next window.
-- A person can be on only one team at a time. The team member picker is a searchable multi-select that lists
-  only people not on another team.
+- A person can be on only one team at a time, enforced by the database as well as the API, so two admins
+  saving at once cannot put someone on two teams. The team member picker is a searchable multi-select that
+  lists only people not on another team.
 
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 

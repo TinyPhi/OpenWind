@@ -813,6 +813,7 @@ router.patch(
             and(
               eq(onCallSchedules.id, id),
               eq(onCallSchedules.tenantId, auth.tenantId),
+              isNull(onCallSchedules.deletedAt),
             ),
           )
           .returning();

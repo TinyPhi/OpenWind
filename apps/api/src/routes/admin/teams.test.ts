@@ -466,6 +466,22 @@ describe("team members — review follow-ups", () => {
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
+  it("answers 422, not 500, when the unique index catches a person two admins added at once", async () => {
+    orgRoles = new Map([["u-1", ["agent"]]]);
+    mockReplaceMembers.mockImplementationOnce(() => {
+      throw Object.assign(new Error("insert failed"), {
+        cause: {
+          code: "23505",
+          constraint_name: "team_members_tenant_user_unique",
+        },
+      });
+    });
+    const res = await putMembers(["u-1"]);
+    expect(res.status).toBe(422);
+    expect((await res.json()).fields[0].field).toBe("memberUserIds");
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
   it("refuses someone who is already on another team, naming the team", async () => {
     orgRoles = new Map([["u-1", ["agent"]]]);
     takenElsewhere = [{ userId: "u-1", teamName: "Support" }];

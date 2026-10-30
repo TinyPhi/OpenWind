@@ -11,6 +11,9 @@
 -- ALTER TABLE notifications DROP CONSTRAINT notifications_type_check;
 -- ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN ('entity.assigned', 'comment.mentioned', 'comment.mention_access_granted', 'comment.replied', 'access.granted', 'access.revoked', 'workflow.sla_breached', 'system.error', 'automation.notify', 'ticket.alert', 'access.updated', 'workflow.transitioned', 'entity.updated', 'entity.due_date_approaching', 'access_request.created', 'access_request.updated', 'entity.unassigned', 'oncall.backup_tagged', 'ticket.severity_notification'));
 --
+-- DROP INDEX IF EXISTS "team_members_tenant_user_unique";
+-- CREATE INDEX "team_members_tenant_user_idx" ON "team_members" ("tenant_id", "user_id");
+--
 -- DROP POLICY IF EXISTS "tenant_write" ON "on_call_schedule_notices";
 -- DROP POLICY IF EXISTS "tenant_read" ON "on_call_schedule_notices";
 -- ALTER TABLE "on_call_schedule_notices" DISABLE ROW LEVEL SECURITY;
@@ -87,7 +90,7 @@ CREATE UNIQUE INDEX "on_call_schedules_rotation_start_unique"
 CREATE TABLE "on_call_schedule_notices" (
   "id"          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "tenant_id"   uuid NOT NULL REFERENCES tenants(id),
-  "schedule_id" uuid NOT NULL REFERENCES on_call_schedules(id),
+  "schedule_id" uuid NOT NULL REFERENCES on_call_schedules(id), -- no cascade: delete a window's notices before the window
   "user_id"     text NOT NULL,
   "role"        text NOT NULL CHECK ("role" IN ('primary', 'backup', 'escalation_manager')),
   "sent_at"     timestamptz NOT NULL DEFAULT now()
@@ -163,3 +166,22 @@ ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN
   'ticket.severity_notification',
   'oncall.rotation_notice'
 ));
+
+-- One team per person (R3). The API refuses a second membership with a friendly message, but that
+-- check and the write are separate transactions, so two admins saving at once could both pass it. The
+-- rotation picks the next member by team order, so a person on two teams would be assigned twice.
+-- This unique index also serves the erasure lookup the old (tenant_id, user_id) index existed for.
+-- Fail with a clear message rather than the bare duplicate-key error if a deployment already has
+-- someone on two teams: which team they stay on is the admin's call, not the migration's.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM team_members GROUP BY tenant_id, user_id HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'team_members has a person on more than one team; remove the extra memberships (PUT /admin/teams/:id/members) and rerun this migration';
+  END IF;
+END $$;
+
+DROP INDEX "team_members_tenant_user_idx";
+CREATE UNIQUE INDEX "team_members_tenant_user_unique"
+  ON "team_members" ("tenant_id", "user_id");

@@ -60,7 +60,7 @@ export const teamMembers = pgTable(
   },
   (t) => ({
     tenantIdx: index("team_members_tenant_idx").on(t.tenantId),
-    tenantUserIdx: index("team_members_tenant_user_idx").on(
+    tenantUserUnique: uniqueIndex("team_members_tenant_user_unique").on(
       t.tenantId,
       t.userId,
     ),

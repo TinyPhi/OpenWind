@@ -187,6 +187,33 @@ describe("team members — tenant isolation", () => {
     expect(create.status).toBe(422);
   });
 
+  it("two admins adding the same person to two teams at once leave them on exactly one", async () => {
+    const one = await createTeam("race-one", [BEN]);
+    const two = await createTeam("race-two", [CHEN]);
+    // earlier tests leave ASHA on a team; the race needs her free
+    await db
+      .delete(teamMembers)
+      .where(
+        and(eq(teamMembers.tenantId, TENANT_A), eq(teamMembers.userId, ASHA)),
+      );
+    const put = (teamId: string): Promise<Response> =>
+      Promise.resolve(
+        appA.request(`/admin/teams/${teamId}/members`, {
+          ...json({ memberUserIds: [ASHA] }),
+          method: "PUT",
+        }),
+      );
+    const [r1, r2] = await Promise.all([put(one), put(two)]);
+    expect([r1.status, r2.status].sort()).toEqual([200, 422]);
+    const holding = await db
+      .select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(
+        and(eq(teamMembers.tenantId, TENANT_A), eq(teamMembers.userId, ASHA)),
+      );
+    expect(holding).toHaveLength(1);
+  });
+
   it("another tenant cannot read, replace or list a team's members", async () => {
     const id = await createTeam("private-team", [ASHA, BEN]);
 

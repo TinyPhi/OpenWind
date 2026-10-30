@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import {
@@ -91,6 +91,15 @@ async function newTeam(members: string[]): Promise<string> {
     })
     .returning({ id: teams.id });
   if (members.length > 0) {
+    // a person is on one team at a time, and every seed reuses the same few people
+    await db
+      .delete(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.tenantId, TENANT_A),
+          inArray(teamMembers.userId, members),
+        ),
+      );
     await db.insert(teamMembers).values(
       members.map((userId, position) => ({
         tenantId: TENANT_A,

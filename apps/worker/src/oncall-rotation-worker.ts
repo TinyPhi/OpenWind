@@ -45,6 +45,8 @@ const SYSTEM_ACTOR = "system:oncall-rotation-worker";
 const NOTICE_TYPE = "oncall.rotation_notice";
 const TICK_INTERVAL_MS = env.ONCALL_ROTATION_TICK_INTERVAL_SECONDS * 1000;
 
+const TEAM_DELETED_REASON =
+  "The team was deleted, so this roster cannot make new windows. Stop it.";
 const NO_MEMBERS_REASON =
   "This team has no members, so no further windows can be made";
 
@@ -110,7 +112,21 @@ async function generateForRotation(
         ),
       )
       .limit(1);
-    if (!team) return idle; // nothing is generated for a deleted team
+    if (!team) {
+      // Say why nothing is made, or the roster looks like it is running
+      if (rotation.blockedReason !== TEAM_DELETED_REASON) {
+        await tx
+          .update(onCallRotations)
+          .set({ blockedReason: TEAM_DELETED_REASON, updatedAt: new Date() })
+          .where(
+            and(
+              eq(onCallRotations.id, rotation.id),
+              eq(onCallRotations.tenantId, tenantId),
+            ),
+          );
+      }
+      return idle;
+    }
 
     const members = await loadTeamMemberIds(tx, tenantId, rotation.teamId);
     const previous = await loadPreviousHolders(tx, tenantId, rotation);

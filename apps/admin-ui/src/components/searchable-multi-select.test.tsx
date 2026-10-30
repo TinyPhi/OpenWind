@@ -49,6 +49,20 @@ describe("SearchableMultiSelect", () => {
     expect(screen.getByTestId("out").textContent).toBe("a");
   });
 
+  it("closes the list on Escape without passing the key on", () => {
+    let reached = false;
+    render(
+      <div onKeyDown={() => (reached = true)}>
+        <Harness />
+      </div>,
+    );
+    fireEvent.click(screen.getByLabelText("Pick"));
+    expect(screen.getByLabelText("Pick search")).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText("Pick search"), { key: "Escape" });
+    expect(screen.queryByLabelText("Pick search")).toBeNull();
+    expect(reached).toBe(false);
+  });
+
   it("stops adding at the maximum", () => {
     render(<Harness max={1} />);
     fireEvent.click(screen.getByLabelText("Pick"));
