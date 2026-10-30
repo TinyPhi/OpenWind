@@ -612,7 +612,7 @@ export function ScheduleRulesPage(): React.ReactElement {
           <AlertDialogTitle>Pause schedule rule?</AlertDialogTitle>
           <AlertDialogDescription>
             {pausing
-              ? `"${pausing.name}" will stop creating tickets while it is paused. ${pausing.catchUp ? "Catch-up is on, so fire times that pass in the meantime are run when you resume it" : "Fire times that pass in the meantime are skipped, not made up, when you resume it"}. You can resume it at any time.`
+              ? `"${pausing.name}" will stop firing while it is paused. ${pausing.catchUp ? "Catch-up is on, so fire times that pass in the meantime are run when you resume it" : "Fire times that pass in the meantime are skipped, not made up, when you resume it"}. You can resume it at any time.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
@@ -636,7 +636,7 @@ export function ScheduleRulesPage(): React.ReactElement {
           <AlertDialogTitle>Delete schedule rule?</AlertDialogTitle>
           <AlertDialogDescription>
             {deleting
-              ? `"${deleting.name}" will stop firing and be removed from this list. Tickets it already created are not affected, and past executions stay visible in its history. This cannot be undone. To stop it for now and keep it, pause it instead.`
+              ? `"${deleting.name}" will stop firing and be removed from this list. Records it already created are not affected, and past executions stay visible in its history. This cannot be undone. To stop it for now and keep it, pause it instead.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>

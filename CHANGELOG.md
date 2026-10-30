@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New schedule rules default to India time (Asia/Kolkata) instead of UTC. Existing rules keep the zone they
   were saved with.
 - The rule list uses round icon buttons (pause or resume, edit, delete). Pausing and deleting now ask for
-  confirmation first, and the warning says what happens to missed fire times and to tickets already created.
+  confirmation first, and the warning says what happens to missed fire times and to records already created.
   Resuming has no warning.
 
 ### Removed

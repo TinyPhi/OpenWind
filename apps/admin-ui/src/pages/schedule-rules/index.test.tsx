@@ -496,6 +496,18 @@ describe("ScheduleRulesPage", () => {
     );
   });
 
+  it("says what pausing does for a rule with catch-up on, and names no record type", async () => {
+    queueRefresh([{ ...RULE_A, catchUp: true }]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Pause rule"));
+    expect(screen.getByText(/Catch-up is on/)).toBeTruthy();
+    expect(screen.getByRole("alertdialog").textContent).not.toMatch(/ticket/i);
+  });
+
   it("toggles pause/resume on a rule", async () => {
     queueRefresh([RULE_A]);
     renderPage();

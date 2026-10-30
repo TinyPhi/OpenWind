@@ -76,6 +76,15 @@ const CIRCLE_COLORS = {
   red: "hsl(0, 70%, 48%)",
 } as const;
 
+// A fixed icon colour per background, not the theme's text colour: the theme's text colour is near
+// white in dark mode, which is unreadable on the bright yellow. White passes on the other three.
+const ICON_COLORS = {
+  grey: "#fff",
+  green: "#fff",
+  yellow: "#1a1a1a",
+  red: "#fff",
+} as const;
+
 export interface CircleActionButtonProps extends Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   "children" | "color"
@@ -87,7 +96,7 @@ export interface CircleActionButtonProps extends Omit<
   size?: number;
 }
 
-/** Round action button: coloured background, icon in the theme's text colour. */
+/** Round action button: coloured background, icon in a colour that reads on it. */
 export function CircleActionButton({
   color,
   label,
@@ -99,6 +108,7 @@ export function CircleActionButton({
 }: CircleActionButtonProps): React.ReactElement {
   return (
     <button
+      type="button"
       {...rest}
       aria-label={label}
       title={label}
@@ -112,7 +122,7 @@ export function CircleActionButton({
         borderRadius: "50%",
         border: "none",
         background: CIRCLE_COLORS[color],
-        color: "var(--text-primary, currentColor)",
+        color: ICON_COLORS[color],
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.45 : 1,
         ...style,
