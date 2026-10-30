@@ -8,7 +8,9 @@
 **Amends:** ADR-004 (config-first module design) — this ADR extends ADR-004's module model with
 an optionality dimension ADR-004 didn't need at the time it was written (Phase 2, 7-module
 catalog, no concept of "not every tenant needs this one").  
-**Superseded by:** —
+**Superseded by:** —  
+**Amended by:** Amendment 1 (2026-10-31, #1079) at the end of this document — status Proposed; it
+replaces the runtime-seeding mechanism described below, not the `core`/`optional` decision.
 
 ---
 
@@ -161,6 +163,10 @@ pure DB/admin-toggle (which would turn "what ships by default," a rare and delib
 decision, into an ad-hoc runtime switch with its own unanswered questions — can a superadmin flip
 CRM to optional? does that retroactively uninstall it for existing tenants?).
 
+> **Superseded in part by Amendment 1:** the statement below that rows are created "only by
+> `seedRegistry()` at runtime" no longer holds. Migration 0061 removed the API role's write access
+> to `modules`, so rows are now written by the migration role. See Amendment 1.
+
 **A migration-time `UPDATE ... WHERE slug IN (...)` backfill does not work for this**, because
 `modules` rows only ever get created by `seedRegistry()` at runtime (lazily, on first
 `listModules()` call) — the table is empty at migration time in every normal deployment path, so
@@ -191,7 +197,8 @@ badge should stop saying `"Core"` — reword it (e.g. `"Built-in"` or remove the
 1. Migration: `ALTER TABLE modules ADD COLUMN category text NOT NULL DEFAULT 'optional' CHECK
 (category IN ('core', 'optional'))` (or an enum, matching this repo's existing enum
    conventions in `packages/db/src/schema`). No backfill statement needed — see above.
-2. `apps/api/src/services/module-service.ts`: add `category: "core"` to the 7 standard modules'
+2. (Superseded by Amendment 1: the array and the upsert move to `packages/db` and run as the
+   migration role.) `apps/api/src/services/module-service.ts`: add `category: "core"` to the 7 standard modules'
    entries in `standardModules`, `category: "optional"` to `tender`'s entry. Add `category` (and
    `isSystem`, `minPlan`) to the `onConflictDoUpdate` `set` clause so re-seeding actually updates
    already-existing rows.
@@ -275,3 +282,130 @@ happened as a result of it.
 | Backfill       | How do tenants that predate `category` get the new `core` default into their `installed_modules` list? | Resolved         | Resolved (per the repo owner, 2026-07-23), see Consequences > Negative above — not worth solving until there's real tenant volume beyond the single demo install.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Third category | Is a third `category` value (e.g. `experimental`) needed?                                              | Accepted default | Deferred, no decision needed now. A third value (e.g. `experimental`) is a real possibility once there's a concrete case for it — none exists yet, so `core`/`optional` stays sufficient until one does. Revisit trigger: a concrete module that fits neither `core` nor `optional`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Issuing side   | Issuing-side tender workflow — house it in `tender` or fold into `procurement`?                        | Still open       | Still genuinely open, not yet designed. Current leaning (2026-07-23 conversation, not a final decision): keep it in `tender` as a second entity type rather than extending procurement's RFQ. Procurement's Vendor/RFQ/Draft→Approved→Sent→Fulfilled flow is structurally close to "publish a solicitation, receive vendor responses, award," but a formal tender typically needs more than that — a published deadline, technical/financial bid evaluation kept separate (mirroring the isolated child-ticket costing-review pattern already built for the submitting side), and a formal award with a recorded justification. Splitting one described capability ("tendering, both sides") across two modules also weakens the admin experience for no clear gain. If an awarded tender needs to become a real Purchase Order internally, that's a cross-module automation rule (`tender.awarded` → procurement PO creation via the event bus, per ADR-004/CLAUDE.md's cross-module communication rule) rather than a reason to merge the modules. Worth its own `/spec` when work on the issuing side starts — this note is a leaning to carry into that spec, not a substitute for it. 2026-09-28 review: no design work started since the 2026-07-23 leaning note. The vendor-approval seed module (#606, 3H, ADR pending per #622) is related but distinct cross-functional workflow work, not this question. **Recommended (2026-09-28), pending acceptance:** keep the documented leaning (separate `tender` entity type, `tender.awarded` → procurement PO via the event bus) as the working default; it requires its own `/spec` before the issuing side is built. Owner: whoever picks up the tender-issuing feature request. |
+
+---
+
+## Amendment 1 (2026-10-31): the module catalog is written by the migration role, not at API runtime
+
+**Status:** Proposed. Drafted from issue #1079 for the repo owner to review and accept. Until
+accepted, treat the decisions below as recommendations, not settled architecture.
+**Amends:** this ADR's "`category` lives in code" and "Implementation sketch" sections.
+**Related:** ADR-001 (`modules` is platform-wide, written by no tenant-facing role), ADR-004,
+ADR-020 (Proposed, ownership and reclassification), migration 0061 (#404).
+
+### Context
+
+This ADR kept `category` in the `standardModules` array inside `ModuleService.seedRegistry()` and
+said `modules` rows are created only by `seedRegistry()` at runtime. That assumed the API's
+database role could write `modules`.
+
+Migration 0061 (#404) made the catalog read-only for `app_user`: SELECT only. Since then
+`seedRegistry()` fails with `permission denied for table modules`. The API catches and logs the
+error, so it stays up and looks healthy. Verified on a live stack on 2026-10-30: `app_user` holds
+SELECT only on `modules`.
+
+Consequences of that gap:
+
+- On a fresh database the catalog stays empty. Nothing else writes it: no migration, seed SQL,
+  `packages/db/src/seed.ts` or `scripts/bootstrap.ts` inserts module rows.
+- On an existing database, changes to `category`, version or description cannot be applied.
+  That defeats this ADR's "required companion fix" (the upsert must refresh `category`).
+- The admin visibility toggle (`ModuleService.setVisibility`) updates `modules` as `app_user` and
+  is blocked by the same revoke (found by code read; not run live).
+- CI migrates as the `platform` superuser, so tests that call `seedRegistry()` pass without ever
+  running as `app_user`. CI cannot see this failure.
+
+`connector_definitions` and `plugin_definitions` have the same SELECT-only grants, but nothing
+populates them today. They are empty by design (no connector or plugin ships yet), so this
+amendment does not touch them.
+
+### Decision
+
+1. **The migration role writes the catalog.** A catalog-sync step runs as `migration_user`
+   immediately after migrations, in the entry point that already runs privileged post-migrate
+   work (`packages/db/src/run-migrations.ts`, used by the bootstrap container and any deploy
+   migrate step). It is an idempotent upsert keyed on `slug`. It refreshes `name`,
+   `description`, `version`, `is_system`, `min_plan`, `category` and `updated_at`, and it never
+   touches `is_visible`, which is an operator setting. It runs on every invocation, not once.
+2. **`category` stays in code**, as this ADR decided, but the array moves from `apps/api` to
+   `packages/db` (for example `module-catalog.ts`), so the sync step and API tests import one
+   source of truth. No second source of truth is introduced, and no TypeScript is added under
+   `modules/` (ADR-004 unchanged).
+3. **The API role never writes the catalog.** `app_user` keeps SELECT only. `seedRegistry()`,
+   `POST /modules/seed` and the empty-registry auto-seed in `listModules` are removed.
+4. **API startup fails loudly on an empty catalog.** Before listening, the API reads the catalog
+   as `app_user`. If it is empty, the API logs an error that names the remedy (run the
+   migration/bootstrap step as `migration_user`; see `docs/local-setup.md`) and exits non-zero.
+   The previous log-and-continue behaviour is removed. The assertion applies in development and
+   production alike. (Whether it should also fail on a missing expected slug is open; see below.)
+5. **The visibility toggle gets a column-scoped grant**, mirroring migration 0062 on `tenants`:
+   `GRANT UPDATE (is_visible, updated_at) ON modules TO app_user`. `app_user` still cannot alter
+   `category`, `min_plan` or any other column.
+6. **Tests close the superuser blind spot.** A fresh-database test migrates as `migration_user`,
+   then connects as a real `app_user` login (not `SET LOCAL ROLE` from a superuser) and asserts:
+   the catalog row count, that INSERT and UPDATE of protected columns are denied, that
+   `installCoreModules` works, and that the startup assertion passes, plus its failure case on an
+   empty catalog.
+
+### Consequences
+
+**Positive**
+
+- Catalog authority matches the least-privilege model of 0056, 0059, 0060 and 0061: a compromised
+  API process cannot rewrite what every tenant's provisioning auto-installs, because
+  `category = 'core'` drives `installCoreModules`.
+- Fresh databases and upgrades refresh the catalog with the schema, before any API instance
+  serves traffic. This finally meets this ADR's `category` propagation requirement.
+- A missing catalog becomes a loud deploy-time failure instead of a silently empty Templates page.
+
+**Negative**
+
+- Catalog changes need the migrate/bootstrap entry point to run, not just an API restart.
+- Deploys that start the API without that step on an empty catalog now fail to start. The error
+  message and `docs/local-setup.md` must say how to fix it.
+- Bootstrap step 9 ("Templates auto-seed on first visit") becomes wrong and must change.
+- Scripts and tests that call `seedRegistry()` switch to the new sync function with a
+  migration-role client.
+
+**Reversibility:** code plus one column-scoped grant migration; fully reversible. Existing
+`modules` rows and every tenant's `installed_modules` are untouched.
+
+### Alternatives considered
+
+1. **Re-grant `app_user` INSERT/UPDATE on `modules`.** Rejected. It undoes #404 on purpose-built
+   grounds: any SQL injection or compromised API credential could rewrite `category`, `min_plan`
+   and version, and so what every new tenant auto-installs. It also contradicts the isolation
+   test that asserts the denial.
+2. **A dedicated catalog role the API assumes at runtime.** Rejected for now. It adds a role, a
+   credential and a write path inside the API process, which is much of the exposure of option 1,
+   and is unnecessary while a privileged deploy-time step exists. Revisit if a runtime-initiated
+   catalog refresh (for example plugin-registered modules, ADR-011) becomes a real requirement.
+3. **Plain migration SQL (`INSERT ... ON CONFLICT DO UPDATE`).** Viable fallback. Rejected as the
+   default because every metadata change would need a new numbered migration (the journal
+   merge-trap risk) and would duplicate metadata now authored in one TypeScript array.
+4. **Run `seedRegistry()` at API startup as `migration_user`.** Rejected. It puts BYPASSRLS and
+   DDL credentials in the API process, contradicting ADR-001 and the runbook rule that
+   `MIGRATION_DATABASE_URL` is bootstrap-only.
+5. **Document the gap only.** Rejected. A fresh database would stay silently empty.
+
+### Implementation outline (not part of the decision)
+
+Files: new `packages/db/src/module-catalog.ts` (moved array plus `syncModuleCatalog`); the call
+in `packages/db/src/run-migrations.ts`; removal of `seedRegistry`, `POST /modules/seed` and the
+auto-seed from `apps/api`; the startup assertion in `apps/api/src/index.ts`; the grant migration
+(check the journal tail for duplicate idx/`when` after any merge); callers in
+`apps/api/src/scripts/vendor-approval-demo.ts`, `scripts/seed-demo.ts` and `scripts/reset-data.ts`;
+`scripts/bootstrap.ts` step 9; `docs/local-setup.md`; `modules/tender/README.md`;
+`docs/specs/module-upgrade-workflow.md`; CHANGELOG. No `.github/workflows` edits. Needs a plan-lock
+and `/security-review` (grants and API startup). Verify on a fresh throwaway database.
+
+### Open questions for the owner
+
+| ID                   | Question                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Migrate entry point  | What do production deploys run to migrate? Only the compose `bootstrap` container was found; the production procedure is not documented.          |
+| Assertion strictness | Fail on empty only, or also on any missing expected slug (catches a stale catalog after an upgrade)? Should `NODE_ENV=test` skip it?              |
+| Worker credential    | `docker-compose.yml` passes `MIGRATION_DATABASE_URL` to `ow-worker`, against the runbook rule. Dev-only and intended? Adjacent, not decided here. |
+| Runtime refresh      | Is a runtime-initiated catalog refresh (plugins registering modules) foreseeable? If so, revisit alternative 2.                                   |
+| Compose `migrate`    | Should compose gain a one-shot `migrate` service that `ow-backend` waits on, so `up -d` alone yields a catalog? Deferred; compose/CI gates.       |
+| ADR-020              | Confirm this amendment does not pre-empt ADR-020: it moves where the array lives and who writes it, not how a module is reclassified.             |
