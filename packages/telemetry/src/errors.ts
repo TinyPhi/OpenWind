@@ -100,6 +100,10 @@ export function startErrorTracking(): void {
     Sentry.init({
       dsn: env.SENTRY_DSN,
       environment: env.NODE_ENV,
+      // Explicit privacy posture (ADR-015): no default PII (IP, cookies, request bodies, user)
+      // and no Sentry tracing/profiling: tracesSampleRate/tracesSampler/profilesSampleRate must
+      // stay unset (even 0 would enable span handling); spans belong to the OTel NodeSDK.
+      sendDefaultPii: false,
       beforeSend(event) {
         try {
           scrubPIIInPlace(event);

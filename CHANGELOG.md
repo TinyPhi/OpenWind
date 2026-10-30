@@ -3,6 +3,14 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — OTel/Sentry upgrade (#793)]
+
+### Security
+
+- Upgraded `@sentry/node` to 10.x and removed an unused OTel 1.x metrics dependency, clearing
+  GHSA-8988-4f7v-96qf (OTel core baggage memory) and GHSA-qqmp-wf37-98f9 (DB username in spans).
+  Sentry PII (`sendDefaultPii: false`) is now pinned explicitly; tracing stays off.
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added
