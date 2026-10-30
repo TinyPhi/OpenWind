@@ -31,7 +31,7 @@ import { platformAdminFactory } from "./factory.js";
  * route's own acquire-check-release below is only a fast pre-check for a quick 409 in the
  * common case, never relied on for correctness.
  */
-const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
+const TenantIdParamSchema = z.object({ tenantId: z.guid() });
 
 const WAIT_FOR_DELETE_TTL_MS = 60_000;
 

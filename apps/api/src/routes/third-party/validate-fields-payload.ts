@@ -1,7 +1,7 @@
 // ADR-012 Phase B, spec R11/R13 — an ingress-level guard ahead of
 // entity-engine's own validation. Neither check exists anywhere else in the
 // codebase today (gap #10 from the original security gap analysis): the
-// human/UI create route's `fields` is a bare `z.record(z.unknown())` with no
+// human/UI create route's `fields` is a bare `z.record(z.string(), z.unknown())` with no
 // size/depth/char guard, because a browser session's own JSON.parse and the
 // UI form itself already bound what's practically submittable — a
 // third-party API has no such implicit bound.

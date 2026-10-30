@@ -10,7 +10,7 @@ const BulkSetStateSchema = z.object({
   items: z
     .array(
       z.object({
-        id: z.string().uuid(),
+        id: z.guid(),
         state: z.string().min(1).max(100),
       }),
     )

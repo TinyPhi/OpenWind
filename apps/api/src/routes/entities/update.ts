@@ -10,7 +10,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { ensureUserRefsKnown } from "../../lib/ensure-user-refs.js";
 
 const UpdateEntitySchema = z.object({
-  fields: z.record(z.unknown()).optional(),
+  fields: z.record(z.string(), z.unknown()).optional(),
   // null unassigns; an unassigned ticket shows under the records list's "Unassigned" filter.
   assignedTo: z.string().nullable().optional(),
   // A ticket's due date can be changed, never removed (mandatory-ticket-fields R5).

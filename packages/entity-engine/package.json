@@ -21,7 +21,7 @@
     "@platform/redis": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "recheck": "^4.4.5",
-    "zod": "^3.23.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@platform/tsconfig": "workspace:*",

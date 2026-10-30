@@ -150,7 +150,7 @@ export const createSandboxHandler = platformAdminFactory.createHandlers(
  * `AND eq(sandboxProvisioningJobs.requestedBy, userId)` filter here when multi-admin support lands,
  * alongside the same fix in sandboxHandoverHandler.
  */
-const JobIdParamSchema = z.object({ jobId: z.string().uuid() });
+const JobIdParamSchema = z.object({ jobId: z.guid() });
 
 export const sandboxProgressHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),
@@ -205,7 +205,7 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
  * tenant UUID, so a `:tenantId` route was unreachable from any real client. The handler
  * looks up the job row by its own id and reads resultTenantId internally instead.
  */
-const JobIdHandoverParamSchema = z.object({ jobId: z.string().uuid() });
+const JobIdHandoverParamSchema = z.object({ jobId: z.guid() });
 
 export const sandboxHandoverHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),

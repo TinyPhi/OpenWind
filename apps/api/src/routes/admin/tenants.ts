@@ -37,7 +37,7 @@ import {
   logFenceDenied,
 } from "../../lib/platform-operator.js";
 
-const TenantIdParamSchema = z.object({ id: z.string().uuid() });
+const TenantIdParamSchema = z.object({ id: z.guid() });
 
 const TENANT_COLUMNS = {
   id: tenants.id,

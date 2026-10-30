@@ -7,7 +7,7 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 const MoveParentSchema = z.object({
-  parentId: z.string().uuid().nullable(),
+  parentId: z.guid().nullable(),
 });
 
 export const moveParentHandler = factory.createHandlers(

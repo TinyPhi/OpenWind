@@ -38,7 +38,7 @@ class TargetUnavailableError extends Error {
 }
 
 const CreateRelationSchema = z.object({
-  toInstanceId: z.string().uuid(),
+  toInstanceId: z.guid(),
   relationType: z.string().min(1).max(100),
 });
 

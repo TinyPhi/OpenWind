@@ -54,19 +54,19 @@ const router = new Hono<Vars>();
 
 router.use("*", requireAuth(db));
 
-const ScheduleIdParamSchema = z.object({ id: z.string().uuid() });
+const ScheduleIdParamSchema = z.object({ id: z.guid() });
 
 const ListSchedulesQuerySchema = z.object({
-  teamId: z.string().uuid().optional(),
+  teamId: z.guid().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
-  cursor: z.string().uuid().optional(),
+  cursor: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 const CreateScheduleSchema = z
   .object({
-    teamId: z.string().uuid(),
+    teamId: z.guid(),
     label: z.string().trim().min(1).max(200),
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date(),
