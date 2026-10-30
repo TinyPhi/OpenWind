@@ -16,10 +16,11 @@
 import { Worker, Queue } from "@platform/telemetry";
 import fsp from "node:fs/promises";
 import { lt, eq, and, or } from "drizzle-orm";
-import { db, files } from "@platform/db";
+import { withTenantContext, files } from "@platform/db";
 import { logger } from "@platform/logger";
 import { resolveStoragePath } from "@platform/files";
 import { connection } from "./queues.js";
+import { listSweepTenants, forEachTenant } from "./tenant-sweep.js";
 
 const STALE_AFTER_HOURS = 24;
 const QUEUE_NAME = "file-cleanup";
@@ -28,39 +29,34 @@ const BATCH_LIMIT = 500;
 
 // ── Cleanup processor ─────────────────────────────────────────────────────────
 
-async function runCleanup(): Promise<void> {
-  const cutoff = new Date(Date.now() - STALE_AFTER_HOURS * 60 * 60 * 1000);
-
+async function cleanupTenant(
+  tenantId: string,
+  cutoff: Date,
+): Promise<{ purged: number; errors: number }> {
   // Two categories of files to clean up in one query:
   //  1. scan_status = 'pending' AND created_at < cutoff
   //     → abandoned uploads (client never called confirmUpload)
   //  2. scan_status = 'deleted'
   //     → soft-deleted files whose on-disk deletion failed at delete-time;
   //        deleteFile() logged and deferred them here.
-  const staleFiles = await db
-    .select({
-      id: files.id,
-      tenantId: files.tenantId,
-      storageKey: files.storageKey,
-      scanStatus: files.scanStatus,
-    })
-    .from(files)
-    .where(
-      or(
-        and(eq(files.scanStatus, "pending"), lt(files.createdAt, cutoff)),
-        eq(files.scanStatus, "deleted"),
-      ),
-    )
-    .limit(BATCH_LIMIT);
-
-  if (staleFiles.length === 0) {
-    logger.info({}, "file-cleanup: no stale files found");
-    return;
-  }
-
-  logger.info(
-    { count: staleFiles.length },
-    "file-cleanup: processing stale files",
+  const staleFiles = await withTenantContext(tenantId, (tx) =>
+    tx
+      .select({
+        id: files.id,
+        storageKey: files.storageKey,
+        scanStatus: files.scanStatus,
+      })
+      .from(files)
+      .where(
+        and(
+          eq(files.tenantId, tenantId),
+          or(
+            and(eq(files.scanStatus, "pending"), lt(files.createdAt, cutoff)),
+            eq(files.scanStatus, "deleted"),
+          ),
+        ),
+      )
+      .limit(BATCH_LIMIT),
   );
 
   let purged = 0;
@@ -73,34 +69,62 @@ async function runCleanup(): Promise<void> {
         await fsp.unlink(resolveStoragePath(file.storageKey));
       } catch (diskErr) {
         logger.warn(
-          { tenantId: file.tenantId, fileId: file.id, err: String(diskErr) },
+          { tenantId, fileId: file.id, err: String(diskErr) },
           "file-cleanup: on-disk deletion failed — will retry next run",
         );
       }
 
       // Hard-delete the row.  For 'deleted' rows this completes the soft-delete
       // lifecycle; for 'pending' rows it releases the quota reservation.
-      await db.delete(files).where(eq(files.id, file.id));
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .delete(files)
+          .where(and(eq(files.id, file.id), eq(files.tenantId, tenantId))),
+      );
 
       purged++;
       logger.info(
-        {
-          tenantId: file.tenantId,
-          fileId: file.id,
-          scanStatus: file.scanStatus,
-        },
+        { tenantId, fileId: file.id, scanStatus: file.scanStatus },
         "file-cleanup: file purged",
       );
     } catch (err) {
       errors++;
       logger.error(
-        { tenantId: file.tenantId, fileId: file.id, err: String(err) },
+        { tenantId, fileId: file.id, err: String(err) },
         "file-cleanup: failed to purge file",
       );
     }
   }
 
-  logger.info({ purged, errors }, "file-cleanup: run complete");
+  return { purged, errors };
+}
+
+// Per-tenant under withTenantContext (issue #1078): the worker runs as app_user, so a
+// context-free cross-tenant query is filtered to zero rows (or errors) by RLS.
+export async function runCleanup(): Promise<void> {
+  const cutoff = new Date(Date.now() - STALE_AFTER_HOURS * 60 * 60 * 1000);
+  const sweepTenants = await listSweepTenants();
+  const { results, failedTenantIds } = await forEachTenant(
+    "file-cleanup",
+    sweepTenants.map((t) => t.id),
+    (tenantId) => cleanupTenant(tenantId, cutoff),
+  );
+
+  let purged = 0;
+  let errors = 0;
+  for (const result of results.values()) {
+    purged += result.purged;
+    errors += result.errors;
+  }
+  logger.info(
+    {
+      tenantCount: sweepTenants.length,
+      purged,
+      errors,
+      failedTenants: failedTenantIds.length,
+    },
+    "file-cleanup: run complete",
+  );
 }
 
 // ── BullMQ worker + recurring schedule ───────────────────────────────────────
