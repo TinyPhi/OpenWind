@@ -23,7 +23,11 @@
 
 ### Open questions
 
-- Not run: smoke against a real GlitchTip/Bugsink backend (merge gate), docker observability stack.
+- Smoke against Bugsink 2.6.2 (2026-10-31): Sentry 10.78 events accepted, key-based PII scrubbing intact,
+  no tracing envelopes. It found sentry-trace/baggage (incl. the DSN public key) sent to any outbound
+  host; fixed here with `tracePropagationTargets: []` (control run still leaks, fixed run sends none).
+- Known gap, not a regression: the scrubber only redacts by key; free-text messages are not scrubbed.
+- Not run: docker observability stack, `/metrics` check.
 - ADR-015 still names the Sentry 8 SDK; a human should update it.
 - Sentry v10 still sets up its own OTel provider next to NodeSDK (unchanged from v8); consider
   `skipOpenTelemetrySetup` in a follow-up.

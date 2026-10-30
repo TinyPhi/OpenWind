@@ -104,6 +104,9 @@ export function startErrorTracking(): void {
       // and no Sentry tracing/profiling: tracesSampleRate/tracesSampler/profilesSampleRate must
       // stay unset (even 0 would enable span handling); spans belong to the OTel NodeSDK.
       sendDefaultPii: false,
+      // Unset, Sentry adds sentry-trace/baggage (incl. the DSN public key) to outbound HTTP to any
+      // host, i.e. connectors, webhooks and partners; an empty list propagates to none.
+      tracePropagationTargets: [],
       beforeSend(event) {
         try {
           scrubPIIInPlace(event);

@@ -101,6 +101,7 @@ describe("Error Tracking Initialization", () => {
       unknown
     >;
     expect(options.sendDefaultPii).toBe(false);
+    expect(options.tracePropagationTargets).toEqual([]);
     expect(options).not.toHaveProperty("tracesSampleRate");
     expect(options).not.toHaveProperty("tracesSampler");
     expect(options).not.toHaveProperty("profilesSampleRate");
