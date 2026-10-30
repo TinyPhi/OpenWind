@@ -3,7 +3,7 @@
 > Teams get members; the on-call roster picks only from the chosen team; a roster can repeat on its
 > own, rotating primary and backup through the team, with a 2-day heads-up. For team admins.
 
-status: in progress (PR A in review)
+status: in progress (PR A in review; PR B built locally, waits on PR A)
 created: 2026-10-28
 updated: 2026-10-27
 
@@ -84,6 +84,10 @@ exist (same rule as `validateCrossTenantRefs`).
 ✓ When a user is erased or leaves the org, their membership rows are deleted with the rest of their
 data (the erasure path), so no later roster or rotation can pick them.
 ✓ Removing a member never deletes or rewrites existing schedule windows: history stays intact.
+✓ A person is on one team at a time (added 2026-10-28, owner decision): adding someone who is already
+on another live team is refused with a field-level `422` naming that team, on create and on `PUT
+members`; only people being newly added are checked. The team form's picker offers only people who are
+not on another team, so someone removed from a team is free for another.
 
 R2: The team page shows who is on each team.
 ✓ Each team lists its members by display name in rotation order, and the member picker offers only
@@ -141,6 +145,15 @@ manual window, and it resumes when the admin clears the overlap.
 R7: Admins stay in control of every window.
 ✓ A generated window can be edited or deleted like any other (swapping people, shifting its end); the
 next cycle advances from the latest window that still exists, so an edit changes everything after it.
+✓ A window that is running now may have its end moved (still in the future) and its label changed; its
+start and people are locked, and a finished window cannot be edited (2026-10-28, narrows the old
+"future windows only" rule for the end only).
+✓ Changing the length or end of a repeating window re-plans the rotation: windows not yet started are
+removed (and their notices), the next window starts at the new end, and a whole-day length (3-90)
+becomes the rotation's cycle, so the preview and the worker agree with the edit.
+✓ Windows are created with the cycle length as their length; the end is calculated from the start and
+the cycle, read-only in the modal, and editable only for a window made before cycles existed or when a
+repeat is switched off and the admin chooses to change this cycle's end.
 ✓ A deleted window is not regenerated: it leaves a gap exactly as a manual deletion does today (no
 auto-fill), and the rotation carries on with the following cycle. To cancel the repeat, stop the
 rotation (R9).
@@ -159,10 +172,24 @@ person removed is not.
 as the other workers).
 
 R9: A rotation can be stopped, ended and seen.
-✓ An admin can stop a rotation (windows already made stay, none are added) and set or clear an end
-date; stopping is reversible while the team still has members.
-✓ The roster page marks windows that belong to a rotation, and a panel shows the cycle, status
-(active, stopped, blocked with reason), the next window's start and who is next.
+✓ An admin can pause a rotation: none are added, the windows that have not started are removed (with
+their notices), and the window running now stays until it ends. The time is then free, so another
+roster can be created for the team; resuming is refused (`409`) once another rotation is active, so
+one roster runs per team at a time. Pausing is reversible otherwise, and resuming continues from the
+end of the running window with no gap.
+✓ All rotation controls live in the roster edit modal (no separate panel): a Repeat automatically
+checkbox, a pause or resume button (pause asks for confirmation with the consequences), a delete button
+whose warning says a deleted repeating window leaves a gap, the next window and who is next, and a
+blocked reason. When repeat is switched off the modal asks whether to keep this window's end or change
+it. The end date for a rotation is no longer exposed in the UI (the API still accepts it).
+✓ The roster page marks windows that belong to a rotation.
+
+R11: Upcoming windows of a running rotation are previewed.
+✓ `GET /admin/on-call-rotations` returns up to 12 projected windows for an active, unblocked rotation
+(same rules as generation, stopping at the end date or an empty team); none for a paused or blocked one.
+✓ The roster calendar draws them lightly with a dashed outline, and clicking one opens a read-only
+view with the dates and the primary, backup and escalation manager. They are a prediction, never
+stored.
 
 ### Both
 
@@ -182,7 +209,9 @@ pass.
 - A generated window is created exactly once (unique `(rotation_id, starts_at)`) and a notice is sent
   at most once per (window, person, role) (unique key): both are guarded by a constraint, not by worker
   timing.
-- The rotation worker's database role can read and advance rotations and nothing else.
+- The rotation worker's cross-tenant database role (`oncall_rotation_sweeper`) can only read the six
+  columns of `on_call_rotations` it needs to find active rotations; it writes nothing. Generation, the
+  cursor update and notices run in a normal tenant-scoped transaction.
 - A user reference is validated against the tenant in the application layer; a failure is a `422`,
   never a `403` or an existence leak.
 - Removing a member, deleting a team or stopping a rotation never deletes a schedule window.
@@ -191,6 +220,8 @@ pass.
   of one team are serialized by a lock on the team row.
 - Saving a team's members checks only the people being added against live on-call roles; someone
   already on the team never blocks an edit.
+- A generated window is inserted with its (rotation_id, starts_at) conflict target named, so any other
+  conflict (such as a manual window) raises and rolls back instead of silently skipping a cycle.
 
 ## §T Tasks
 
@@ -222,11 +253,15 @@ integration tests pass before the next phase; isolation tests in every phase tha
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed                                                                                           | root cause                                                                                                                                                                 | promoted to §V?            |
-| --- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| B1  | `user-data-export-coverage-guard` failed after `team_members.user_id` joined the erasure inventory    | the §T1 wiring list named purge and erasure only; a new user-id column also needs a section in the personal-data export (`packages/entity-engine/src/user-data-export.ts`) | no (the guard enforces it) |
-| B2  | `tenant-purge.test.ts` mock of `@platform/db` lacked `teamMembers`                                    | hand-listed table names in that mock                                                                                                                                       | no                         |
-| B3  | Review: PUT members re-checked everyone against live Zitadel, so a departed member blocked every edit | the eligibility rule applied to the whole list, not to additions                                                                                                           | yes, see §V                |
+| id  | what failed                                                                                                                                                     | root cause                                                                                                                                                                 | promoted to §V?                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| B4  | `notifications.type` is a database CHECK enum; a new notice type is rejected by the database and invisible to mocked tests                                      | found during design from migration 0104's history, not from a failure                                                                                                      | yes (worker tests run on a real database) |
+| B5  | Review: a bare `ON CONFLICT DO NOTHING` also swallows the no-overlap exclusion error, so a manual window created after the clash check silently skipped a cycle | the insert named no conflict target                                                                                                                                        | yes                                       |
+| B6  | Review: a stopped rotation of a deleted team could be resumed and then did nothing                                                                              | resume checked members but not the team                                                                                                                                    | no                                        |
+| B1  | `user-data-export-coverage-guard` failed after `team_members.user_id` joined the erasure inventory                                                              | the §T1 wiring list named purge and erasure only; a new user-id column also needs a section in the personal-data export (`packages/entity-engine/src/user-data-export.ts`) | no (the guard enforces it)                |
+| B2  | `tenant-purge.test.ts` mock of `@platform/db` lacked `teamMembers`                                                                                              | hand-listed table names in that mock                                                                                                                                       | no                                        |
+| B7  | Editing a repeating window's length left the rotation's cycle and cursor stale, so the preview still used the old cycle                                         | the window edit did not touch the rotation                                                                                                                                 | yes, see R7                               |
+| B3  | Review: PUT members re-checked everyone against live Zitadel, so a departed member blocked every edit                                                           | the eligibility rule applied to the whole list, not to additions                                                                                                           | yes, see §V                               |
 
 ## Open items (for the human ADR addendum and review)
 
@@ -239,6 +274,7 @@ integration tests pass before the next phase; isolation tests in every phase tha
 - Spec review 2026-10-28 (fixes applied): a deleted window is not regenerated; catch-up does not
   back-fill past windows; the "one person, two roles" rule was dropped (not enforced today); a team is
   capped at 100 members; the worker interval is configurable (default 300 s).
+- Closed in the review of PR B (2026-10-30): the one-team-per-person check (R1) runs in its own transaction, so migration 0158 adds a unique index on `team_members (tenant_id, user_id)`; a race loses with a `422`. The migration stops with a clear message if a deployment already has someone on two teams.
 - Defaults chosen with the owner on 2026-10-28: escalation manager fixed; notice in-app and email,
   once, 2 days ahead, lead fixed at 2 days for v1; rotation continues from admin edits; member-less
   teams keep the old behaviour; cycle minimum 3 days; stop with optional end date.

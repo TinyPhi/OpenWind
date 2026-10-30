@@ -63,6 +63,16 @@ export async function setScheduleSweeperRole(tx: Tx): Promise<void> {
 }
 
 /**
+ * Switches to oncall_rotation_sweeper (BYPASSRLS, column-scoped SELECT on on_call_rotations
+ * only, see 0158_oncall_rotations.sql) for the remainder of the current transaction. For
+ * oncall-rotation-worker's cross-tenant discovery of due rotations; the work on each rotation
+ * then runs under withTenantContext, so RLS applies to every write.
+ */
+export async function setOncallRotationSweeperRole(tx: Tx): Promise<void> {
+  await tx.execute(sql`SET LOCAL ROLE oncall_rotation_sweeper`);
+}
+
+/**
  * Runs `fn` as platform_admin_role (column-scoped GRANT on `tenants` only, see
  * 0135_platform_admin_sandbox_columns.sql and ADR-022 Decision 1) instead of app_user +
  * a tenant_id GUC. There is no tenant to scope to -- a platform_admin request is

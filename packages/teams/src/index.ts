@@ -20,6 +20,26 @@ export {
 
 export { compactTeamPositions, replaceTeamMembers } from "./team-members.js";
 
+export { loadTeamMemberIds, loadPreviousHolders } from "./rotation-state.js";
+
+export {
+  nextAssignment,
+  planWindows,
+  projectWindows,
+  shouldAnnounceWindow,
+  ROTATION_MIN_CYCLE_DAYS,
+  ROTATION_MAX_CYCLE_DAYS,
+  ROTATION_DEFAULT_CYCLE_DAYS,
+  ROTATION_MAX_STEPS_PER_RUN,
+  ROTATION_NOTICE_LEAD_MS,
+  type RotationHolders,
+  type NextAssignment,
+  type GeneratedWindow,
+  type PlanWindowsInput,
+  type PlanWindowsResult,
+  type ProjectWindowsInput,
+} from "./rotation.js";
+
 export {
   getActiveScheduleForTeam,
   getUsersResolvableSet,

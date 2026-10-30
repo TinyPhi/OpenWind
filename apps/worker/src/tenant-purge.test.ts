@@ -155,6 +155,8 @@ vi.mock("@platform/db", () => {
     "teamMembers",
     "services",
     "onCallSchedules",
+    "onCallRotations",
+    "onCallScheduleNotices",
     "notificationPolicies",
     "scheduleRules",
     "scheduleExecutions",

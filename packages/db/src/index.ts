@@ -23,6 +23,7 @@ export {
   withTenantAndUserContext,
   setOutboxSweeperRole,
   setScheduleSweeperRole,
+  setOncallRotationSweeperRole,
   withPlatformAdminContext,
   withTenantLifecycleContext,
   withTenantPurgeContext,

@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   integer,
+  date,
   timestamp,
   index,
   uniqueIndex,
@@ -59,7 +60,7 @@ export const teamMembers = pgTable(
   },
   (t) => ({
     tenantIdx: index("team_members_tenant_idx").on(t.tenantId),
-    tenantUserIdx: index("team_members_tenant_user_idx").on(
+    tenantUserUnique: uniqueIndex("team_members_tenant_user_unique").on(
       t.tenantId,
       t.userId,
     ),
@@ -133,6 +134,9 @@ export const onCallSchedules = pgTable(
     // Soft-delete only -- never hard-deleted, so audit entries referencing a
     // scheduleId remain resolvable after admin deletion (spec §V).
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    // Set on a window the recurring rotation generated (ADR-016 addendum A2);
+    // unique (rotation_id, starts_at) in migration 0157 makes generation exactly-once.
+    rotationId: uuid("rotation_id"),
   },
   (t) => ({
     tenantIdx: index("on_call_schedules_tenant_idx").on(t.tenantId),
@@ -143,6 +147,67 @@ export const onCallSchedules = pgTable(
       t.teamId,
       t.startsAt,
       t.endsAt,
+    ),
+  }),
+);
+
+// Recurring roster definition for one team (docs/specs/oncall-team-rotation.md R4-R9).
+// "Blocked" is an active rotation with blockedReason set. user ids are Zitadel subs, no FK.
+export const onCallRotations = pgTable(
+  "on_call_rotations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    cycleDays: integer("cycle_days").notNull(),
+    status: text("status").notNull().default("active"),
+    endsOn: date("ends_on", { mode: "string" }),
+    blockedReason: text("blocked_reason"),
+    nextStartsAt: timestamp("next_starts_at", { withTimezone: true }).notNull(),
+    lastPrimaryUserId: text("last_primary_user_id").notNull(),
+    lastBackupUserId: text("last_backup_user_id"),
+    escalationManagerUserId: text("escalation_manager_user_id"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("on_call_rotations_tenant_idx").on(t.tenantId),
+    tenantTeamIdx: index("on_call_rotations_tenant_team_idx").on(
+      t.tenantId,
+      t.teamId,
+    ),
+    oneActivePerTeam: uniqueIndex("on_call_rotations_one_active_per_team")
+      .on(t.tenantId, t.teamId)
+      .where(sql`${t.status} = 'active'`),
+  }),
+);
+
+// One row per (window, person, role): the exactly-once guard for the advance notice.
+export const onCallScheduleNotices = pgTable(
+  "on_call_schedule_notices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    scheduleId: uuid("schedule_id").notNull(),
+    userId: text("user_id").notNull(),
+    role: text("role").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("on_call_schedule_notices_tenant_idx").on(t.tenantId),
+    tenantUserIdx: index("on_call_schedule_notices_tenant_user_idx").on(
+      t.tenantId,
+      t.userId,
+    ),
+    once: uniqueIndex("on_call_schedule_notices_once").on(
+      t.scheduleId,
+      t.userId,
+      t.role,
     ),
   }),
 );

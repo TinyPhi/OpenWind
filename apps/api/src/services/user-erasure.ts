@@ -23,6 +23,8 @@ import {
   teamMembers,
   services,
   onCallSchedules,
+  onCallRotations,
+  onCallScheduleNotices,
   scheduleRules,
   orgEmployees,
   orgDirectorySyncRuns,
@@ -70,6 +72,11 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
   "on_call_schedules.backup_user_id",
   "on_call_schedules.escalation_manager_user_id",
   "on_call_schedules.created_by",
+  "on_call_rotations.last_primary_user_id",
+  "on_call_rotations.last_backup_user_id",
+  "on_call_rotations.escalation_manager_user_id",
+  "on_call_rotations.created_by",
+  "on_call_schedule_notices.user_id",
   "schedule_rules.created_by",
   "org_employees.user_id",
   "org_directory_sync_runs.triggered_by",
@@ -513,6 +520,52 @@ export async function eraseUserFromTenant(
       and(
         eq(onCallSchedules.tenantId, tenantId),
         eq(onCallSchedules.createdBy, targetUserId),
+      ),
+    );
+  // Rotation cursors (oncall-team-rotation R5): a redacted last primary is "not a member", so the
+  // next window starts from the head of the team list; backup and escalation manager are just cleared.
+  await tx
+    .update(onCallRotations)
+    .set({ lastPrimaryUserId: REDACTED })
+    .where(
+      and(
+        eq(onCallRotations.tenantId, tenantId),
+        eq(onCallRotations.lastPrimaryUserId, targetUserId),
+      ),
+    );
+  await tx
+    .update(onCallRotations)
+    .set({ lastBackupUserId: null })
+    .where(
+      and(
+        eq(onCallRotations.tenantId, tenantId),
+        eq(onCallRotations.lastBackupUserId, targetUserId),
+      ),
+    );
+  await tx
+    .update(onCallRotations)
+    .set({ escalationManagerUserId: null })
+    .where(
+      and(
+        eq(onCallRotations.tenantId, tenantId),
+        eq(onCallRotations.escalationManagerUserId, targetUserId),
+      ),
+    );
+  await tx
+    .update(onCallRotations)
+    .set({ createdBy: REDACTED })
+    .where(
+      and(
+        eq(onCallRotations.tenantId, tenantId),
+        eq(onCallRotations.createdBy, targetUserId),
+      ),
+    );
+  await tx
+    .delete(onCallScheduleNotices)
+    .where(
+      and(
+        eq(onCallScheduleNotices.tenantId, tenantId),
+        eq(onCallScheduleNotices.userId, targetUserId),
       ),
     );
 
