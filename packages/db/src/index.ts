@@ -23,6 +23,7 @@ export {
   withTenantAndUserContext,
   setOutboxSweeperRole,
   setScheduleSweeperRole,
+  setAccessLogRetentionRole,
   withPlatformAdminContext,
   withTenantLifecycleContext,
   withTenantPurgeContext,

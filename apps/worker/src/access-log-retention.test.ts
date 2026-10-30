@@ -27,8 +27,11 @@ vi.mock("bullmq", () => ({
 }));
 
 const mockExecute = vi.fn();
+const mockSetRole = vi.fn();
+const mockTx = { execute: (...args: unknown[]) => mockExecute(...args) };
 vi.mock("@platform/db", () => ({
-  db: { execute: (...args: unknown[]) => mockExecute(...args) },
+  db: { transaction: (cb: (tx: unknown) => unknown) => cb(mockTx) },
+  setAccessLogRetentionRole: (...args: unknown[]) => mockSetRole(...args),
 }));
 
 const mockLoggerInfo = vi.fn();
@@ -53,7 +56,24 @@ function batchResult(deletedCount: number) {
 describe("runAccessLogRetentionSweep", () => {
   beforeEach(() => {
     mockExecute.mockReset();
+    mockSetRole.mockReset();
     mockLoggerInfo.mockReset();
+  });
+
+  it("runs every batch after switching to the retention role (#1131)", async () => {
+    const order: string[] = [];
+    mockSetRole.mockImplementation(() => {
+      order.push("role");
+    });
+    mockExecute.mockImplementationOnce(async () => {
+      order.push("sql");
+      return batchResult(1);
+    });
+
+    await runAccessLogRetentionSweep();
+
+    expect(mockSetRole).toHaveBeenCalledWith(mockTx);
+    expect(order).toEqual(["role", "sql"]);
   });
 
   it("stops after one batch when the batch is smaller than the limit", async () => {
