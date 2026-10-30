@@ -1,6 +1,17 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import common from "./locales/en/common.json";
+import commonHi from "./locales/hi/common.json";
+import commonMr from "./locales/mr/common.json";
+import commonBn from "./locales/bn/common.json";
+import commonTa from "./locales/ta/common.json";
+import commonTe from "./locales/te/common.json";
+import commonKn from "./locales/kn/common.json";
+import commonFr from "./locales/fr/common.json";
+import commonDe from "./locales/de/common.json";
+import commonIt from "./locales/it/common.json";
+import commonEs from "./locales/es/common.json";
+import { getSavedLanguage } from "./lib/language-storage.js";
 
 /**
  * i18n scaffolding (PLAT-200, proof of concept)
@@ -52,10 +63,32 @@ import common from "./locales/en/common.json";
 void i18n.use(initReactI18next).init({
   resources: {
     en: { common },
+    hi: { common: commonHi },
+    mr: { common: commonMr },
+    bn: { common: commonBn },
+    ta: { common: commonTa },
+    te: { common: commonTe },
+    kn: { common: commonKn },
+    fr: { common: commonFr },
+    de: { common: commonDe },
+    it: { common: commonIt },
+    es: { common: commonEs },
   },
-  lng: "en",
+  lng: getSavedLanguage(),
   fallbackLng: "en",
-  supportedLngs: ["en"],
+  supportedLngs: [
+    "en",
+    "hi",
+    "mr",
+    "bn",
+    "ta",
+    "te",
+    "kn",
+    "fr",
+    "de",
+    "it",
+    "es",
+  ],
   defaultNS: "common",
   ns: ["common"],
   interpolation: {
@@ -63,5 +96,9 @@ void i18n.use(initReactI18next).init({
   },
   returnNull: false,
 });
+
+// Set lang attribute at startup so screen readers and CSS font-selection rules
+// see the correct language before any React render (changeLocale keeps it in sync).
+document.documentElement.lang = getSavedLanguage();
 
 export { i18n };

@@ -9,17 +9,19 @@ Status values (`.claude/commands/spec.md`): `draft` → `review` → `approved` 
 `implemented (PR #N)`, or `abandoned` (abandoned specs are deleted unless code cites them). When a spec's PR merges, update its header and this table in
 the same PR.
 
-Last reconciled: 2026-09-28 (#694).
+Last reconciled: 2026-10-26 (#200).
 
 ## Open
 
-| Spec                                                                | Status      | Notes                                                                                                                                                                                                      |
-| ------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft       | Not started — dashboard has no severity/tags/origin widgets yet                                                                                                                                            |
-| [module-upgrade-workflow](module-upgrade-workflow.md)               | draft       | #673 — versioned additive upgrades for installed modules; review round 1 done, ADR-004 CF-03/CF-04 follow-up (T0) is human-owned                                                                           |
-| [mandatory-ticket-fields](mandatory-ticket-fields.md)               | in-progress | Five mandatory fields on every ticket. PR 1 (title protected, fields visible, ticket page, schedule-rule user id) open; PR 2 (enforcement everywhere + backfill) next; T11 blocked on an ADR-012 amendment |
-| [my-org-view](my-org-view.md)                                       | in-progress | Org View tab + team roster + view-as-subordinate on the dashboard, built on the org-directory tree. Built on `feat/my-org-view`; isolation test pending a CI run                                           |
-| [tenant-access-gate](tenant-access-gate.md)                         | in-progress | Check a login before the dashboard: tenant on this server, usable, OpenWind role; access-denied screen with countdown and full sign-out                                                                    |
+| Spec                                                                | Status      | Notes                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [multi-lingual-support](multi-lingual-support.md)                   | approved    | Issue #200 — 11 languages, i18next, language selector in Settings, Indic fonts, no DB change. [ADR-024](../decisions/ADR-024-multi-lingual-ui.md). Tasks: [multi-lingual-support-tasks.md](multi-lingual-support-tasks.md) |
+| ------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                 |
+| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft       | Not started — dashboard has no severity/tags/origin widgets yet                                                                                                                                                            |
+| [module-upgrade-workflow](module-upgrade-workflow.md)               | draft       | #673 — versioned additive upgrades for installed modules; review round 1 done, ADR-004 CF-03/CF-04 follow-up (T0) is human-owned                                                                                           |
+| [mandatory-ticket-fields](mandatory-ticket-fields.md)               | in-progress | Five mandatory fields on every ticket. PR 1 (title protected, fields visible, ticket page, schedule-rule user id) open; PR 2 (enforcement everywhere + backfill) next; T11 blocked on an ADR-012 amendment                 |
+| [my-org-view](my-org-view.md)                                       | in-progress | Org View tab + team roster + view-as-subordinate on the dashboard, built on the org-directory tree. Built on `feat/my-org-view`; isolation test pending a CI run                                                           |
+| [tenant-access-gate](tenant-access-gate.md)                         | in-progress | Check a login before the dashboard: tenant on this server, usable, OpenWind role; access-denied screen with countdown and full sign-out                                                                                    |
 
 ## Implemented
 

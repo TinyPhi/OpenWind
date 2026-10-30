@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
+import { useLocale } from "../lib/language.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../entity-type-context.js";
 import {
@@ -177,9 +178,9 @@ function slaSeverityColor(hoursOver: number): string {
   return "hsl(35,90%,50%)";
 }
 
-function formatDueDateLong(iso: string | null): string {
+function formatDueDateLong(iso: string | null, locale: string): string {
   if (iso === null) return "—";
-  return new Date(iso).toLocaleDateString("en-IN", {
+  return new Date(iso).toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -612,6 +613,7 @@ function TicketRow({
   item: TicketSummary;
   onOpen: (entityTypeId: string, entityId: string) => void;
 }): React.ReactElement {
+  const { locale } = useLocale();
   return (
     <tr
       onClick={() => onOpen(item.entityTypeId, item.entityId)}
@@ -651,7 +653,7 @@ function TicketRow({
           whiteSpace: "nowrap",
         }}
       >
-        {formatDueDateLong(item.dueDate)}
+        {formatDueDateLong(item.dueDate, locale)}
       </td>
       <td
         style={{

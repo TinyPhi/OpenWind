@@ -10,6 +10,7 @@ import {
   type ThemeMode,
   type AccentColor,
 } from "../lib/theme.js";
+import { useLocale, SUPPORTED_LANGUAGES } from "../lib/language.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 
@@ -19,11 +20,26 @@ type ModuleRow = {
   isVisible: boolean;
 };
 
-type SettingsTab = "appearance" | "notifications" | "templates";
+type SettingsTab = "appearance" | "notifications" | "templates" | "language";
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  hi: "हिन्दी",
+  mr: "मराठी",
+  bn: "বাংলা",
+  ta: "தமிழ்",
+  te: "తెలుగు",
+  kn: "ಕನ್ನಡ",
+  fr: "Français",
+  de: "Deutsch",
+  it: "Italiano",
+  es: "Español",
+};
 
 export function Settings(): React.ReactElement {
   const [theme, setTheme] = useState<ThemeMode>(getSavedTheme);
   const [accent, setAccent] = useState<AccentColor>(getSavedAccent);
+  const { locale, changeLocale } = useLocale();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
 
@@ -55,7 +71,7 @@ export function Settings(): React.ReactElement {
   // Fall back to Appearance if the active tab is admin-only and the user
   // turns out not to be an admin (or role hasn't loaded yet).
   useEffect(() => {
-    if (!isAdmin && activeTab !== "appearance") {
+    if (!isAdmin && activeTab !== "appearance" && activeTab !== "language") {
       setActiveTab("appearance");
     }
   }, [isAdmin, activeTab]);
@@ -156,6 +172,25 @@ export function Settings(): React.ReactElement {
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"
+          />
+        </svg>
+      ),
+    },
+    {
+      id: "language" as const,
+      label: "Language",
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth="2"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802"
           />
         </svg>
       ),
@@ -385,6 +420,56 @@ export function Settings(): React.ReactElement {
                 </label>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === "language" && (
+          <div className="settings-section-body">
+            <div className="settings-field">
+              <div className="settings-field-label">
+                <span>Display language</span>
+                <span className="settings-field-hint">
+                  Changes the interface language for this device only
+                </span>
+              </div>
+              <div
+                className="language-list"
+                role="listbox"
+                aria-label="Select display language"
+              >
+                {SUPPORTED_LANGUAGES.map((lng) => (
+                  <button
+                    key={lng}
+                    type="button"
+                    role="option"
+                    aria-selected={locale === lng}
+                    className={`language-option ${locale === lng ? "language-option-active" : ""}`}
+                    onClick={() => void changeLocale(lng)}
+                  >
+                    <span className="language-option-name">
+                      {LANGUAGE_NAMES[lng] ?? lng}
+                    </span>
+                    {locale === lng && (
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth="2.5"
+                        stroke="currentColor"
+                        style={{ width: 16, height: 16, flexShrink: 0 }}
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m4.5 12.75 6 6 9-13.5"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
