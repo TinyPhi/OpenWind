@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EnvSchema } from "./env.js";
+import { EnvSchema, supersetErasureMode } from "./env.js";
 import { DEV_SUPERSET_DEFAULTS, DEV_METRICS_TOKEN } from "./dev-defaults.js";
 
 // Mirrors vitest.config.ts's fixture, minus RATE_LIMIT_TENANT_PER_MIN — the
@@ -37,6 +37,50 @@ describe("SUPERSET_REDIS_URL (#728)", () => {
       EnvSchema.safeParse({ ...MINIMAL_VALID_ENV, SUPERSET_REDIS_URL: "nope" })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("Superset erasure mode (#728, D8)", () => {
+  const parse = (extra: Record<string, string>) =>
+    EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...extra });
+
+  it("treats an unset or empty OAuth client id as Stage 2 off", () => {
+    expect(parse({}).SUPERSET_OAUTH_CLIENT_ID).toBeUndefined();
+    expect(
+      parse({ SUPERSET_OAUTH_CLIENT_ID: "" }).SUPERSET_OAUTH_CLIENT_ID,
+    ).toBeUndefined();
+    expect(
+      parse({ SUPERSET_OAUTH_CLIENT_ID: "  " }).SUPERSET_OAUTH_CLIENT_ID,
+    ).toBeUndefined();
+  });
+
+  it("defaults the erasure setting to on and rejects a typo", () => {
+    expect(parse({}).SUPERSET_ERASURE_ENABLED).toBe(true);
+    expect(
+      parse({ SUPERSET_ERASURE_ENABLED: "false" }).SUPERSET_ERASURE_ENABLED,
+    ).toBe(false);
+    expect(
+      EnvSchema.safeParse({
+        ...MINIMAL_VALID_ENV,
+        SUPERSET_ERASURE_ENABLED: "yes",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("follows the D8 table", () => {
+    const mode = (extra: Record<string, string>) =>
+      supersetErasureMode(parse(extra));
+    // Stage 2 on: the setting cannot turn the erasure off.
+    expect(mode({ SUPERSET_OAUTH_CLIENT_ID: "abc" })).toBe("full");
+    expect(
+      mode({
+        SUPERSET_OAUTH_CLIENT_ID: "abc",
+        SUPERSET_ERASURE_ENABLED: "false",
+      }),
+    ).toBe("full");
+    // Stage 2 off: cache only, or nothing when the setting is off.
+    expect(mode({})).toBe("cache-only");
+    expect(mode({ SUPERSET_ERASURE_ENABLED: "false" })).toBe("off");
   });
 });
 
@@ -719,5 +763,21 @@ describe("user data export settings (docs/specs/user-data-export.md)", () => {
     ]) {
       expect(() => EnvSchema.parse({ ...MINIMAL_VALID_ENV, ...bad })).toThrow();
     }
+  });
+});
+
+// zod 4's .default() hands back the default without running .transform(), so a flag written
+// as .transform(...).default("false") came out as the string "false" -- truthy, which turned
+// the AV-scan skip and the MFA bypass on when unset. They use .prefault() so the default is
+// parsed like a real value; this pins the parsed type, not just the truthiness.
+describe("string-parsed flags read their defaults through the transform", () => {
+  it.each([
+    ["SKIP_AV_SCAN", false],
+    ["PLATFORM_ADMIN_MFA_DEV_BYPASS", false],
+    ["TELEMETRY_ENABLED", false],
+    ["RETENTION_REQUIRE_SHORTEN_CONFIRM", true],
+    ["OTEL_TRACE_SAMPLE_RATIO", 0.01],
+  ] as const)("%s defaults to %s when unset", (varName, expected) => {
+    expect(EnvSchema.parse(MINIMAL_VALID_ENV)[varName]).toStrictEqual(expected);
   });
 });

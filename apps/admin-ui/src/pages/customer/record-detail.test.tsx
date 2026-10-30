@@ -1958,3 +1958,264 @@ describe("CustomerRecordDetail — admin state override (docs/specs/state-overri
     expect([...select.options].map((o) => o.value)).toEqual(["", "review"]);
   });
 });
+
+// The API refuses a comment over 4,000 characters (add-comment.ts). The composer used to send it
+// anyway and swallow the 400, so nothing on screen said why the comment never appeared.
+describe("CustomerRecordDetail — comment length limit", () => {
+  beforeEach(() => {
+    mockProfileRoles = ["agent"];
+    mockUserId = ADMIN_USER;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  async function composer(): Promise<HTMLTextAreaElement> {
+    mockRoutesForAccessRequests([]);
+    renderRecordDetail();
+    return (await screen.findByPlaceholderText(
+      /Add a comment/,
+    )) as HTMLTextAreaElement;
+  }
+
+  function postButton(): HTMLButtonElement {
+    return screen.getByRole("button", { name: /Post/ }) as HTMLButtonElement;
+  }
+
+  it("shows how many characters are left once 200 or fewer remain", async () => {
+    const box = await composer();
+    fireEvent.change(box, { target: { value: "a".repeat(3990) } });
+    expect(screen.getByText("10 characters left")).toBeDefined();
+    expect(postButton().disabled).toBe(false);
+  });
+
+  it("marks the text past the limit, says how much to remove, and will not post it", async () => {
+    const box = await composer();
+    fireEvent.change(box, {
+      target: { value: "a".repeat(4000) + "overflow!" },
+    });
+
+    expect(screen.getByText("Remove 9 characters to post")).toBeDefined();
+    expect(document.querySelector(".cmt-overflow")?.textContent).toBe(
+      "overflow!",
+    );
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    expect(postButton().disabled).toBe(true);
+
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(
+      mockFetchWithAuth.mock.calls.some(
+        ([url, init]) =>
+          url === `/api/entities/${RECORD_ID}/comments` &&
+          (init as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not split an emoji that straddles the limit", async () => {
+    const box = await composer();
+    // 3999 + 2 (the emoji is two UTF-16 units, as the API counts it) + 1 = 4002.
+    fireEvent.change(box, {
+      target: { value: "a".repeat(3999) + "\u{1F600}" + "b" },
+    });
+    expect(screen.getByText("Remove 2 characters to post")).toBeDefined();
+    expect(document.querySelector(".cmt-overflow")?.textContent).toBe(
+      "\u{1F600}b",
+    );
+  });
+
+  it("counts the trimmed text, as the API does", async () => {
+    const box = await composer();
+    fireEvent.change(box, {
+      target: { value: "  " + "a".repeat(4000) + "\n\n" },
+    });
+    expect(screen.queryByText(/to post$/)).toBeNull();
+    expect(postButton().disabled).toBe(false);
+  });
+
+  it("shows the server's message and keeps the text when posting fails", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject(new Error("Request validation failed"));
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Request validation failed",
+    );
+    expect(box.value).toBe("hello");
+
+    // Editing the text clears the message.
+    fireEvent.change(box, { target: { value: "hello again" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // A validation failure's message is the generic "Request validation failed"; the reason is in
+  // its per-field list (apps/api/src/lib/validator.ts).
+  it("shows the field reason from a validation failure, not the generic message", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject(
+          Object.assign(new Error("Request validation failed"), {
+            fields: [
+              {
+                field: "fileIds",
+                code: "too_big",
+                message: "Array must contain at most 10 element(s)",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Array must contain at most 10 element(s)",
+    );
+  });
+
+  it("falls back to the error's own message when the field list is empty", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject(
+          Object.assign(new Error("Request validation failed"), {
+            fields: [],
+          }),
+        );
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Request validation failed",
+    );
+  });
+
+  it("shows a fixed message when the failure is not an Error", async () => {
+    const box = await composer();
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (
+        url === `/api/entities/${RECORD_ID}/comments` &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.reject("network down");
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.click(postButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The comment could not be posted",
+    );
+  });
+
+  // Mentioning someone without access opens a dialog first; the post happens from the dialog.
+  // That path used to clear the box straight away and drop any error from the post.
+  describe("when the comment mentions someone without access", () => {
+    const NEW_USER = {
+      userId: "u-new",
+      email: "nina@example.com",
+      displayName: "Nina New",
+    };
+
+    async function composerWithMention(
+      post: () => Promise<unknown>,
+    ): Promise<HTMLTextAreaElement> {
+      clearUsersCache();
+      mockRoutesForAccessRequests([]);
+      const routes = mockFetchWithAuth.getMockImplementation();
+      mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+        if (url === "/api/users") {
+          return Promise.resolve({ data: [NEW_USER] });
+        }
+        if (
+          url === `/api/entities/${RECORD_ID}/comments` &&
+          (init as RequestInit | undefined)?.method === "POST"
+        ) {
+          return post();
+        }
+        return routes ? routes(url, init) : Promise.resolve({ data: [] });
+      });
+      renderRecordDetail();
+      const box = (await screen.findByPlaceholderText(
+        /Add a comment/,
+      )) as HTMLTextAreaElement;
+      await waitFor(() => {
+        fireEvent.change(box, { target: { value: "hi @Nin" } });
+        expect(screen.getByText("Nina New")).toBeDefined();
+      });
+      fireEvent.keyDown(box, { key: "Enter" });
+      fireEvent.click(postButton());
+      await screen.findByRole("button", { name: /Grant & post/ });
+      return box;
+    }
+
+    it("keeps the text and shows the error when the post fails", async () => {
+      const box = await composerWithMention(() =>
+        Promise.reject(new Error("The comment could not be saved")),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Grant & post/ }));
+
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        "The comment could not be saved",
+      );
+      expect(box.value).toBe("hi @Nina New ");
+    });
+
+    it("keeps the text and posts nothing when the dialog is cancelled", async () => {
+      const post = vi.fn(() => Promise.resolve({ data: {} }));
+      const box = await composerWithMention(post);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: /Grant & post/ }),
+        ).toBeNull();
+      });
+      expect(box.value).toBe("hi @Nina New ");
+      expect(post).not.toHaveBeenCalled();
+      expect(postButton().disabled).toBe(false);
+    });
+
+    it("clears the box once the post succeeds", async () => {
+      const box = await composerWithMention(() =>
+        Promise.resolve({ data: {} }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Grant & post/ }));
+
+      await waitFor(() => {
+        expect(box.value).toBe("");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
+});

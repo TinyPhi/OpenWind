@@ -9,7 +9,7 @@ import { factory } from "./factory.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { emitFileDownloaded } from "../../lib/emit-access-event.js";
 
-const FileIdParamSchema = z.object({ id: z.string().uuid() });
+const FileIdParamSchema = z.object({ id: z.guid() });
 
 export const getDownloadUrlHandler = factory.createHandlers(
   requireAuth(),

@@ -3,14 +3,26 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockAdd, mockWarn, mockEnv } = vi.hoisted(() => ({
   mockAdd: vi.fn(),
   mockWarn: vi.fn(),
-  mockEnv: { SUPERSET_REDIS_URL: undefined as string | undefined },
+  mockEnv: {
+    SUPERSET_REDIS_URL: undefined as string | undefined,
+    SUPERSET_OAUTH_CLIENT_ID: undefined as string | undefined,
+    SUPERSET_ERASURE_ENABLED: true,
+  },
 }));
 vi.mock("@platform/telemetry", () => ({
   Queue: class {
     add = mockAdd;
   },
 }));
-vi.mock("@platform/config", () => ({ env: mockEnv }));
+vi.mock("@platform/config", () => ({
+  env: mockEnv,
+  supersetErasureMode: (e: typeof mockEnv): string =>
+    e.SUPERSET_OAUTH_CLIENT_ID
+      ? "full"
+      : e.SUPERSET_ERASURE_ENABLED
+        ? "cache-only"
+        : "off",
+}));
 vi.mock("@platform/logger", () => ({ logger: { warn: mockWarn } }));
 vi.mock("./redis.js", () => ({ connection: {} }));
 
@@ -20,9 +32,28 @@ const { enqueueSupersetCacheFlush } =
 beforeEach(() => {
   vi.clearAllMocks();
   mockEnv.SUPERSET_REDIS_URL = "redis://redis:6379/2";
+  mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+  mockEnv.SUPERSET_ERASURE_ENABLED = true;
 });
 
 describe("enqueueSupersetCacheFlush", () => {
+  it("queues nothing, and warns, when Superset erasure is turned off with Stage 2 off (#728, D8)", async () => {
+    mockEnv.SUPERSET_ERASURE_ENABLED = false;
+    expect(await enqueueSupersetCacheFlush("t1", "user_erased")).toBe(false);
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "t1" }),
+      expect.stringContaining("turned off"),
+    );
+  });
+
+  it("still flushes with Stage 2 on, whatever the setting says", async () => {
+    mockEnv.SUPERSET_ERASURE_ENABLED = false;
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = "client-id";
+    expect(await enqueueSupersetCacheFlush("t1", "user_erased")).toBe(true);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+  });
+
   it("queues nothing when SUPERSET_REDIS_URL is unset", async () => {
     mockEnv.SUPERSET_REDIS_URL = undefined;
     expect(await enqueueSupersetCacheFlush("t1", "user_erased")).toBe(false);

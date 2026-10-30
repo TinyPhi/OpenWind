@@ -68,7 +68,7 @@ const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 const THIRD_PARTY_BASELINE_ACTOR_ROLES = ["user"] as const;
 
 const ExecuteThirdPartyTransitionSchema = z.object({
-  transitionId: z.string().uuid(),
+  transitionId: z.guid(),
   comment: z
     .string()
     .min(1)
@@ -78,7 +78,7 @@ const ExecuteThirdPartyTransitionSchema = z.object({
     })
     .optional(),
   idempotencyKey: z.string().min(1).max(255).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

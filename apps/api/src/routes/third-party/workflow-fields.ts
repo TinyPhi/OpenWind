@@ -14,7 +14,7 @@ function isWorkflowNotFound(err: unknown): boolean {
   return err instanceof WorkflowError && err.code === "WORKFLOW_NOT_FOUND";
 }
 
-const WorkflowIdSchema = z.string().uuid();
+const WorkflowIdSchema = z.guid();
 
 /**
  * GET /api/v1/workflows/:workflowId/fields — third-party API schema/describe

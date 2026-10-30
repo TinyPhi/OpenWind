@@ -31,7 +31,7 @@ const ExportQuerySchema = z.object({
     .max(128)
     .regex(/^[A-Za-z0-9_-]+$/)
     .optional(),
-  assignedTo: z.string().uuid().optional(),
+  assignedTo: z.guid().optional(),
 });
 
 // ── Route handler ─────────────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ import { assertRecordWorkflowAccess } from "../../lib/assert-record-workflow-acc
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 
 const AssignLabelSchema = z.object({
-  labelId: z.string().uuid(),
+  labelId: z.guid(),
 });
 
 function isUniqueViolation(err: unknown): boolean {

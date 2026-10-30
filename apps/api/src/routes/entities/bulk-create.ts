@@ -14,14 +14,14 @@ const BulkCreateSchema = z.object({
   items: z
     .array(
       z.object({
-        entityTypeId: z.string().uuid(),
-        fields: z.record(z.unknown()),
+        entityTypeId: z.guid(),
+        fields: z.record(z.string(), z.unknown()),
         assignedTo: z.string().optional(),
-        workflowId: z.string().uuid().optional(),
+        workflowId: z.guid().optional(),
         // docs/specs/mandatory-ticket-fields.md R4: the rest of the four mandatory values.
         // Optional here while MANDATORY_FIELDS_MODE is "log"; the engine reports or rejects
         // an item missing them.
-        teamId: z.string().uuid().optional(),
+        teamId: z.guid().optional(),
         dueDate: z.string().datetime().optional(),
         remark: z.string().trim().min(1).max(4000).optional(),
         severity: TicketSeveritySchema.optional(),

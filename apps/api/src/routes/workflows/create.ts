@@ -8,7 +8,7 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { auditWorkflowAdminsChange } from "../../lib/audit-workflow-access.js";
 
 const CreateWorkflowSchema = z.object({
-  entityTypeId: z.string().uuid(),
+  entityTypeId: z.guid(),
   name: z.string().min(1).max(200),
   initialState: z.string().min(1).max(100),
 });

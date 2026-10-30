@@ -28,17 +28,15 @@ export const RETIRED_TRIGGER_TYPES: Readonly<Record<string, string>> = {
 };
 
 export const TriggerTypeSchema = z.enum(TRIGGER_TYPES, {
-  errorMap: (_issue, ctx) => {
+  // Returning undefined keeps zod's default message.
+  error: (issue) => {
     const hint =
-      typeof ctx.data === "string"
-        ? RETIRED_TRIGGER_TYPES[ctx.data]
+      typeof issue.input === "string"
+        ? RETIRED_TRIGGER_TYPES[issue.input]
         : undefined;
-    return {
-      message:
-        hint !== undefined
-          ? `${String(ctx.data)} is no longer supported: ${hint}`
-          : ctx.defaultError,
-    };
+    return hint !== undefined
+      ? `${String(issue.input)} is no longer supported: ${hint}`
+      : undefined;
   },
 });
 
@@ -96,7 +94,7 @@ const TransitionConfigSchema = z.object({
 const WebhookActionConfigSchema = z.object({
   url: z.string().url(),
   method: z.enum(["POST", "PUT", "PATCH"]).optional(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   includePayload: z.boolean().optional(),
   sendFields: z.array(z.string()).optional(),
   timeoutMs: z.number().int().positive().optional(),
@@ -121,7 +119,7 @@ const TicketTemplateSchema = z
       .max(255)
       .regex(/\S/, "assignedTo can't be blank")
       .optional(),
-    teamId: z.string().uuid().optional(),
+    teamId: z.guid().optional(),
   })
   .refine((t) => !(t.assignedTo && t.teamId), {
     message: "Set at most one of assignedTo or teamId",
@@ -130,7 +128,7 @@ const TicketTemplateSchema = z
 
 const CreateEntityConfigSchema = z.object({
   entityTypeId: z.string().min(1),
-  fields: z.record(z.unknown()).optional(),
+  fields: z.record(z.string(), z.unknown()).optional(),
   assignedTo: z.string().optional(),
   template: TicketTemplateSchema.optional(),
 });
@@ -140,17 +138,17 @@ const CreateChildConfigSchema = z.object({
   assignToUserId: z.string().min(1).nullable().optional(),
   descriptionTemplate: z.string().optional(),
   descriptionField: z.string().min(1).optional(),
-  fields: z.record(z.unknown()).optional(),
+  fields: z.record(z.string(), z.unknown()).optional(),
   writeBackField: z.string().min(1).optional(),
   template: TicketTemplateSchema.optional(),
 });
 
 const ResolveOncallConfigSchema = z.object({
-  instanceId: z.string().uuid().optional(),
+  instanceId: z.guid().optional(),
 });
 
 const DispatchSeverityNotificationConfigSchema = z.object({
-  instanceId: z.string().uuid().optional(),
+  instanceId: z.guid().optional(),
 });
 
 export const ActionConfigSchema = z.discriminatedUnion("type", [
@@ -169,7 +167,7 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("connector.action"),
-    config: z.record(z.unknown()),
+    config: z.record(z.string(), z.unknown()),
   }),
   z.object({
     type: z.literal("resolve_oncall"),
@@ -190,7 +188,7 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
 // #684: a client's "any" option arrives as "", which would fail the uuid
 // checks below and, for unvalidated keys, be stored. Treat it as unset.
 export const TriggerConfigInputSchema = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .transform((config) =>
     Object.fromEntries(Object.entries(config).filter(([, v]) => v !== "")),
   );
@@ -198,8 +196,8 @@ export const TriggerConfigInputSchema = z
 // Strict (#684): an unknown key is rejected rather than stored and ignored.
 // The keys mirror the executor's TRIGGER_SCOPE_KEYS, plus `entityType` (a
 // type name, used by module-seeded rules).
-const workflowId = z.string().uuid().optional();
-const entityTypeId = z.string().uuid().optional();
+const workflowId = z.guid().optional();
+const entityTypeId = z.guid().optional();
 const entityType = z.string().min(1).optional();
 
 export const TRIGGER_CONFIG_SCHEMAS = {

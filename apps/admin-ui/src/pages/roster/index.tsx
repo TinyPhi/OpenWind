@@ -210,9 +210,9 @@ export function RosterPage(): React.ReactElement {
           {teams.length === 0 && (
             <option value="">{t("roster.noTeams")}</option>
           )}
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
+          {teams.map((team) => (
+            <option key={team.id} value={team.id}>
+              {team.name}
             </option>
           ))}
         </select>
@@ -372,7 +372,8 @@ export function RosterPage(): React.ReactElement {
 
       <ScheduleFormModal
         open={createModal.isOpen}
-        teamId={selectedTeamId}
+        teams={teams}
+        defaultTeamId={selectedTeamId}
         users={users}
         onClose={createModal.close}
         onSaved={() => {
@@ -383,7 +384,8 @@ export function RosterPage(): React.ReactElement {
       <ScheduleFormModal
         open={editModal.isOpen}
         schedule={editModal.item ?? undefined}
-        teamId={selectedTeamId}
+        teams={teams}
+        defaultTeamId={selectedTeamId}
         users={users}
         onClose={editModal.close}
         onDelete={() => {
@@ -434,7 +436,8 @@ function toLocalInputValue(iso: string): string {
 interface ScheduleFormModalProps {
   open: boolean;
   schedule?: OnCallSchedule | undefined;
-  teamId: string;
+  teams: Team[];
+  defaultTeamId: string;
   users: TenantUser[];
   onClose: () => void;
   onSaved: () => void;
@@ -464,7 +467,8 @@ function initialScheduleFormData(schedule?: OnCallSchedule): ScheduleFormData {
 function ScheduleFormModal({
   open,
   schedule,
-  teamId,
+  teams,
+  defaultTeamId,
   users,
   onClose,
   onSaved,
@@ -474,6 +478,16 @@ function ScheduleFormModal({
   const [formData, setFormData] = useState<ScheduleFormData>(() =>
     initialScheduleFormData(schedule),
   );
+  // A window's team is fixed once created; a new window picks its team first.
+  const [chosenTeamId, setChosenTeamId] = useState(
+    schedule?.teamId ?? defaultTeamId,
+  );
+  // The dropdown always shows a team, so state must agree with it even when
+  // the page's team was not selected yet at the moment the modal opened.
+  const teamId =
+    [schedule?.teamId, chosenTeamId, defaultTeamId, teams[0]?.id].find(
+      (id) => !!id,
+    ) ?? "";
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // UserPicker portals its dropdown here instead of document.body, so it
@@ -487,9 +501,48 @@ function ScheduleFormModal({
   useEffect(() => {
     if (open) {
       setFormData(initialScheduleFormData(schedule));
+      setChosenTeamId(schedule?.teamId ?? defaultTeamId);
       setError(null);
     }
-  }, [open, schedule]);
+  }, [open, schedule, defaultTeamId]);
+
+  const team = teams.find((t) => t.id === teamId);
+  const memberIds = useMemo(
+    () => (team?.members ?? []).map((m) => m.userId),
+    [team],
+  );
+  // Pickers offer only the team's members, in rotation order. A team with no
+  // members keeps the old any-eligible-user behaviour. When editing, whoever
+  // already holds a role stays visible even if they have left the team.
+  const pickerUsers = useMemo(() => {
+    if (memberIds.length === 0) return users;
+    const allowed = new Set(memberIds);
+    if (schedule) {
+      for (const id of [
+        schedule.primaryUserId,
+        schedule.backupUserId,
+        schedule.escalationManagerUserId,
+      ]) {
+        if (id) allowed.add(id);
+      }
+    }
+    const byId = new Map(users.map((u) => [u.userId, u]));
+    const ordered = memberIds.flatMap((id) => byId.get(id) ?? []);
+    const extra = users.filter(
+      (u) => allowed.has(u.userId) && !memberIds.includes(u.userId),
+    );
+    return [...ordered, ...extra];
+  }, [memberIds, users, schedule]);
+
+  function changeTeam(nextTeamId: string): void {
+    setChosenTeamId(nextTeamId);
+    setFormData((prev) => ({
+      ...prev,
+      primaryUserId: "",
+      backupUserId: "",
+      escalationManagerUserId: "",
+    }));
+  }
 
   const {
     label,
@@ -522,6 +575,7 @@ function ScheduleFormModal({
     label.trim().length > 0 &&
     startsAt.length > 0 &&
     endsAt.length > 0 &&
+    teamId.length > 0 &&
     primaryUserId.length > 0 &&
     new Date(startsAt) < new Date(endsAt) &&
     !hasDuplicateAssignees;
@@ -610,6 +664,32 @@ function ScheduleFormModal({
 
         <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="form-group">
+            <label className="form-label" htmlFor="schedule-team">
+              {t("roster.team")} *
+            </label>
+            {schedule ? (
+              <div id="schedule-team">
+                {team?.name ?? t("roster.unknownTeam")}
+              </div>
+            ) : (
+              <select
+                id="schedule-team"
+                className="form-input"
+                value={teamId}
+                onChange={(e) => changeTeam(e.target.value)}
+              >
+                {teams.map((tm) => (
+                  <option key={tm.id} value={tm.id}>
+                    {tm.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {memberIds.length === 0 && teamId && (
+              <p className="page-subtitle">{t("roster.noMembersHint")}</p>
+            )}
+          </div>
+          <div className="form-group">
             <label className="form-label">{t("roster.label")} *</label>
             <input
               className="form-input"
@@ -646,7 +726,7 @@ function ScheduleFormModal({
           <div className="form-group">
             <label className="form-label">{t("roster.primaryOncall")} *</label>
             <UserPicker
-              users={users}
+              users={pickerUsers}
               value={primaryUserId || null}
               onChange={(id) => updateField("primaryUserId", id ?? "")}
               placeholder={t("roster.selectUser")}
@@ -656,7 +736,7 @@ function ScheduleFormModal({
           <div className="form-group">
             <label className="form-label">{t("roster.backupOncall")}</label>
             <UserPicker
-              users={users}
+              users={pickerUsers}
               value={backupUserId || null}
               onChange={(id) => updateField("backupUserId", id ?? "")}
               placeholder={t("roster.none")}
@@ -668,7 +748,7 @@ function ScheduleFormModal({
               {t("roster.escalationManager")}
             </label>
             <UserPicker
-              users={users}
+              users={pickerUsers}
               value={escalationManagerUserId || null}
               onChange={(id) =>
                 updateField("escalationManagerUserId", id ?? "")

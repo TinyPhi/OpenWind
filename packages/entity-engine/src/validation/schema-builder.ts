@@ -177,7 +177,7 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
       return z.string().min(1);
 
     case "entity_ref":
-      return z.string().uuid();
+      return z.guid();
 
     // The frontend (file-field-picker.tsx) has only ever submitted plain
     // file-id strings, matching the attachments-binding pattern used
@@ -197,8 +197,15 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
   }
 }
 
+/**
+ * Callers must parse with `{ reportInput: true }`. zod 4 dropped v3's `received`, so an
+ * invalid_type issue's `input` is how a missing field (REQUIRED) is told apart from a value of
+ * the wrong type (INVALID_TYPE); without the option `input` is always absent and every wrong
+ * type is reported as REQUIRED. Only the fields below are copied out, so the input never
+ * reaches a response.
+ */
 export function transformZodErrors(error: z.ZodError): FieldError[] {
-  return error.errors.map((issue) => {
+  return error.issues.map((issue) => {
     const meta = buildMeta(issue);
     const base: FieldError = {
       field: issue.path.join(".") || "_root",
@@ -210,17 +217,17 @@ export function transformZodErrors(error: z.ZodError): FieldError[] {
   });
 }
 
-function mapZodCode(issue: z.ZodIssue): string {
+function mapZodCode(issue: z.core.$ZodIssue): string {
   switch (issue.code) {
     case "invalid_type":
-      return issue.received === "undefined" ? "REQUIRED" : "INVALID_TYPE";
+      return issue.input === undefined ? "REQUIRED" : "INVALID_TYPE";
     case "too_small":
-      return issue.type === "string" ? "TOO_SHORT" : "TOO_SMALL";
+      return issue.origin === "string" ? "TOO_SHORT" : "TOO_SMALL";
     case "too_big":
-      return issue.type === "string" ? "TOO_LONG" : "TOO_LARGE";
-    case "invalid_enum_value":
+      return issue.origin === "string" ? "TOO_LONG" : "TOO_LARGE";
+    case "invalid_value":
       return "INVALID_ENUM";
-    case "invalid_string":
+    case "invalid_format":
       return "INVALID_FORMAT";
     case "custom":
       return "VALIDATION_FAILED";
@@ -229,9 +236,11 @@ function mapZodCode(issue: z.ZodIssue): string {
   }
 }
 
-function buildMeta(issue: z.ZodIssue): Record<string, unknown> | undefined {
+function buildMeta(
+  issue: z.core.$ZodIssue,
+): Record<string, unknown> | undefined {
   if (issue.code === "too_big") return { max: issue.maximum };
   if (issue.code === "too_small") return { min: issue.minimum };
-  if (issue.code === "invalid_enum_value") return { options: issue.options };
+  if (issue.code === "invalid_value") return { options: issue.values };
   return undefined;
 }

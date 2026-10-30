@@ -57,7 +57,9 @@ overrides:
   # Bounded to <8 to prevent major upgrades breaking jsdom's internal file imports.
   # GHSA-rfgv-xxqx-mfg5 (WebSocket subprotocol DoS) + GHSA-w293-vg96-wgc3 (BalancedPool TLS
   # validation bypass), 2026-09-30: patched in 7.29.1.
-  undici: ">=7.29.1 <8"
+  # GHSA-xjj6-f33q-929c (DoS via unhandled error on excessive content-encodings): patched in
+  # 7.30.1. Only jsdom pulls it in (admin-ui and api tests), so nothing at runtime uses it.
+  undici: ">=7.30.1 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths.
   # GHSA-fxqj-rqcc-2cmp: second path-traversal variant — floor raised >=8.5.18 → >=8.5.23.
@@ -74,6 +76,10 @@ overrides:
   # certificates as authorized — pulled in via packages/telemetry's OTel gRPC exporters
   # (8 paths). Bounded to <2 to stay on the 1.x line the exporters declare.
   "@grpc/grpc-js": ">=1.14.5 <2"
+  # GHSA-3f7j-7jwc-fxfj (high): systeminformation Windows command injection in services() via
+  # Unicode quotation marks — pulled in via packages/telemetry's OTel host-metrics
+  # instrumentation (1 path). Bounded to <6 to stay on the ^5 line it declares.
+  systeminformation: ">=5.33.16 <6"
   # GHSA-c83g-rgw3-j3cx (unbounded memory growth via distinct query results) +
   # GHSA-73wf-gq98-2v4g (prototype write via untrusted browserslist-stats.json normalizeStats):
   # pulled in via @vitejs/plugin-react → @babel/core → @babel/helper-compilation-targets

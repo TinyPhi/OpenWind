@@ -362,13 +362,18 @@
     "searchPlaceholder": "Search teams…",
     "members": "Members",
     "noMatches": "No teams match your search.",
-    "noMembers": "No members in this team.",
+    "noMembers": "No members yet. Add people to limit the on-call roster to this team.",
     "addMember": "Add Member",
-    "removeMember": "Remove",
+    "removeMember": "Remove {{name}}",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
-    "confirmDelete": "Are you sure you want to delete this team?"
+    "confirmDelete": "Are you sure you want to delete this team?",
+    "membersLabel": "Members (rotation order)",
+    "addMemberPlaceholder": "Add a member…",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "failedToLoadUsers": "Failed to load users."
   },
   "services": {
     "title": "Services",
@@ -533,7 +538,10 @@
     "createSchedule": "Create schedule",
     "cancel": "Cancel",
     "delete": "Delete",
-    "noEntries": "No roster entries."
+    "noEntries": "No roster entries.",
+    "team": "Team",
+    "unknownTeam": "Unknown team",
+    "noMembersHint": "This team has no members yet, so anyone eligible can be picked. Adding members to the team limits the choice to them."
   },
   "apiKeys": {
     "title": "API Keys",

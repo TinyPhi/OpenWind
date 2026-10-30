@@ -29,6 +29,7 @@ import { scheduleFileCleanup, stopFileCleanupWorker } from "./file-cleanup.js";
 import { stopTenantPurgeWorker } from "./tenant-purge.js";
 import { stopExportWorker } from "./export-worker.js";
 import { stopSupersetCacheFlushWorker } from "./superset-cache-flush.js";
+import { stopSupersetErasureWorker } from "./superset-erasure.js";
 import { startHealthServer, stopHealthServer } from "./health-server.js";
 import {
   startNotificationPoller,
@@ -120,6 +121,7 @@ async function shutdown(): Promise<void> {
     stopTenantPurgeWorker(),
     stopExportWorker(),
     stopSupersetCacheFlushWorker(),
+    stopSupersetErasureWorker(),
     stopHealthServer(),
     stopNotificationWorker(),
     stopNotificationOutboundWorker(),

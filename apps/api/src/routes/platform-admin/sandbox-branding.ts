@@ -19,7 +19,7 @@ import { platformAdminFactory } from "./factory.js";
  *
  * Rate limiting: the global per-IP limiter (app.ts) only, same as the trial routes.
  */
-const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
+const TenantIdParamSchema = z.object({ tenantId: z.guid() });
 
 const BrandingSchema = z
   .object({

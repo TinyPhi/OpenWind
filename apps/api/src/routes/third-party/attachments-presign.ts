@@ -43,7 +43,7 @@ const PresignAttachmentSchema = z.object({
   filename: z.string().min(1).max(255),
   sizeBytes: z.number().int().positive(),
   mimeType: z.string().min(1),
-  ticketId: z.string().uuid().optional(),
+  ticketId: z.guid().optional(),
 });
 
 function notFound(c: {

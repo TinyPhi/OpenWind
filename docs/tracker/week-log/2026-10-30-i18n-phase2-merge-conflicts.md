@@ -23,10 +23,24 @@
 - pnpm test: PASS (admin-ui 108/108 files, 1125/1125 tests)
 - pnpm test:isolation: N/A — Docker not running on Windows; no new tables or routes
 
-### Next
+### Next (second merge round — PRs #1103, #1105, #1106)
 
-- Commit and push; confirm PR #1107 CI green after retarget to main
+- Second `git merge origin/main` incorporating PRs #1103, #1105, #1106:
+  - 23 merge conflicts resolved
+  - `teams/index.tsx`: kept our `t()` calls + incorporated main's `MemberListEditor`
+    (member list with rotation order); extracted new strings:
+    `teams.membersLabel`, `teams.noMembers`, `teams.addMember`, `teams.addMemberPlaceholder`,
+    `teams.removeMember` (with `{{name}}`), `teams.moveUp`, `teams.moveDown`, `teams.failedToLoadUsers`
+  - `roster/index.tsx`: kept our `t()` calls + incorporated main's team picker in the
+    schedule form (`teams/defaultTeamId` props, `chosenTeamId` state, `changeTeam` logic);
+    extracted: `roster.team`, `roster.unknownTeam`, `roster.noMembersHint`
+  - `teams.editTeam` / `teams.deleteTeam` updated to lowercase to match test expectations
+  - All 10 locale stubs mirrored
+  - Fixed `teams.map((t) => ...)` → `teams.map((team) => ...)` variable shadowing in `roster/index.tsx`
+  - `record-detail.tsx` hardcoded strings deferred — 5906-line file, not in scope of phase 2
+- Verification: typecheck PASS, lint PASS, admin-ui 108/108 files 1144/1144 tests PASS
 
 ### Open questions
 
-- None
+- `record-detail.tsx`: 3 hardcoded strings (`"The comment could not be posted"` ×2,
+  `"Waiting for file scan…"`) not extracted — deferred to a follow-up i18n pass on that file

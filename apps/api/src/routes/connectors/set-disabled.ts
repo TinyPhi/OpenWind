@@ -38,7 +38,7 @@ import { writeAuditEntry } from "@platform/audit";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 
-const ParamsSchema = z.object({ connectorId: z.string().uuid() });
+const ParamsSchema = z.object({ connectorId: z.guid() });
 const BodySchema = z.object({ disabled: z.boolean() });
 
 export const setConnectorDisabledHandler = factory.createHandlers(

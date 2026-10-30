@@ -18,6 +18,8 @@ export {
   type FieldError,
 } from "./cross-tenant-ref-validator.js";
 
+export { compactTeamPositions, replaceTeamMembers } from "./team-members.js";
+
 export {
   getActiveScheduleForTeam,
   getUsersResolvableSet,

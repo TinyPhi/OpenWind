@@ -107,6 +107,7 @@ export async function fetchWithAuth(
       message?: string;
       error?: string;
       meta?: Record<string, unknown>;
+      fields?: Array<{ field: string; code?: string; message: string }>;
     };
     const message =
       body.message ?? body.error ?? `Request failed (${response.status})`;
@@ -132,12 +133,17 @@ export async function fetchWithAuth(
       status: number;
       code?: string | undefined;
       meta?: Record<string, unknown> | undefined;
+      fields?:
+        | Array<{ field: string; code?: string; message: string }>
+        | undefined;
     };
     err.status = response.status;
     // The server's machine-readable error (e.g. MFA_REAUTH_REQUIRED), so callers can branch
     // on it instead of matching message text.
     err.code = body.error;
     err.meta = body.meta;
+    // A VALIDATION_ERROR's reasons, one per field (apps/api/src/lib/validator.ts).
+    err.fields = body.fields;
     throw err;
   }
 

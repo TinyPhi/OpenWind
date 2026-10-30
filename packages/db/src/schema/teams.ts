@@ -3,6 +3,7 @@ import {
   pgTable,
   uuid,
   text,
+  integer,
   timestamp,
   index,
   uniqueIndex,
@@ -39,6 +40,37 @@ export const teams = pgTable(
     tenantNameUnique: uniqueIndex("teams_tenant_name_unique")
       .on(t.tenantId, t.name)
       .where(sql`${t.deletedAt} IS NULL`),
+  }),
+);
+
+// ADR-016 addendum A1: ordered team membership. user_id is a Zitadel sub with
+// no FK; the API validates it against the tenant before every write.
+export const teamMembers = pgTable(
+  "team_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    userId: text("user_id").notNull(),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("team_members_tenant_idx").on(t.tenantId),
+    tenantUserIdx: index("team_members_tenant_user_idx").on(
+      t.tenantId,
+      t.userId,
+    ),
+    teamUserUnique: uniqueIndex("team_members_team_user_unique").on(
+      t.teamId,
+      t.userId,
+    ),
+    teamPositionUnique: uniqueIndex("team_members_team_position_unique").on(
+      t.teamId,
+      t.position,
+    ),
   }),
 );
 

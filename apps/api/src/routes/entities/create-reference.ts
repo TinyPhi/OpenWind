@@ -8,7 +8,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 
 const CreateReferenceSchema = z.object({
-  toInstanceId: z.string().uuid(),
+  toInstanceId: z.guid(),
 });
 
 export const createReferenceHandler = factory.createHandlers(

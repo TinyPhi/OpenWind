@@ -84,6 +84,7 @@ const mockScheduleRow = {
 
 let overlapConflict = false;
 let getReturnsRow = true;
+let teamMemberIds: string[] = [];
 
 vi.mock("@platform/teams", () => ({
   validateCrossTenantRefs: async (
@@ -117,6 +118,11 @@ vi.mock("@platform/db", () => ({
   // tx below, per the RLS-defense-in-depth fix.
   db: {},
   teams: { id: "id", tenantId: "tenantId", deletedAt: "deletedAt" },
+  teamMembers: {
+    tenantId: "tenantId",
+    teamId: "teamId",
+    userId: "memberUserId",
+  },
   tenantUsers: {
     tenantId: "tenantId",
     userId: "userId",
@@ -133,9 +139,13 @@ vi.mock("@platform/db", () => ({
   },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
     callOrder.push("withTenantContext");
+    let fromTable: unknown;
     const tx = {
       select: () => tx,
-      from: () => tx,
+      from: (table: unknown) => {
+        fromTable = table;
+        return tx;
+      },
       where: () => tx,
       orderBy: () => tx,
       limit: () => Promise.resolve(getReturnsRow ? [mockScheduleRow] : []),
@@ -160,7 +170,13 @@ vi.mock("@platform/db", () => ({
       // the RLS-defense-in-depth fix (PR review). Other call sites move
       // past .where() to .limit()/.returning(), which return real Promises
       // and never trigger this.
-      then: (resolve: (v: unknown) => void) => resolve([{ userId: "u-bbb" }]),
+      then: (resolve: (v: unknown) => void) =>
+        resolve(
+          (fromTable as { userId?: string } | undefined)?.userId ===
+            "memberUserId"
+            ? teamMemberIds.map((userId) => ({ userId }))
+            : [{ userId: "u-bbb" }],
+        ),
     };
     return fn(tx);
   },
@@ -211,6 +227,7 @@ beforeEach(() => {
   mockAuth.roles = ["admin"];
   overlapConflict = false;
   getReturnsRow = true;
+  teamMemberIds = [];
   callOrder.length = 0;
   mockResolveTenantMembers.mockReset();
   mockResolveTenantMembers.mockResolvedValue(new Set());
@@ -448,5 +465,59 @@ describe("DELETE /admin/on-call-schedules/:id", () => {
       { method: "DELETE" },
     );
     expect(res.status).toBe(403);
+  });
+});
+
+describe("on-call schedule writes — roles come from the team's members (oncall-team-rotation R3)", () => {
+  const url = `/admin/on-call-schedules/${mockScheduleRow.id}`;
+  const post = (body: object): Promise<Response> =>
+    makeApp().request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const patch = (body: object): Promise<Response> =>
+    makeApp().request(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("creates a window when the primary is a member of the team", async () => {
+    teamMemberIds = ["u-bbb", "u-other"];
+    expect((await post(validCreateBody)).status).toBe(201);
+  });
+
+  it("refuses a primary who is not a member, naming the field", async () => {
+    teamMemberIds = ["u-other"];
+    const res = await post(validCreateBody);
+    expect(res.status).toBe(422);
+    expect((await res.json()).fields).toEqual([
+      {
+        field: "primaryUserId",
+        message: expect.stringMatching(/member of the selected team/),
+      },
+    ]);
+  });
+
+  it("keeps the old any-eligible-user behaviour for a team with no members", async () => {
+    teamMemberIds = [];
+    expect((await post(validCreateBody)).status).toBe(201);
+  });
+
+  it("refuses a backup who is not a member when the edit changes the backup", async () => {
+    teamMemberIds = ["u-other"];
+    const res = await patch({ backupUserId: "u-bbb" });
+    expect(res.status).toBe(422);
+    expect((await res.json()).fields[0].field).toBe("backupUserId");
+  });
+
+  it("lets an edit that changes no role pass even when the holder left the team", async () => {
+    teamMemberIds = ["u-other"];
+    expect((await patch({ label: "Renamed" })).status).toBe(200);
+    // primary resent unchanged (the roster form sends all three)
+    expect(
+      (await patch({ label: "Renamed", primaryUserId: "u-bbb" })).status,
+    ).toBe(200);
   });
 });

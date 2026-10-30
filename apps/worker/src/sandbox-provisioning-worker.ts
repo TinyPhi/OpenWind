@@ -66,6 +66,7 @@ import {
   createHumanUser,
   grantProjectToOrg,
   authorizeUser,
+  setUserOrgMetadata,
   generateSandboxOrgTemplate,
   nextEmailCandidate,
   storeSandboxHandoverCredentials,
@@ -383,6 +384,8 @@ export async function processSandboxProvisioningJob(
         displayName: `${template.admin.givenName} ${template.admin.familyName}`,
       },
     ];
+    // Zitadel user id per template position ([admin, ...members]); null when that account failed.
+    const accountUserIds: (string | null)[] = [admin.userId];
     let seededAccountCount = 1;
     let failedAccountCount = 0;
     for (const [index, member] of template.members.entries()) {
@@ -393,6 +396,7 @@ export async function processSandboxProvisioningJob(
       const authorized =
         account !== null &&
         (await authorizeUser(account.userId, org.orgId, ["user"]));
+      accountUserIds.push(account && authorized ? account.userId : null);
       if (account && authorized) {
         seededAccountCount++;
         members.push({
@@ -425,6 +429,29 @@ export async function processSandboxProvisioningJob(
     }
 
     await registerTenantMembers(tenantId, members);
+
+    // The org chart is built from Zitadel user metadata, so write each account's department,
+    // title and manager. Non-fatal: a failure leaves that account unplaced (under the root).
+    const templateAccounts = [template.admin, ...template.members];
+    for (const [position, account] of templateAccounts.entries()) {
+      const userId = accountUserIds[position];
+      if (!userId) continue;
+      const managerId =
+        account.reportsTo === null
+          ? null
+          : (accountUserIds[account.reportsTo] ?? null);
+      const ok = await setUserOrgMetadata(userId, {
+        managerId,
+        department: account.department,
+        title: account.title,
+      });
+      if (!ok) {
+        logger.warn(
+          { tenantId, orgId: org.orgId, member: account.emailLocalPart },
+          "sandbox provisioning: could not write org-chart metadata — account will sit under the root",
+        );
+      }
+    }
 
     await updateJobProgress(jobId, {
       currentStep: "seeding_modules",
