@@ -17,19 +17,37 @@ let installationRows: Array<{
   connectorId: string;
   disabledAt?: Date | null;
 }>;
-// The real query filters disabled installations in SQL (WHERE
-// isNull(disabledAt)), so the mock chain does the same — a test asserting
-// "a disabled installation never enters the desired set" would otherwise
-// pass or fail for the wrong reason depending on whether this mock happens
-// to forward .where()'s filtering intent.
-const mockDbWhere = vi.fn(() =>
-  Promise.resolve(installationRows.filter((r) => !r.disabledAt)),
+let tenantRows: Array<{ id: string; trialEndsAt: Date | null }>;
+// Tenant ids whose per-tenant installation lookup should throw.
+let failingTenants: Set<string>;
+
+// The real per-tenant query filters disabled installations in SQL (WHERE
+// isNull(disabledAt)) for the tenant given to withTenantContext, so the mock
+// does the same — otherwise a "disabled installation never enters the desired
+// set" test could pass or fail for the wrong reason.
+const mockWithTenantContext = vi.fn(
+  async (tenantId: string, fn: (tx: unknown) => Promise<unknown>) => {
+    if (failingTenants.has(tenantId)) throw new Error("connection reset");
+    const rows = installationRows
+      .filter((r) => r.tenantId === tenantId && !r.disabledAt)
+      .map((r) => ({ connectorId: r.connectorId }));
+    const tx = {
+      select: () => ({ from: () => ({ where: () => Promise.resolve(rows) }) }),
+    };
+    return fn(tx);
+  },
 );
-const mockDbFrom = vi.fn(() => ({ where: mockDbWhere }));
-const mockDbSelect = vi.fn(() => ({ from: mockDbFrom }));
+const mockTenantWhere = vi.fn(() => Promise.resolve(tenantRows));
+const mockDbSelect = vi.fn(() => ({
+  from: () => ({ where: mockTenantWhere }),
+}));
 
 vi.mock("@platform/db", () => ({
   db: { select: (...args: unknown[]) => mockDbSelect(...args) },
+  withTenantContext: (
+    ...args: Parameters<typeof mockWithTenantContext>
+  ): ReturnType<typeof mockWithTenantContext> => mockWithTenantContext(...args),
+  tenants: { id: "id", trialEndsAt: "trialEndsAt", status: "status" },
   connectorCredentials: {
     tenantId: "tenantId",
     connectorId: "connectorId",
@@ -114,6 +132,8 @@ describe("connector poll scheduler", () => {
     __resetConnectorRegistryForTests();
     installationRows = [];
     repeatableJobs = [];
+    failingTenants = new Set();
+    tenantRows = [{ id: TENANT_ID, trialEndsAt: null }];
   });
 
   describe("reconcile", () => {
@@ -267,10 +287,65 @@ describe("connector poll scheduler", () => {
       expect(mockQueueAdd).not.toHaveBeenCalled();
     });
 
-    it("does not throw when the DB query fails — logs and returns", async () => {
-      mockDbWhere.mockRejectedValueOnce(new Error("connection reset"));
+    it("does not throw when the tenant listing fails — logs and returns", async () => {
+      mockTenantWhere.mockRejectedValueOnce(new Error("connection reset"));
 
       await expect(reconcile()).resolves.toBeUndefined();
+    });
+
+    it("queries each tenant's installations inside withTenantContext (issue #1078)", async () => {
+      registerPollingConnector(5);
+      tenantRows = [
+        { id: "tenant-a", trialEndsAt: null },
+        { id: "tenant-b", trialEndsAt: null },
+      ];
+      installationRows = [
+        { tenantId: "tenant-a", connectorId: CONNECTOR_ID },
+        { tenantId: "tenant-b", connectorId: CONNECTOR_ID },
+      ];
+
+      await reconcile();
+
+      expect(mockWithTenantContext.mock.calls.map((c) => c[0])).toEqual([
+        "tenant-a",
+        "tenant-b",
+      ]);
+      expect(mockQueueAdd).toHaveBeenCalledTimes(2);
+    });
+
+    it("a failing tenant does not block others and keeps its existing jobs", async () => {
+      registerPollingConnector(5);
+      tenantRows = [
+        { id: "tenant-bad", trialEndsAt: null },
+        { id: "tenant-ok", trialEndsAt: null },
+      ];
+      failingTenants = new Set(["tenant-bad"]);
+      installationRows = [{ tenantId: "tenant-ok", connectorId: CONNECTOR_ID }];
+      repeatableJobs = [
+        { key: pollJobId("tenant-bad", CONNECTOR_ID), every: "300000" },
+      ];
+
+      await reconcile();
+
+      expect(mockRemoveRepeatableByKey).not.toHaveBeenCalled();
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+      expect(mockQueueAdd).toHaveBeenCalledWith(
+        "connector.poll",
+        { tenantId: "tenant-ok", connectorId: CONNECTOR_ID },
+        expect.anything(),
+      );
+    });
+
+    it("skips tenants whose sandbox trial has expired", async () => {
+      registerPollingConnector(5);
+      tenantRows = [
+        { id: TENANT_ID, trialEndsAt: new Date(Date.now() - 1000) },
+      ];
+      installationRows = [{ tenantId: TENANT_ID, connectorId: CONNECTOR_ID }];
+
+      await reconcile();
+
+      expect(mockQueueAdd).not.toHaveBeenCalled();
     });
   });
 
@@ -295,7 +370,7 @@ describe("connector poll scheduler", () => {
       const slowTick = new Promise<unknown[]>((res) => {
         resolveTick = res as unknown as () => void;
       });
-      mockDbWhere.mockReturnValueOnce(slowTick);
+      mockTenantWhere.mockReturnValueOnce(slowTick as never);
 
       startConnectorPollScheduler(100);
       await Promise.resolve();
