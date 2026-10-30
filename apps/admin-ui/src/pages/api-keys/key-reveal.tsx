@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 
 export interface KeyRevealModalProps {
@@ -21,6 +22,7 @@ export function KeyRevealModal({
   rawKey,
   onClose,
 }: KeyRevealModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   function handleCopy(): void {
@@ -64,7 +66,7 @@ export function KeyRevealModal({
           </pre>
           <button
             type="button"
-            aria-label="Copy key"
+            aria-label={t("apiKeys.copyKey")}
             onClick={handleCopy}
             style={{
               position: "absolute",

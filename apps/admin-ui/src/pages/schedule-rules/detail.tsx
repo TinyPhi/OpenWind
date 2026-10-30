@@ -9,6 +9,7 @@ import {
   TableHead,
   TableCell,
 } from "@platform/ui";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import type { ScheduleRule } from "./index.js";
@@ -45,6 +46,7 @@ const EXECUTIONS_PAGE_SIZE = 50;
  * to preview against.
  */
 export function ScheduleRuleDetailPage(): React.ReactElement {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [rule, setRule] = useState<ScheduleRule | null>(null);
@@ -80,7 +82,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
         setTimezone(fireData.timezone);
         setNextFires(fireData.fires.map((f) => ({ fireAt: f.utc })));
       })
-      .catch(() => showAlert("Failed to load schedule rule."))
+      .catch(() => showAlert(t("scheduleRules.failed_to_load_schedule_rule.")))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -109,7 +111,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
       setExecutionsCursor(response.meta.nextCursor);
       setHasMoreExecutions(response.meta.hasMore);
     } catch {
-      showAlert("Failed to load more executions.");
+      showAlert(t("scheduleRules.failed_to_load_more_executions."));
     } finally {
       setLoadingMoreExecutions(false);
     }

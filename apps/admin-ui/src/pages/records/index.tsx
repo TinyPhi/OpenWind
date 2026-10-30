@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { humanizeWorkflowName, toWorkflowSlug } from "../../lib/format.js";
 import { useEntityTypes } from "../../entity-type-context.js";
@@ -48,14 +49,6 @@ type MyTicketParent = {
 
 type FilterChip = "all" | "assigned" | "watching" | "created" | "subtasks";
 
-const FILTER_LABELS: Record<FilterChip, string> = {
-  all: "All",
-  assigned: "Assigned to me",
-  watching: "Watching",
-  created: "I created",
-  subtasks: "Sub-tasks",
-};
-
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CARD_GRADIENTS = [
@@ -84,9 +77,18 @@ function reasonMatchesFilter(
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AdminRecords(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { entityTypes } = useEntityTypes();
+
+  const filterLabels: Record<FilterChip, string> = {
+    all: t("records.filterAll"),
+    assigned: t("records.filterAssigned"),
+    watching: t("records.filterWatching"),
+    created: t("records.filterCreated"),
+    subtasks: t("records.filterSubtasks"),
+  };
 
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
   const [userLoaded, setUserLoaded] = useState(false);
@@ -232,7 +234,7 @@ export function AdminRecords(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading records…</span>
+        <span className="loader-text">{t("records.loading")}</span>
       </div>
     );
   }
@@ -241,7 +243,7 @@ export function AdminRecords(): React.ReactElement {
     return (
       <div className="empty-state">
         <div className="empty-icon">⚠</div>
-        <h4>Failed to load</h4>
+        <h4>{t("records.failedToLoad")}</h4>
         <p>{error}</p>
       </div>
     );
@@ -261,14 +263,13 @@ export function AdminRecords(): React.ReactElement {
           }}
         >
           <div>
-            <h2 className="page-title">Records</h2>
-            <p className="page-subtitle">
-              Browse all workflow record types. Click a card to view and manage
-              its records.
-            </p>
+            <h2 className="page-title">{t("records.title")}</h2>
+            <p className="page-subtitle">{t("records.subtitle")}</p>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <div className="stat-pill">{workflows.length} workflows</div>
+            <div className="stat-pill">
+              {t("records.workflowCount", { count: workflows.length })}
+            </div>
           </div>
         </div>
 
@@ -276,7 +277,7 @@ export function AdminRecords(): React.ReactElement {
           <input
             type="text"
             className="mod-search"
-            placeholder="Search workflows by name…"
+            placeholder={t("records.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: "100%", maxWidth: "360px", marginBottom: "20px" }}
@@ -286,23 +287,23 @@ export function AdminRecords(): React.ReactElement {
         {workflows.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📋</div>
-            <h4>No workflows yet</h4>
-            <p>Create a workflow to start tracking records.</p>
+            <h4>{t("records.noWorkflowsTitle")}</h4>
+            <p>{t("records.noWorkflowsDesc")}</p>
             {currentUserRoles.includes("admin") && (
               <Button
                 variant="primary"
                 style={{ marginTop: "16px" }}
                 onClick={() => void navigate("/workflows/new")}
               >
-                + New Workflow
+                {t("records.newWorkflow")}
               </Button>
             )}
           </div>
         ) : filteredWorkflows.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">🔍</div>
-            <h4>No matches</h4>
-            <p>No workflows match "{search}".</p>
+            <h4>{t("records.noMatchesTitle")}</h4>
+            <p>{t("records.noMatchesDesc", { search })}</p>
           </div>
         ) : (
           <WorkflowCardGrid
@@ -338,13 +339,12 @@ export function AdminRecords(): React.ReactElement {
         }}
       >
         <div>
-          <h2 className="page-title">My Records</h2>
-          <p className="page-subtitle">
-            All workflows — create a ticket in any of them, or filter to track
-            ones you're already involved in.
-          </p>
+          <h2 className="page-title">{t("records.myTitle")}</h2>
+          <p className="page-subtitle">{t("records.mySubtitle")}</p>
         </div>
-        <div className="stat-pill">{visibleMyWorkflows.length} workflows</div>
+        <div className="stat-pill">
+          {t("records.workflowCount", { count: visibleMyWorkflows.length })}
+        </div>
       </div>
 
       {/* Filter chips */}
@@ -356,7 +356,7 @@ export function AdminRecords(): React.ReactElement {
           marginBottom: "24px",
         }}
       >
-        {(Object.keys(FILTER_LABELS) as FilterChip[]).map((chip) => (
+        {(Object.keys(filterLabels) as FilterChip[]).map((chip) => (
           <button
             key={chip}
             onClick={() => setFilter(chip)}
@@ -378,7 +378,7 @@ export function AdminRecords(): React.ReactElement {
               transition: "all .15s",
             }}
           >
-            {FILTER_LABELS[chip]}
+            {filterLabels[chip]}
           </button>
         ))}
       </div>
@@ -387,7 +387,7 @@ export function AdminRecords(): React.ReactElement {
         <input
           type="text"
           className="mod-search"
-          placeholder="Search workflows by name…"
+          placeholder={t("records.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: "100%", maxWidth: "360px", marginBottom: "20px" }}
@@ -397,18 +397,20 @@ export function AdminRecords(): React.ReactElement {
       {visibleMyWorkflows.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">📋</div>
-          <h4>No records here</h4>
+          <h4>{t("records.noRecordsHere")}</h4>
           <p>
             {activeFilter === "all"
-              ? "No workflows exist in this tenant yet."
-              : `No tickets match the "${FILTER_LABELS[activeFilter]}" filter.`}
+              ? t("records.noWorkflowsInTenant")
+              : t("records.noTicketsMatchFilter", {
+                  filter: filterLabels[activeFilter],
+                })}
           </p>
         </div>
       ) : searchedMyWorkflows.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">🔍</div>
-          <h4>No matches</h4>
-          <p>No workflows match "{search}".</p>
+          <h4>{t("records.noMatchesTitle")}</h4>
+          <p>{t("records.noMatchesDesc", { search })}</p>
         </div>
       ) : (
         <WorkflowCardGrid
@@ -465,6 +467,7 @@ function WorkflowCard({
   item: CardItem;
   onNavigate: (slug: string, filterParam?: string) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const et = item.etMap.get(item.entityTypeId);
   const activeStates = item.states.filter((s) => !s.isTerminal);
   const terminalStates = item.states.filter((s) => s.isTerminal);
@@ -535,7 +538,10 @@ function WorkflowCard({
               marginTop: "4px",
             }}
           >
-            {item.states.length} states · {item.transitionCount} transitions
+            {t("records.statesTransitions", {
+              states: item.states.length,
+              transitions: item.transitionCount,
+            })}
           </div>
         )}
       </div>
@@ -627,7 +633,7 @@ function WorkflowCard({
             onNavigate(item.slug, item.filterParam);
           }}
         >
-          View Records →
+          {t("records.viewRecords")}
         </Button>
       </div>
     </div>

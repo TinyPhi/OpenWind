@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   embedDashboard,
@@ -109,6 +110,7 @@ type GuestTokenResponse = {
 };
 
 export const ReportingPage: React.FC = () => {
+  const { t } = useTranslation();
   const mountRef = useRef<HTMLDivElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<DashboardKey>("tenant");
@@ -136,7 +138,7 @@ export const ReportingPage: React.FC = () => {
   // they are not entitled to. Same pattern as analytics.tsx.
   const [rolesReady, setRolesReady] = useState(false);
   // Staff (admin/agent) get both tabs. Everyone else — "user"/"customer" — is
-  // a customer: they get only their own "My Tickets" dashboard, never the
+  // a customer: they get only their own t("reporting.myTickets") dashboard, never the
   // tenant-wide one. The API enforces the same split independently
   // (guest-token.ts), so a stale or forged client state here cannot widen
   // access, only mis-render.
@@ -207,7 +209,7 @@ export const ReportingPage: React.FC = () => {
           // decide, so the refresh is expiry-driven rather than a timer we pick
           // here — a hardcoded interval would drift from the real lifetime.
           fetchGuestToken: async () => (await fetchGuestToken(activeTab)).token,
-          // The ticket tables' "Open" link opens the ticket in a new tab. The
+          // The ticket tables' t("reporting.open") link opens the ticket in a new tab. The
           // SDK's own `allow-popups` lets the tab open, but the tab inherits
           // this iframe's sandbox, so OpenWind would load there sandboxed and
           // fail. Escaping the sandbox gives it a normal browsing context; it
@@ -358,7 +360,9 @@ export const ReportingPage: React.FC = () => {
             {/* With one tab the strip is hidden, so the heading has to say which
                 dashboard this is — otherwise a customer gets an unlabelled page
                 and no clue that what they are looking at is only their own work. */}
-            {tabs.length === 1 && tabs[0] ? tabs[0].label : "Reporting"}
+            {tabs.length === 1 && tabs[0]
+              ? tabs[0].label
+              : t("reporting.title")}
           </h1>
           {tabs.length > 1 && (
             <div style={{ display: "flex", gap: 8 }} role="tablist">
@@ -454,7 +458,7 @@ export const ReportingPage: React.FC = () => {
                 href={supersetSiteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                title="Explore Detailed Report in Superset"
+                title={t("reporting.exploreSuperset")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -547,7 +551,7 @@ export const ReportingPage: React.FC = () => {
                 // from here (different origin). Covering the frame with ours until
                 // it is ready means the branded loader is the only one seen.
                 <div
-                  aria-label="Loading dashboard"
+                  aria-label={t("reporting.loading")}
                   className="loading-center"
                   style={{
                     position: "absolute",
@@ -559,7 +563,7 @@ export const ReportingPage: React.FC = () => {
                   }}
                 >
                   <div className="spinner" />
-                  <div className="loader-text">Loading dashboard…</div>
+                  <div className="loader-text">{t("reporting.loading")}</div>
                 </div>
               )}
               <div

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -35,6 +36,7 @@ export function EditBrandingDialog({
   onClose,
   onSaved,
 }: EditBrandingDialogProps): React.ReactElement {
+  const { t } = useTranslation();
   const [name, setName] = React.useState(tenantName);
   // undefined = logo untouched, null = remove it, string = the newly picked image.
   const [logoDraft, setLogoDraft] = React.useState<string | null | undefined>(
@@ -63,7 +65,9 @@ export function EditBrandingDialog({
       setLogoDraft(await readLogoFile(file));
     } catch (err) {
       setFileError(
-        err instanceof Error ? err.message : "Could not read the image",
+        err instanceof Error
+          ? err.message
+          : t("platformAdmin.couldNotReadImage"),
       );
     }
   }
@@ -86,7 +90,9 @@ export function EditBrandingDialog({
       onSaved();
     } catch (err) {
       showAlert(
-        err instanceof Error ? err.message : "Failed to save the branding",
+        err instanceof Error
+          ? err.message
+          : t("platformAdmin.failedToSaveBranding"),
       );
     } finally {
       setSaving(false);
@@ -102,7 +108,9 @@ export function EditBrandingDialog({
     >
       <DialogContent style={{ maxWidth: 460 }}>
         <DialogTitle asChild>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Edit branding</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>
+            {t("platformAdmin.editBranding")}
+          </h2>
         </DialogTitle>
         <p style={{ color: "var(--text-secondary)", margin: "8px 0 16px" }}>
           Shown to this sandbox&apos;s users at the top left of the app, in
@@ -212,7 +220,7 @@ export function EditBrandingDialog({
             onClick={() => void handleSave()}
             disabled={!canSave}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("platformAdmin.saving") : t("platformAdmin.save")}
           </Button>
         </div>
       </DialogContent>

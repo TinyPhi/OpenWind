@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useHoverStyle } from "@platform/ui";
 import {
@@ -264,10 +265,11 @@ function TeamMembersTable({
   page: number;
   onPageChange: (page: number) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   if (items.length === 0) {
     return (
       <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-        No direct or indirect reports found.
+        {t("dashboard.noTeamReports")}
       </div>
     );
   }
@@ -298,7 +300,7 @@ function TeamMembersTable({
                   borderBottom: "1px solid var(--border-color)",
                 }}
               >
-                Team member
+                {t("dashboard.columnTeamMember")}
               </th>
               <th
                 style={{
@@ -313,7 +315,7 @@ function TeamMembersTable({
                   whiteSpace: "nowrap",
                 }}
               >
-                Tickets
+                {t("dashboard.columnTickets")}
               </th>
               <th
                 style={{
@@ -328,7 +330,7 @@ function TeamMembersTable({
                   whiteSpace: "nowrap",
                 }}
               >
-                Overdue
+                {t("dashboard.overdue")}
               </th>
             </tr>
           </thead>
@@ -433,6 +435,7 @@ export function OrgDashboardBody({
   // Hooks must run unconditionally before the loading/unavailable early
   // returns below (Rules of Hooks) — this only ever matters once loading is
   // false and the ticket list actually renders.
+  const { t } = useTranslation();
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>("all");
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketPage, setTicketPage] = useState(1);
@@ -456,8 +459,7 @@ export function OrgDashboardBody({
     return (
       <Card accentColor="hsl(340,80%,58%)">
         <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-          The org view could not be loaded right now. This doesn&apos;t affect
-          your own tickets.
+          {t("dashboard.orgViewUnavailable")}
         </div>
       </Card>
     );
@@ -510,8 +512,7 @@ export function OrgDashboardBody({
             fontSize: "13px",
           }}
         >
-          This view includes only the most recently created 2,000 tickets.
-          Totals and team-member counts may be lower than the actual values.
+          {t("dashboard.truncatedWarningOrg")}
         </div>
       )}
 
@@ -526,25 +527,25 @@ export function OrgDashboardBody({
         }}
       >
         <KpiTile
-          label="Team Tickets"
+          label={t("dashboard.teamTickets")}
           value={totalTickets}
           icon="📋"
           color="hsl(211,100%,45%)"
         />
         <KpiTile
-          label="Overdue"
+          label={t("dashboard.overdue")}
           value={overdueCount}
           icon="⏰"
           color="hsl(350,80%,60%)"
         />
         <KpiTile
-          label="At SLA Risk"
+          label={t("dashboard.atSlaRisk")}
           value={atRiskCount}
           icon="⚠️"
           color="hsl(340,80%,58%)"
         />
         <KpiTile
-          label="Team Members"
+          label={t("dashboard.teamMembers")}
           value={view.teamMembers.items.length}
           icon="👥"
           color="hsl(185,80%,40%)"
@@ -553,7 +554,9 @@ export function OrgDashboardBody({
 
       <Card accentColor="hsl(185,80%,40%)" style={{ marginBottom: "20px" }}>
         <SectionHeader
-          title={`Team (${view.teamMembers.items.length})`}
+          title={t("dashboard.teamWithCount", {
+            count: view.teamMembers.items.length,
+          })}
           icon="👥"
           color="hsl(185,80%,40%)"
         />
@@ -575,13 +578,13 @@ export function OrgDashboardBody({
       >
         <Card accentColor="hsl(265,84%,60%)">
           <SectionHeader
-            title="By Workflow"
+            title={t("dashboard.byWorkflow")}
             icon="📊"
             color="hsl(265,84%,60%)"
           />
           {view.workflows.length === 0 ? (
             <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-              No tickets across your team right now.
+              {t("dashboard.noTeamTickets")}
             </div>
           ) : (
             <div
@@ -634,7 +637,7 @@ export function OrgDashboardBody({
 
         <Card accentColor="hsl(340,80%,58%)">
           <SectionHeader
-            title="SLA Risk"
+            title={t("dashboard.slaRisk")}
             icon="⚠️"
             color="hsl(340,80%,58%)"
             action={
@@ -657,7 +660,7 @@ export function OrgDashboardBody({
           />
           {view.slaRisk.items.length === 0 ? (
             <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-              Nothing over its SLA. ✅
+              {t("dashboard.nothingOverSla")}
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>
@@ -715,7 +718,9 @@ export function OrgDashboardBody({
 
       <Card accentColor="hsl(211,100%,50%)">
         <SectionHeader
-          title={`Team Tickets (${view.tickets.totalQualifying})`}
+          title={t("dashboard.teamTicketsWithCount", {
+            count: view.tickets.totalQualifying,
+          })}
           icon="📋"
           color="hsl(211,100%,50%)"
         />
@@ -747,7 +752,7 @@ export function OrgDashboardBody({
               setTicketSearch(e.target.value);
               setTicketPage(1);
             }}
-            placeholder="Search by ticket or team member…"
+            placeholder={t("dashboard.searchTicketOrMember")}
             style={{
               flex: 1,
               minWidth: "200px",
@@ -763,12 +768,12 @@ export function OrgDashboardBody({
         {filteredTickets.length === 0 ? (
           <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
             {searchTerm
-              ? "No tickets match your search."
+              ? t("dashboard.noTicketsSearch")
               : ticketFilter === "overdue"
-                ? "Nothing overdue across your team. ✅"
+                ? t("dashboard.nothingOverdueTeam")
                 : ticketFilter === "due-soon"
-                  ? "Nothing due in the next 2 days."
-                  : "No tickets across your team right now."}
+                  ? t("dashboard.nothingDueSoon")
+                  : t("dashboard.noTeamTickets")}
           </div>
         ) : (
           <div className="table-scroll">
@@ -794,7 +799,7 @@ export function OrgDashboardBody({
                       borderBottom: "1px solid var(--border-color)",
                     }}
                   >
-                    Ticket
+                    {t("dashboard.columnTicket")}
                   </th>
                   <th
                     style={{
@@ -809,7 +814,7 @@ export function OrgDashboardBody({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Team Member
+                    {t("dashboard.columnTeamMember")}
                   </th>
                   <th
                     style={{
@@ -824,7 +829,7 @@ export function OrgDashboardBody({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Workflow
+                    {t("dashboard.columnWorkflow")}
                   </th>
                   <th
                     style={{
@@ -839,7 +844,7 @@ export function OrgDashboardBody({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Status
+                    {t("dashboard.columnStatus")}
                   </th>
                 </tr>
               </thead>

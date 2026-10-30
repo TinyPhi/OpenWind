@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { OtpVerification } from "./otp-verification.js";
@@ -20,6 +21,7 @@ export function StepUpMfaDialog({
   onVerified,
   onCancel,
 }: StepUpMfaDialogProps): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={open}
@@ -29,7 +31,9 @@ export function StepUpMfaDialog({
     >
       <DialogContent style={{ maxWidth: 440 }}>
         <DialogTitle asChild>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Confirm it's you</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>
+            {t("platformAdmin.confirmItsYou")}
+          </h2>
         </DialogTitle>
         <p style={{ color: "var(--text-secondary)", margin: "8px 0 16px" }}>
           This action can't be undone, so it needs a fresh verification code.

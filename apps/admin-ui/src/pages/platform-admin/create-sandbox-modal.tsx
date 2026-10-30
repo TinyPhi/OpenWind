@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -64,6 +65,7 @@ export function CreateSandboxModal({
   onClose,
   onCreated,
 }: CreateSandboxModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [orgName, setOrgName] = React.useState("");
   const [trialDays, setTrialDays] = React.useState("14");
   const [jobId, setJobId] = React.useState<string | null>(null);
@@ -153,7 +155,9 @@ export function CreateSandboxModal({
       setJobId(res.data.jobId);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to start provisioning",
+        err instanceof Error
+          ? err.message
+          : t("platformAdmin.failedToStartProvisioning"),
       );
       setSubmitting(false);
     }
@@ -213,9 +217,7 @@ export function CreateSandboxModal({
             // not a generic "failed to load progress" (the job is done, and polling has stopped).
             if (!isCancelled()) {
               setHandoverFailed(true);
-              setError(
-                "The sandbox was created, but its credentials could not be loaded. The handover is shown only once, so it may not be available again. Check the sandbox list.",
-              );
+              setError(t("platformAdmin.credentialsNotLoaded"));
             }
             return;
           }
@@ -223,12 +225,14 @@ export function CreateSandboxModal({
         } else if (res.data.status === "failed") {
           doneRef.current = true;
           clearInterval(interval);
-          setError(res.data.error ?? "Provisioning failed");
+          setError(res.data.error ?? t("platformAdmin.provisioningFailed"));
         }
       } catch (err) {
         if (!isCancelled()) {
           setError(
-            err instanceof Error ? err.message : "Failed to load progress",
+            err instanceof Error
+              ? err.message
+              : t("platformAdmin.failedToLoadProgress"),
           );
         }
       }
@@ -263,12 +267,14 @@ export function CreateSandboxModal({
         {handover ? (
           <>
             <DialogTitle asChild>
-              <h2 className="page-title">Sandbox ready</h2>
+              <h2 className="page-title">{t("platformAdmin.sandboxReady")}</h2>
             </DialogTitle>
             <p className="page-subtitle">
               Copy these credentials now — they cannot be shown again.
             </p>
-            <p style={{ fontWeight: 600, marginTop: 16 }}>Seeded accounts</p>
+            <p style={{ fontWeight: 600, marginTop: 16 }}>
+              {t("platformAdmin.seededAccounts")}
+            </p>
             <p style={{ color: "var(--text-muted)", margin: "0 0 6px" }}>
               Each account has its own password. Sign in with either the
               username or the email.
@@ -277,10 +283,10 @@ export function CreateSandboxModal({
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={cellStyle}>Username</th>
-                    <th style={cellStyle}>Email</th>
-                    <th style={cellStyle}>Role</th>
-                    <th style={cellStyle}>Password</th>
+                    <th style={cellStyle}>{t("platformAdmin.username")}</th>
+                    <th style={cellStyle}>{t("platformAdmin.email")}</th>
+                    <th style={cellStyle}>{t("platformAdmin.role")}</th>
+                    <th style={cellStyle}>{t("platformAdmin.password")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -336,11 +342,13 @@ export function CreateSandboxModal({
                 variant="secondary"
                 onClick={() => void handleCopyCredentials()}
               >
-                {copied ? "Copied!" : "Copy credentials"}
+                {copied
+                  ? t("platformAdmin.copied")
+                  : t("platformAdmin.copyCredentials")}
               </Button>
               {/* Always rendered so assistive technology registers the live region before its text changes. */}
               <span role="status" aria-live="polite" style={VISUALLY_HIDDEN}>
-                {copied ? "Credentials copied to clipboard" : ""}
+                {copied ? t("platformAdmin.credentialsCopied") : ""}
               </span>
               <Button
                 variant="primary"
@@ -356,10 +364,12 @@ export function CreateSandboxModal({
         ) : jobId ? (
           <>
             <DialogTitle asChild>
-              <h2 className="page-title">Creating sandbox…</h2>
+              <h2 className="page-title">
+                {t("platformAdmin.creatingSandbox")}
+              </h2>
             </DialogTitle>
             <p className="page-subtitle">
-              {progress?.currentStep ?? "Starting…"}
+              {progress?.currentStep ?? t("platformAdmin.starting")}
             </p>
             <p style={{ color: "var(--text-muted)" }}>
               {progress
@@ -391,11 +401,11 @@ export function CreateSandboxModal({
         ) : (
           <>
             <DialogTitle asChild>
-              <h2 className="page-title">New sandbox</h2>
+              <h2 className="page-title">{t("platformAdmin.newSandbox")}</h2>
             </DialogTitle>
             <form onSubmit={(e) => void handleCreate(e)}>
               <div className="form-group">
-                <label htmlFor="org-name">Organization name</label>
+                <label htmlFor="org-name">{t("platformAdmin.orgName")}</label>
                 <input
                   id="org-name"
                   className="form-input"
@@ -405,7 +415,9 @@ export function CreateSandboxModal({
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="trial-days">Trial length (days)</label>
+                <label htmlFor="trial-days">
+                  {t("platformAdmin.trialLengthDays")}
+                </label>
                 <input
                   id="trial-days"
                   type="number"
@@ -428,7 +440,7 @@ export function CreateSandboxModal({
                 disabled={!isValid || submitting}
                 style={{ marginTop: 16 }}
               >
-                {submitting ? "Starting…" : "Create sandbox"}
+                {submitting ? t("platformAdmin.starting") : "Create sandbox"}
               </Button>
             </form>
           </>
