@@ -17,6 +17,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to `openwind/<env>/worker` in OpenBao before deploying this
   compose file, even with reporting off, or `ow-worker` refuses to start (exit 78).
 
+## [Unreleased — access-log retention role (#1131)]
+
+### Fixed
+
+- The daily access-log retention job could not delete from `admin_audit_log` under the default
+  stack (the worker runs as `app_user`, which is append-only there). Added a narrow
+  `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
+  new privileges.
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added
