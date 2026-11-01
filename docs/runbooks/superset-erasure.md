@@ -105,21 +105,37 @@ retried. The API log line is "GDPR erasure: data erased but the Zitadel sign-in 
 
 ## Production setup
 
-The API and the worker have to know that Stage 2 is on, and the worker needs the service account
-password. They read these from their own environment, not from Superset's:
+Stage 2 is on in Superset when it has `SUPERSET_OAUTH_CLIENT_ID`. The API and the worker decide
+for themselves, from their own environment, whether Stage 2 is on. Each service reads its own OpenBao
+path, so enabling Stage 2 is one checklist across four services:
 
-| Setting                                                  | Where                                                                                        |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `SUPERSET_OAUTH_CLIENT_ID`                               | `ow-backend` and `ow-worker`: the same value Superset has. Unset means Stage 2 is off there. |
-| `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` | `ow-worker`: set in compose, same as `ow-backend`.                                           |
-| `SUPERSET_SERVICE_ACCOUNT_PASSWORD`                      | `ow-worker`: the same password `ow-backend` already has.                                     |
+| Service         | OpenBao path                   | Store when Stage 2 is enabled                              |
+| --------------- | ------------------------------ | ---------------------------------------------------------- |
+| `superset`      | `openwind/<env>/superset`      | `SUPERSET_OAUTH_CLIENT_ID`, `SUPERSET_OAUTH_CLIENT_SECRET` |
+| `superset-init` | `openwind/<env>/superset-init` | `SUPERSET_OAUTH_CLIENT_ID`, `SUPERSET_OAUTH_CLIENT_SECRET` |
+| `ow-backend`    | `openwind/<env>/backend`       | `SUPERSET_OAUTH_CLIENT_ID` (the same value)                |
+| `ow-worker`     | `openwind/<env>/worker`        | `SUPERSET_OAUTH_CLIENT_ID` (the same value)                |
 
-With OpenBao (ADR-023) a key must be in OpenBao **or** in compose, never both. Store
-`SUPERSET_OAUTH_CLIENT_ID` and `SUPERSET_SERVICE_ACCOUNT_PASSWORD` at the worker's path
-(`openwind/<env>/worker`), and `SUPERSET_OAUTH_CLIENT_ID` at the backend's path, when Stage 2 is
-enabled. Do not add them to `BAO_REQUIRED_KEYS` of a deployment that has Stage 2 off. If Stage 2 is on
-in Superset but `ow-backend` and `ow-worker` do not have the client id, they treat it as off: only the
-cache is flushed and **no Superset account is erased**.
+`SUPERSET_SERVICE_ACCOUNT_PASSWORD` is required at `backend`, `worker` and `superset-init` whether
+Stage 2 is on or not (it is in their `BAO_REQUIRED_KEYS`), so a missing one stops startup instead of
+failing erasure jobs for about 26 hours. Use the same value at all three. `SUPERSET_INTERNAL_URL` and
+`SUPERSET_SERVICE_ACCOUNT_USER` are set in compose for both `ow-backend` and `ow-worker`.
+
+`SUPERSET_OAUTH_CLIENT_ID` is deliberately not in any `BAO_REQUIRED_KEYS`: it is what turns Stage 2
+on, so requiring it would force Stage 2 on in every deployment. With OpenBao (ADR-023) a key must be
+in OpenBao **or** in compose, never both.
+
+**Enable it at all four services in the same change.** Nothing checks that they agree yet. If
+Superset has the client id but `ow-backend` or `ow-worker` does not, that service treats Stage 2 as off:
+only the cache is flushed and **no Superset account is erased**, yet the API still reports success.
+This is a known gap, not accepted behaviour: it is tracked in #1137, and until a startup or
+self-check guard exists, check each path with `bao kv get` (key names only) before you turn Stage 2 on
+and after any rotation.
+
+**Upgrading an existing deployment.** Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to
+`openwind/<env>/worker` **before** you deploy this compose file. `ow-worker` now requires it and
+exits 78 at startup if it is missing or empty, and the worker also runs the outbox, SLA, notification
+and schedule jobs, so a missing key stops all of them. It is required even when reporting is off.
 
 Also recommended: do not route `/openwind/erasure/*` through the public proxy. Only the worker calls
 it, inside the docker network. The endpoints already refuse every caller except the service account

@@ -167,6 +167,14 @@ async function main(): Promise<void> {
     );
   }
   console.log(`  redirect URI registered: ${redirectUri}`);
+  console.log(
+    "\nTo enable Superset Stage 2 in production, store the client id at ALL of these\n" +
+      "OpenBao paths (the API and worker decide Stage 2 from their own copy):\n" +
+      "  superset, superset-init: SUPERSET_OAUTH_CLIENT_ID and SUPERSET_OAUTH_CLIENT_SECRET\n" +
+      "  backend, worker:         SUPERSET_OAUTH_CLIENT_ID\n" +
+      "SUPERSET_SERVICE_ACCOUNT_PASSWORD must also be at backend, worker and superset-init.\n" +
+      "See docs/runbooks/superset-erasure.md#production-setup.",
+  );
   process.exit(0);
 }
 
