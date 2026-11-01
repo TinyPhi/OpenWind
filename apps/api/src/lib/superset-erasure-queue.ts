@@ -2,6 +2,10 @@ import { Queue, supersetErasureTotal } from "@platform/telemetry";
 import { env, supersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
 import { auditResourceId } from "@platform/audit";
+import {
+  readSupersetSelfcheck,
+  resolveSupersetErasureMode,
+} from "@platform/redis";
 import { connection } from "./redis.js";
 import { SUPERSET_ERASURE_JOB_OPTIONS } from "./superset-erasure-options.js";
 
@@ -21,6 +25,7 @@ export const supersetErasureQueue = new Queue("superset-erasure", {
 
 // Starts at 0 so the first failed enqueue of a process still moves increase() (SupersetErasureFailed).
 supersetErasureTotal.add(0, { outcome: "not_queued" });
+supersetErasureTotal.add(0, { outcome: "unverified" });
 
 /**
  * Queues the erasure of a user's data in Superset (#728). Only when Superset Stage 2 is on: with
@@ -28,12 +33,15 @@ supersetErasureTotal.add(0, { outcome: "not_queued" });
  * (docs/specs/superset-gdpr-erasure.md, D8). Never throws: the platform erasure has already
  * committed, and a failed enqueue must not fail it. BullMQ ignores an add whose id already exists,
  * so a finished or failed job with the same id is removed first; one still queued or running is left
- * to finish. The id matches apps/worker/src/superset-erasure.ts (supersetErasureJobId).
+ * to finish. The id matches apps/worker/src/superset-erasure.ts (supersetErasureJobId). `force` is
+ * for a caller that learned from Superset itself that Stage 2 is on while this process's own
+ * SUPERSET_OAUTH_CLIENT_ID says otherwise (#1137).
  */
 export async function enqueueSupersetErasure(
   request: SupersetErasureRequest,
+  options: { force?: boolean } = {},
 ): Promise<boolean> {
-  if (supersetErasureMode(env) !== "full") return false;
+  if (!options.force && supersetErasureMode(env) !== "full") return false;
   try {
     // BullMQ ids cannot contain ":", and a subject may, so it goes through auditResourceId.
     const jobId =
@@ -76,7 +84,9 @@ export type SupersetErasureStatus =
   | "not_member"
   | "cache_only"
   | "disabled"
-  | "queue_failed";
+  | "queue_failed"
+  /** Superset's own state could not be confirmed, so nothing is known to have been erased there. */
+  | "unverified";
 
 export interface SupersetErasureOutcome {
   status: SupersetErasureStatus;
@@ -95,21 +105,42 @@ export interface SupersetErasureOutcome {
  *   erasure off while Superset holds user accounts, spec D8).
  * - Stage 2 on, not a member: not queued, so an admin cannot reach a person outside their
  *   organisation through Superset.
- * - Stage 2 off: Superset holds no user accounts; the cache flush covers it, or nothing runs when
- *   SUPERSET_ERASURE_ENABLED is false.
+ * - Stage 2 off, confirmed by Superset's own report (the worker self-check, #1137): Superset holds no
+ *   user accounts; the cache flush covers it, or nothing runs when SUPERSET_ERASURE_ENABLED is false.
+ * - Superset reports Stage 2 on while this service's SUPERSET_OAUTH_CLIENT_ID does not say so: treated
+ *   as on, so the erasure is queued (fail closed).
+ * - This service says Stage 2 is off but Superset's state could not be confirmed (no fresh self-check
+ *   result): "unverified", never the claim that Superset holds no account.
  */
 export async function eraseUserInSuperset(input: {
   tenantId: string;
   subject: string;
   wasMember: boolean;
 }): Promise<SupersetErasureOutcome> {
-  const mode = supersetErasureMode(env);
+  const localMode = supersetErasureMode(env);
+  const { mode, verified, overridden } = resolveSupersetErasureMode(
+    localMode,
+    localMode === "full" ? null : await readSupersetSelfcheck(),
+  );
   if (mode === "off") {
     return {
       status: "disabled",
       switchIgnored: false,
       message:
         "Superset data was not erased because Superset erasure is disabled.",
+    };
+  }
+  if (mode === "cache-only" && !verified) {
+    supersetErasureTotal.add(1, { outcome: "unverified" });
+    logger.error(
+      { tenantId: input.tenantId },
+      "superset erasure unverified: Superset's Stage 2 state could not be confirmed and this service treats it as off; check docs/runbooks/superset-erasure.md",
+    );
+    return {
+      status: "unverified",
+      switchIgnored: false,
+      message:
+        "The user's data was erased here, but it could not be confirmed whether Superset holds an account for them. An operator must check Superset (see the Superset erasure runbook).",
     };
   }
   if (mode === "cache-only") {
@@ -122,6 +153,12 @@ export async function eraseUserInSuperset(input: {
     };
   }
   const switchIgnored = !env.SUPERSET_ERASURE_ENABLED;
+  if (overridden) {
+    logger.error(
+      { tenantId: input.tenantId },
+      "Superset reports Stage 2 is on but SUPERSET_OAUTH_CLIENT_ID is not set here; Superset erasure runs anyway (set it on every service, docs/runbooks/superset-erasure.md)",
+    );
+  }
   if (!input.wasMember) {
     logger.info(
       { tenantId: input.tenantId },
@@ -140,11 +177,14 @@ export async function eraseUserInSuperset(input: {
       "SUPERSET_ERASURE_ENABLED is false but Superset Stage 2 is on; Superset erasure runs anyway",
     );
   }
-  const queued = await enqueueSupersetErasure({
-    kind: "user",
-    tenantId: input.tenantId,
-    subject: input.subject,
-  });
+  const queued = await enqueueSupersetErasure(
+    {
+      kind: "user",
+      tenantId: input.tenantId,
+      subject: input.subject,
+    },
+    { force: overridden },
+  );
   if (!queued) {
     return {
       status: "queue_failed",

@@ -61,7 +61,11 @@
  * each DELETE targets by tenant_id and missing rows are a no-op.
  */
 
-import { Worker } from "@platform/telemetry";
+import { Worker, supersetErasureTotal } from "@platform/telemetry";
+import {
+  readSupersetSelfcheck,
+  resolveSupersetErasureMode,
+} from "@platform/redis";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -228,12 +232,41 @@ async function cleanUpOutsideDatabase(tenantId: string): Promise<void> {
   // #728: with Stage 2 on, Superset holds this tenant's user accounts, queries and logs. The
   // erasure retries until it finishes and records the outcome. If it cannot even be queued, this
   // purge job fails so its own retry (the "already purged" path) queues it again.
-  if (
-    supersetErasureMode(env) === "full" &&
-    !(await enqueueSupersetErasure({ kind: "tenant", tenantId }))
-  ) {
+  //
+  // #1137: "on" is what Superset reports (the worker self-check), not only this process's own
+  // SUPERSET_OAUTH_CLIENT_ID. When this process says Stage 2 is off and Superset has not confirmed
+  // that, the purge must not look finished: it fails, so the job shows as failed (and its retry
+  // looks again) instead of leaving a tenant's Superset accounts behind with no signal.
+  const localMode = supersetErasureMode(env);
+  const { mode, verified, overridden } = resolveSupersetErasureMode(
+    localMode,
+    localMode === "full" ? null : await readSupersetSelfcheck(),
+  );
+  if (overridden) {
+    logger.error(
+      { tenantId },
+      "tenant-purge: Superset reports Stage 2 is on but SUPERSET_OAUTH_CLIENT_ID is not set on the worker; erasing in Superset anyway",
+    );
+  }
+  if (mode === "full") {
+    if (
+      !(await enqueueSupersetErasure(
+        { kind: "tenant", tenantId },
+        { force: overridden },
+      ))
+    ) {
+      throw new Error(
+        "tenant-purge: the Superset erasure could not be queued; retrying the purge job",
+      );
+    }
+  } else if (mode === "cache-only" && !verified) {
+    supersetErasureTotal.add(1, { outcome: "unverified" });
+    logger.error(
+      { tenantId },
+      "tenant-purge: Superset's Stage 2 state could not be confirmed, so it is not known whether Superset holds this tenant's accounts; see docs/runbooks/superset-erasure.md",
+    );
     throw new Error(
-      "tenant-purge: the Superset erasure could not be queued; retrying the purge job",
+      "tenant-purge: the Superset erasure could not be verified (no fresh self-check result); retrying the purge job",
     );
   }
 }

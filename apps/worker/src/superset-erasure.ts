@@ -71,13 +71,13 @@ const ReplySchema = z.object({
   more: z.boolean(),
 });
 
-interface SupersetSession {
+export interface SupersetSession {
   accessToken: string;
   csrfToken: string;
   cookie: string;
 }
 
-function supersetUrl(path: string): string {
+export function supersetUrl(path: string): string {
   return `${env.SUPERSET_INTERNAL_URL.replace(/\/$/, "")}${path}`;
 }
 
@@ -86,7 +86,7 @@ function supersetUrl(path: string): string {
  * as apps/api/src/routes/reporting/superset-client.ts does. That client is not imported: the
  * dependency rule keeps apps/worker from importing apps/api.
  */
-async function openSession(): Promise<SupersetSession> {
+export async function openSession(): Promise<SupersetSession> {
   if (!env.SUPERSET_SERVICE_ACCOUNT_PASSWORD) {
     throw new Error("SUPERSET_SERVICE_ACCOUNT_PASSWORD is not set");
   }
@@ -126,7 +126,7 @@ async function openSession(): Promise<SupersetSession> {
   return { accessToken, csrfToken, cookie };
 }
 
-async function eraseOnce(
+export async function eraseOnce(
   session: SupersetSession,
   job: SupersetErasureJob,
 ): Promise<z.infer<typeof ReplySchema>> {
@@ -354,11 +354,16 @@ export function supersetErasureJobId(
  * cache flush runs. Never throws: the erasure has already committed, and a failed enqueue must not
  * undo it. BullMQ ignores an add whose id already exists, so a finished or failed job with the same
  * id is removed first; one still queued or running is left to finish.
+ *
+ * `force` is for a caller that has already learned from Superset itself that Stage 2 is on while
+ * this process's own SUPERSET_OAUTH_CLIENT_ID says otherwise (#1137): the local setting must not
+ * veto an erasure Superset needs.
  */
 export async function enqueueSupersetErasure(
   job: Pick<SupersetErasureJob, "kind" | "tenantId" | "subject">,
+  options: { force?: boolean } = {},
 ): Promise<boolean> {
-  if (supersetErasureMode(env) !== "full") return false;
+  if (!options.force && supersetErasureMode(env) !== "full") return false;
   try {
     const jobId = supersetErasureJobId(job);
     const existing = await supersetErasureQueue.getJob(jobId);

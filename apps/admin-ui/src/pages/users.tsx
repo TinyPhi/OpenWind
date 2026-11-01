@@ -58,7 +58,8 @@ function eraseConfirmText(user: User): string {
 
 /**
  * The API's own sentence about Superset (#728) when it gives one. `queued` and `cache_only` mean
- * the Superset side is being handled; anything else means it was not, which the admin should see.
+ * the Superset side is being handled; anything else, `unverified` included (Superset's state could
+ * not be confirmed, #1137), means it was not known to be, which the admin should see as a warning.
  */
 function supersetToast(
   superset: { status?: string; message?: string } | undefined,

@@ -30,6 +30,10 @@ import { stopTenantPurgeWorker } from "./tenant-purge.js";
 import { stopExportWorker } from "./export-worker.js";
 import { stopSupersetCacheFlushWorker } from "./superset-cache-flush.js";
 import { stopSupersetErasureWorker } from "./superset-erasure.js";
+import {
+  startSupersetErasureSelfcheck,
+  stopSupersetErasureSelfcheck,
+} from "./superset-erasure-selfcheck.js";
 import { startHealthServer, stopHealthServer } from "./health-server.js";
 import {
   startNotificationPoller,
@@ -88,6 +92,7 @@ startNotificationPoller();
 startConnectorPollScheduler();
 startScheduleTickWorker();
 startOrgDirectorySyncScheduler();
+startSupersetErasureSelfcheck();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
@@ -122,6 +127,7 @@ async function shutdown(): Promise<void> {
     stopExportWorker(),
     stopSupersetCacheFlushWorker(),
     stopSupersetErasureWorker(),
+    Promise.resolve(stopSupersetErasureSelfcheck()),
     stopHealthServer(),
     stopNotificationWorker(),
     stopNotificationOutboundWorker(),

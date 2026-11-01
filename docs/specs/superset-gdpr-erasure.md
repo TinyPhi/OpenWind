@@ -164,6 +164,34 @@ data on request. These questions decide how long the rest is kept when nobody ha
   | no                                          | on (default)                     | cache-only job   |
   | no                                          | off                              | nothing          |
 
+- **Enablement check (#1137).** The table above is what a service decides from its own environment, and
+  Superset decides from its own, so the two can disagree. Superset is the source of truth for "Stage 2 is
+  on". It reports it at `GET /openwind/erasure/status` (service account only, same role check as the erase
+  routes), which returns `{ stage2, erasure, owsubMarker, version }` and no data. The worker's
+  `superset-erasure-selfcheck` runs at startup and every 15 minutes: it reads the status, compares `stage2`
+  with `supersetErasureMode()`, and runs a no-op smoke erase for a synthetic tenant id (`00000000-0000-4000-8000-00000000de1e`)
+  that must match nobody and delete nothing. That proves the route, CSRF, role, database access and schema.
+  It writes no audit row and no database row. It records the outcome in Redis for 30 minutes
+  (`ops:superset-erasure:selfcheck`) and counts it in `openwind_superset_erasure_selfcheck_total{outcome}`
+  (`ok`, `mismatch`, `smoke_failed`, `unreachable`, `skipped`); `openwind_superset_erasure_config_mismatch` is 1
+  while the last check found a disagreement. Alerts: `SupersetErasureConfigMismatch` (10 minutes) and
+  `SupersetErasureSelfcheckFailing` (checks ran for an hour and none passed).
+
+  **Fail closed.** The API (per-user erase) and the worker (tenant purge) combine their own mode with the
+  last result (`resolveSupersetErasureMode` in `@platform/redis`):
+
+  | This service says | Last self-check                               | Result                                                                                                                                                                     |
+  | ----------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | any               | fresh, Superset has Stage 2 on                | full erasure, whatever the local setting (an error is logged)                                                                                                              |
+  | `full`            | any                                           | full erasure job (durable; retries until Superset answers)                                                                                                                 |
+  | `off`             | none, or Superset has Stage 2 off             | nothing; the API says `disabled`, an operator's explicit choice                                                                                                            |
+  | `cache-only`      | fresh, Superset has Stage 2 off               | cache flush; the API says `cache_only` (now known to be true)                                                                                                              |
+  | `cache-only`      | none, stale, or Superset could not be reached | **unverified**: the API replies `unverified` (200, `success: true`, warning tone in the admin-ui); the tenant purge job fails and retries, so it does not show as finished |
+
+  `unverified` is added to the API's `superset.status` values (additive). A deployment with no Superset
+  should set `SUPERSET_ERASURE_ENABLED=false`: its self-check is then `skipped` rather than `unreachable`, and
+  an erase says `disabled` rather than `unverified`.
+
 - Audit actions `superset_erasure.completed` / `.failed` (final attempt, `actorType: "system"`, counts
   only). Needs a migration extending `audit_log_action_check` (as 0115 did) and the exhaustiveness maps in
   `packages/audit`. The migration is numbered and written at build time, after rebasing: open PRs #803–#805 also
@@ -277,8 +305,8 @@ batches of 5,000, slowest batch 0.65 s).
 
 Note on Stage 1: guests are not stored as Superset users, so there is no user data to erase, but the shared
 Redis result cache (up to 300 s) can hold their query results. The owner decided that an erasure flushes
-it in Stage 1 as well (R7). Open: a deployment with no Superset at all would retry forever, so it needs a
-switch (D8).
+it in Stage 1 as well (R7). A deployment with no Superset at all would retry forever, so it needs a
+switch (D8). Whether the platform and Superset agree that Stage 2 is on is checked automatically (#1137, see "Enablement check" above).
 
 ## §S Security
 

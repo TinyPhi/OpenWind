@@ -12,6 +12,7 @@
  * db -- on an app_user connection plain db either lacks the grant or, with no tenant context,
  * RLS makes the statement match nothing.
  */
+import type * as RedisModule from "@platform/redis";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 type Processor = (job: unknown) => Promise<void>;
@@ -33,7 +34,19 @@ vi.mock("@platform/telemetry", () => ({
       return Promise.resolve();
     }
   },
+  supersetErasureTotal: { add: vi.fn() },
 }));
+const { mockReadSelfcheck } = vi.hoisted(() => ({
+  mockReadSelfcheck: vi.fn(),
+}));
+vi.mock("@platform/redis", async () => {
+  // The real resolver: the point is how the purge acts on it. Only the Redis read is replaced.
+  const real = await vi.importActual<typeof RedisModule>("@platform/redis");
+  return {
+    readSupersetSelfcheck: mockReadSelfcheck,
+    resolveSupersetErasureMode: real.resolveSupersetErasureMode,
+  };
+});
 
 // A query builder stand-in: every method returns itself and awaiting it yields `result`.
 function chain(result: unknown): unknown {
@@ -234,6 +247,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockTenantStatus.mockReturnValue([{ status: "deleted" }]);
   mockErasureMode.mockReturnValue("full");
+  mockReadSelfcheck.mockResolvedValue(null);
   mockEnqueueErasure.mockResolvedValue(true);
   writes.plain.length = 0;
   writes.purge.length = 0;
@@ -297,10 +311,10 @@ describe("tenant-purge Superset erasure (#728)", () => {
       data: { tenantId: TENANT_ID },
     });
     expect(mockEnqueueErasure).toHaveBeenCalledTimes(1);
-    expect(mockEnqueueErasure).toHaveBeenCalledWith({
-      kind: "tenant",
-      tenantId: TENANT_ID,
-    });
+    expect(mockEnqueueErasure).toHaveBeenCalledWith(
+      { kind: "tenant", tenantId: TENANT_ID },
+      { force: false },
+    );
   });
 
   it("queues it again on a retry after the purge committed, so a lost enqueue is not final", async () => {
@@ -310,10 +324,10 @@ describe("tenant-purge Superset erasure (#728)", () => {
       attemptsMade: 1,
       data: { tenantId: TENANT_ID },
     });
-    expect(mockEnqueueErasure).toHaveBeenCalledWith({
-      kind: "tenant",
-      tenantId: TENANT_ID,
-    });
+    expect(mockEnqueueErasure).toHaveBeenCalledWith(
+      { kind: "tenant", tenantId: TENANT_ID },
+      { force: false },
+    );
   });
 
   it("fails the purge job when the erasure cannot be queued, so its retry queues it again", async () => {
@@ -327,8 +341,92 @@ describe("tenant-purge Superset erasure (#728)", () => {
     ).rejects.toThrow("the Superset erasure could not be queued");
   });
 
+  it("erases in Superset when Superset reports Stage 2 on although this worker's env says off (#1137)", async () => {
+    mockErasureMode.mockReturnValue("cache-only");
+    mockReadSelfcheck.mockResolvedValue({
+      checkedAt: Date.now(),
+      outcome: "mismatch",
+      stage2: true,
+      mismatch: true,
+    });
+    await captured.processor?.({
+      id: "job-1",
+      attemptsMade: 0,
+      data: { tenantId: TENANT_ID },
+    });
+    expect(mockEnqueueErasure).toHaveBeenCalledWith(
+      { kind: "tenant", tenantId: TENANT_ID },
+      { force: true },
+    );
+  });
+
+  it("fails the purge when this worker says Stage 2 is off and Superset has not confirmed it (#1137)", async () => {
+    mockErasureMode.mockReturnValue("cache-only");
+    for (const none of [
+      null,
+      {
+        checkedAt: Date.now(),
+        outcome: "unreachable",
+        stage2: null,
+        mismatch: false,
+      },
+      {
+        checkedAt: Date.now() - 2 * 3600_000,
+        outcome: "ok",
+        stage2: false,
+        mismatch: false,
+      },
+    ]) {
+      mockReadSelfcheck.mockResolvedValue(none);
+      await expect(
+        captured.processor?.({
+          id: "job-1",
+          attemptsMade: 0,
+          data: { tenantId: TENANT_ID },
+        }),
+      ).rejects.toThrow("could not be verified");
+    }
+    expect(mockEnqueueErasure).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the purge when Superset confirms Stage 2 is off", async () => {
+    mockErasureMode.mockReturnValue("cache-only");
+    mockReadSelfcheck.mockResolvedValue({
+      checkedAt: Date.now(),
+      outcome: "ok",
+      stage2: false,
+      mismatch: false,
+    });
+    await expect(
+      captured.processor?.({
+        id: "job-1",
+        attemptsMade: 0,
+        data: { tenantId: TENANT_ID },
+      }),
+    ).resolves.toBeUndefined();
+    expect(mockEnqueueErasure).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the purge when erasure is turned off and nothing is queued (#1137: an operator's choice)", async () => {
+    mockErasureMode.mockReturnValue("off");
+    await expect(
+      captured.processor?.({
+        id: "job-1",
+        attemptsMade: 0,
+        data: { tenantId: TENANT_ID },
+      }),
+    ).resolves.toBeUndefined();
+    expect(mockEnqueueErasure).not.toHaveBeenCalled();
+  });
+
   it("does not fail the purge when Stage 2 is off and nothing is queued", async () => {
     mockErasureMode.mockReturnValue("cache-only");
+    mockReadSelfcheck.mockResolvedValue({
+      checkedAt: Date.now(),
+      outcome: "ok",
+      stage2: false,
+      mismatch: false,
+    });
     await expect(
       captured.processor?.({
         id: "job-1",

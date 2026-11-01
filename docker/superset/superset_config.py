@@ -1756,7 +1756,7 @@ def flush_superset_cache(redis_url=None):
 
 
 def _erasure_blueprint():
-    """POST /openwind/erasure/{user,tenant,cache}, for the service account only.
+    """POST /openwind/erasure/{user,tenant,cache} and GET /status, for the service account only.
 
     The caller logs in as the service account and sends its access token plus
     a CSRF token and session cookie, as `superset-client.ts` already does. The
@@ -1826,6 +1826,32 @@ def _erasure_blueprint():
         if not allowed:
             return jsonify({"message": "forbidden"}), 403
         return jsonify({"cacheKeysRemoved": flush_superset_cache()}), 200
+
+    @bp.route("/status", methods=["GET"])
+    def erasure_status():
+        """What the worker's self-check compares with its own configuration (#1137).
+
+        Superset is the source of truth for "Stage 2 is on": it decides from
+        its own SUPERSET_OAUTH_CLIENT_ID. Booleans and a version string only,
+        no data, and the same service-account-only check as the erase routes.
+        """
+        allowed = _caller_may_erase()
+        if allowed is None:
+            return jsonify({"message": "unauthorized"}), 401
+        if not allowed:
+            return jsonify({"message": "forbidden"}), 403
+        try:
+            from importlib.metadata import version as _version
+
+            superset_version = _version("apache-superset")
+        except Exception:  # noqa: BLE001
+            superset_version = "unknown"
+        return jsonify({
+            "stage2": bool(_OAUTH_CLIENT_ID),
+            "erasure": True,
+            "owsubMarker": True,
+            "version": superset_version,
+        }), 200
 
     return bp
 

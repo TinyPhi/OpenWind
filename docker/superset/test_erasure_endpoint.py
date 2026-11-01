@@ -184,6 +184,40 @@ class ErasureEndpoint(unittest.TestCase):
         status, body, _, flush = self.call("/openwind/erasure/cache", self.SERVICE)
         self.assertEqual((status, body), (200, {"cacheKeysRemoved": 4}))
 
+    def get(self, path, caller, no_token=False):
+        verify = mock.Mock(side_effect=RuntimeError("no token") if no_token else None)
+        erase = mock.Mock()
+        flush = mock.Mock()
+        with mock.patch("flask_jwt_extended.verify_jwt_in_request", verify), \
+                mock.patch("flask_jwt_extended.current_user", caller), \
+                mock.patch.object(self.config, "erase_superset_data", erase), \
+                mock.patch.object(self.config, "flush_superset_cache", flush):
+            res = self.app.test_client().get(path)
+        return res.status_code, json.loads(res.data), erase, flush
+
+    def test_status_is_service_account_only(self):
+        status, _, _, _ = self.get("/openwind/erasure/status", None, no_token=True)
+        self.assertEqual(status, 401)
+        status, body, _, _ = self.get("/openwind/erasure/status", User(["Admin"], username="admin"))
+        self.assertEqual((status, body), (403, {"message": "forbidden"}))
+        status, _, _, _ = self.get("/openwind/erasure/status", User(["ReportingAnalyst", f"tenant:{TENANT}"]))
+        self.assertEqual(status, 403)
+        status, _, _, _ = self.get("/openwind/erasure/status", User(["ReportingServiceAccount"], active=False))
+        self.assertEqual(status, 401)
+
+    def test_status_reports_stage2_from_superset_own_client_id_and_touches_nothing(self):
+        for client_id, expected in (("client-id", True), ("", False)):
+            with mock.patch.object(self.config, "_OAUTH_CLIENT_ID", client_id):
+                status, body, erase, flush = self.get("/openwind/erasure/status", self.SERVICE)
+            self.assertEqual(status, 200)
+            self.assertEqual(set(body), {"stage2", "erasure", "owsubMarker", "version"})
+            self.assertIs(body["stage2"], expected)
+            self.assertIs(body["erasure"], True)
+            self.assertIs(body["owsubMarker"], True)
+            self.assertIsInstance(body["version"], str)
+            erase.assert_not_called()
+            flush.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

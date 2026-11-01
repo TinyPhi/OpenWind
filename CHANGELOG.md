@@ -3,6 +3,31 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — Superset erasure enablement check (#1137)]
+
+### Added
+
+- Superset `GET /openwind/erasure/status` (service account only) reports whether Stage 2 and erasure are on
+  there. The worker compares it with its own setting every 15 minutes, runs a no-op smoke erase for a
+  synthetic tenant, and records the result. New metrics `openwind_superset_erasure_selfcheck_total{outcome}`
+  and `openwind_superset_erasure_config_mismatch`; new alerts `SupersetErasureConfigMismatch` and
+  `SupersetErasureSelfcheckFailing`; `SupersetErasureFailed` also covers `outcome="unverified"`.
+- API: `DELETE /users/:userId` can answer `superset.status: "unverified"` (additive enum value).
+
+### Upgrade note
+
+- A deployment that has no Superset must set `SUPERSET_ERASURE_ENABLED=false` when upgrading. At its default
+  (`true`) the worker expects Superset, user erases answer `unverified` and tenant purge jobs fail.
+
+### Changed
+
+- Erasure fails closed when Superset's Stage 2 state cannot be confirmed. A user erase with the local mode
+  "cache-only" and no fresh self-check answers `unverified` (200, admin-ui warning) instead of "Superset
+  holds no account"; the tenant purge job fails and retries instead of completing. When Superset reports
+  Stage 2 on, user erase and tenant purge erase in Superset even if this service's
+  `SUPERSET_OAUTH_CLIENT_ID` is unset. A deployment without Superset should set
+  `SUPERSET_ERASURE_ENABLED=false` (self-check `skipped`, erase answers `disabled`).
+
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 
 ### Security

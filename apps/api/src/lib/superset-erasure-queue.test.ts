@@ -1,3 +1,4 @@
+import type * as RedisModule from "@platform/redis";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
@@ -9,7 +10,9 @@ const {
   mockEnv,
   mockCount,
   initialCounts,
+  mockReadSelfcheck,
 } = vi.hoisted(() => ({
+  mockReadSelfcheck: vi.fn(),
   mockCount: vi.fn(),
   initialCounts: [] as unknown[][],
   mockAdd: vi.fn(),
@@ -56,6 +59,15 @@ vi.mock("@platform/audit", () => ({
       .replace(/[^A-Za-z0-9]/g, "_")}`,
 }));
 vi.mock("./redis.js", () => ({ connection: {} }));
+vi.mock("@platform/redis", async () => {
+  // The real resolver, so the test covers how it combines with the route's mode; only the
+  // Redis read is stubbed.
+  const real = await vi.importActual<typeof RedisModule>("@platform/redis");
+  return {
+    readSupersetSelfcheck: mockReadSelfcheck,
+    resolveSupersetErasureMode: real.resolveSupersetErasureMode,
+  };
+});
 
 const { enqueueSupersetErasure, eraseUserInSuperset } =
   await import("./superset-erasure-queue.js");
@@ -65,6 +77,7 @@ const TENANT = "bbbbbbbb-0002-4000-b000-000000000002";
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetJob.mockResolvedValue(undefined);
+  mockReadSelfcheck.mockResolvedValue(null);
   mockEnv.SUPERSET_OAUTH_CLIENT_ID = "client-id";
   mockEnv.SUPERSET_ERASURE_ENABLED = true;
   mockEnv.SUPERSET_REDIS_URL = "redis://superset-cache:6379/1";
@@ -146,6 +159,14 @@ describe("enqueueSupersetErasure (#728)", () => {
       await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
     ).toBe(false);
     expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it("queues with Stage 2 off locally only when forced (Superset reported it on, #1137)", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    const request = { kind: "tenant", tenantId: TENANT } as const;
+    expect(await enqueueSupersetErasure(request)).toBe(false);
+    expect(await enqueueSupersetErasure(request, { force: true })).toBe(true);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
   });
 
   it("still queues with Stage 2 on when the setting says off", async () => {
@@ -243,8 +264,16 @@ describe("eraseUserInSuperset (#728): what the admin is told", () => {
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
-  it("with Stage 2 off and the switch on, only the cache is cleared", async () => {
+  const check = (stage2: boolean | null, ageMs = 1000) => ({
+    checkedAt: Date.now() - ageMs,
+    outcome: stage2 === null ? "unreachable" : "ok",
+    stage2,
+    mismatch: false,
+  });
+
+  it("with Stage 2 off confirmed by Superset and the switch on, only the cache is cleared", async () => {
     mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockReadSelfcheck.mockResolvedValue(check(false));
     const outcome = await run();
     expect(outcome.status).toBe("cache_only");
     expect(mockAdd).not.toHaveBeenCalled();
@@ -252,11 +281,67 @@ describe("eraseUserInSuperset (#728): what the admin is told", () => {
 
   it("does not claim the cache is being cleared when Superset has no cache configured", async () => {
     mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockReadSelfcheck.mockResolvedValue(check(false));
     mockEnv.SUPERSET_REDIS_URL = undefined;
     const outcome = await run();
     expect(outcome.status).toBe("cache_only");
     expect(outcome.message).toContain("no cache to clear");
     expect(outcome.message).not.toContain("being cleared");
+  });
+
+  it("never says Superset holds no account when Superset's state is unconfirmed (#1137)", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    for (const none of [null, check(null), check(false, 3600_000)]) {
+      mockReadSelfcheck.mockResolvedValue(none);
+      const outcome = await run();
+      expect(outcome.status).toBe("unverified");
+      expect(outcome.message).not.toMatch(/holds no account/);
+      expect(outcome.message).toMatch(/could not be confirmed/);
+    }
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockCount).toHaveBeenCalledWith(1, { outcome: "unverified" });
+  });
+
+  it("an unreadable self-check result counts as unconfirmed", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockReadSelfcheck.mockResolvedValue(null);
+    expect((await run()).status).toBe("unverified");
+  });
+
+  it("queues the erasure when Superset reports Stage 2 on although this service's id is unset (#1137)", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockReadSelfcheck.mockResolvedValue(check(true));
+    const outcome = await run();
+    expect(outcome.status).toBe("queued");
+    expect(outcome.message).not.toMatch(/holds no account/);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(mockError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("SUPERSET_OAUTH_CLIENT_ID is not set here"),
+    );
+  });
+
+  it("the override still refuses a person outside this tenant", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockReadSelfcheck.mockResolvedValue(check(true));
+    expect((await run(false)).status).toBe("not_member");
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it("an operator's off is not overridden into unverified without a report, but Superset's Stage 2 on wins", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockEnv.SUPERSET_ERASURE_ENABLED = false;
+    expect((await run()).status).toBe("disabled");
+    mockReadSelfcheck.mockResolvedValue(check(true));
+    expect(await run()).toMatchObject({
+      status: "queued",
+      switchIgnored: true,
+    });
+  });
+
+  it("does not read the self-check when this service already says Stage 2 is on", async () => {
+    await run();
+    expect(mockReadSelfcheck).not.toHaveBeenCalled();
   });
 
   it("says when the erasure could not be scheduled", async () => {

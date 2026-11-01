@@ -400,7 +400,8 @@
 .pa-otp-box:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--accent-primary) 25%, transparent);
 }
 
 .pa-otp-box:disabled {

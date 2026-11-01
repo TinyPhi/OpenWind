@@ -63,3 +63,18 @@ export async function closeRedis(): Promise<void> {
   _cacheClient = null;
   await Promise.all(clients.flatMap((c) => (c ? [c.quit()] : [])));
 }
+
+export {
+  SUPERSET_SELFCHECK_KEY,
+  SUPERSET_SELFCHECK_TTL_SECONDS,
+  SUPERSET_SELFCHECK_OUTCOMES,
+  writeSupersetSelfcheck,
+  readSupersetSelfcheck,
+  parseSupersetSelfcheck,
+  resolveSupersetErasureMode,
+} from "./superset-selfcheck.js";
+export type {
+  SupersetSelfcheckOutcome,
+  SupersetSelfcheckResult,
+  ResolvedSupersetErasureMode,
+} from "./superset-selfcheck.js";
