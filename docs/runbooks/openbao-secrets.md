@@ -160,8 +160,11 @@ For a new deployment with no running instance. To move an existing one, see
      database's copy).
    - `MIGRATION_DATABASE_URL` goes **only** in `bootstrap`, never in `worker` (ADR-001).
    - Superset secrets go only where they are used: `backend` holds just
-     `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, and `worker` holds none. Production has no development
-     defaults for them (#935), so nothing else needs them.
+     `SUPERSET_SERVICE_ACCOUNT_PASSWORD`, and so does `worker` (it logs in to Superset to erase
+     people's data). Both also hold `SUPERSET_OAUTH_CLIENT_ID` when Superset Stage 2 is on, the same
+     value `superset` and `superset-init` have (see the
+     [Superset erasure runbook](superset-erasure.md#production-setup)). Production has no
+     development defaults for them (#935), so nothing else needs them.
    - Do not put a key in KV that compose also sets non-empty: the loader refuses to start (exit 78).
    - `METRICS_TOKEN` must be a real value; production refuses the dev default (#935).
 

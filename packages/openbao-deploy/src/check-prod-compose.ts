@@ -94,6 +94,8 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "REDIS_CACHE_URL",
     "ZITADEL_JWKS_URL",
     "ZITADEL_INTROSPECTION_URL",
+    "SUPERSET_INTERNAL_URL",
+    "SUPERSET_SERVICE_ACCOUNT_USER",
     "FILES_STORAGE_PATH",
     "CLAMAV_HOST",
     "CLAMAV_PORT",
