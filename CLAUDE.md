@@ -62,17 +62,17 @@ content in it.
 and live % live **only** in [roadmap-tracker.md](docs/tracker/roadmap-tracker.md). Edit this table
 only when a track's headline changes (started / done / blocked).
 
-| ID    | Track                                                           | Headline                                                                                                      |
-| ----- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 3A    | Integration layer — connector runtime, partner API, marketplace | 🟡 Runtime + partner API (ADR-012 A–G) shipped; connectors #368 + marketplace UI #369 not started             |
-| 3B    | Plugin system — Module Federation, slot registry                | ✅ Done (#397); 2 known gaps tracked in #644                                                                  |
-| 3C    | AI layer — automation gen, workflow suggestion, RAG             | 🔴 Not started, no ADR — human scope call (#18, #614–618)                                                     |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR             | ✅ Done (#503–507, ADR-015)                                                                                   |
-| 3E    | On-call routing & severity-based notification                   | 🟡 Phases 1–4 merged (ADR-016); gaps: SMS/WhatsApp/voice delivery, duration metrics, 2 UI badges (#570, #571) |
-| 3F    | Temporal scheduler — auto-create tickets on schedule            | 🟡 Phases 1–4 merged (ADR-017); gap: schedule alert rules (#580)                                              |
-| 3G    | MIS reporting — embedded Superset + standalone/Zitadel SSO      | 🟡 Stages 1–2 merged (#663–671); ADR-019 proposed (#707); Stage 2 stays off pending review                    |
-| 3H    | Cross-functional workflow visibility                            | 🟡 Phase 1 merged — vendor-approval seed module (#680); live walk-through #691; ADR-020 in review (#702)      |
-| 3-OPS | Deferred ops/infra concerns                                     | 🔴 Not started (#6)                                                                                           |
+| ID    | Track                                                           | Headline                                                                                                 |
+| ----- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 3A    | Integration layer — connector runtime, partner API, marketplace | 🟡 Runtime + partner API (ADR-012 A–G) shipped; connectors #368 + marketplace UI #369 not started        |
+| 3B    | Plugin system — Module Federation, slot registry                | ✅ Done (#397); 2 known gaps tracked in #644                                                             |
+| 3C    | AI layer — automation gen, workflow suggestion, RAG             | 🔴 Not started, no ADR — human scope call (#18, #614–618)                                                |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR             | ✅ Done (#503–507, ADR-015)                                                                              |
+| 3E    | On-call routing & severity-based notification                   | 🟡 Phases 1–4 merged (ADR-016); gap: SMS/WhatsApp/voice delivery (#570)                                  |
+| 3F    | Temporal scheduler — auto-create tickets on schedule            | 🟡 Phases 1–4 merged (ADR-017); schedule alert rules shipped (#867); no open gap issues                  |
+| 3G    | MIS reporting — embedded Superset + standalone/Zitadel SSO      | 🟡 Stages 1–2 merged (#663–671); ADR-019 proposed (#707); Stage 2 stays off pending review               |
+| 3H    | Cross-functional workflow visibility                            | 🟡 Phase 1 merged — vendor-approval seed module (#680); live walk-through #691; ADR-020 in review (#702) |
+| 3-OPS | Deferred ops/infra concerns                                     | 🔴 Not started (#6)                                                                                      |
 
 Also active outside this table, with no track ID (see "Spec-driven efforts outside the track table" in
 the tracker): the multi-org sandbox ([spec](docs/specs/multi-org-sandbox.md), ADR-022 Proposed) and
