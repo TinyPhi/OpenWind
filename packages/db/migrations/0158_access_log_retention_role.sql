@@ -38,15 +38,33 @@
 -- that switches into this role cannot erase recent audit evidence or read recent activity.
 -- The rollup policies stay (true): the rollup is the aggregate record, written only by this role.
 
+-- Attribute guard (#1153). A pre-existing role of this name must not keep wrong attributes, but
+-- ALTER ROLE ... NOSUPERUSER needs a superuser, and the real migration_user is not one (CREATEROLE
+-- only), so an unconditional ALTER ROLE stopped a from-scratch migrate here. Instead: create the
+-- role if absent; if it exists with unexpected attributes, repair it only when the caller is a
+-- superuser, otherwise fail loudly so the operator fixes the role. Never silently accept a role
+-- that is LOGIN, SUPERUSER, CREATEDB, CREATEROLE, BYPASSRLS or REPLICATION.
 DO $$
+DECLARE
+  r pg_roles%ROWTYPE;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'access_log_retention_role') THEN
-    CREATE ROLE access_log_retention_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  SELECT * INTO r FROM pg_roles WHERE rolname = 'access_log_retention_role';
+  IF NOT FOUND THEN
+    CREATE ROLE access_log_retention_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION;
+    RETURN;
+  END IF;
+
+  IF r.rolcanlogin OR r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolbypassrls OR r.rolreplication THEN
+    IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+      ALTER ROLE access_log_retention_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION;
+    ELSE
+      RAISE EXCEPTION
+        'role access_log_retention_role already exists with unsafe attributes (login=%, superuser=%, createdb=%, createrole=%, bypassrls=%, replication=%); a superuser must run: ALTER ROLE access_log_retention_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION',
+        r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolbypassrls, r.rolreplication;
+    END IF;
   END IF;
 END
 $$;
-
-ALTER ROLE access_log_retention_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
 GRANT access_log_retention_role TO app_user WITH INHERIT FALSE;
 GRANT USAGE ON SCHEMA public TO access_log_retention_role;
