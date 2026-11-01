@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { logger } from "@platform/logger";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
@@ -40,16 +41,21 @@ vi.mock("@platform/files", () => ({
   resolveStoragePath: (storageKey: string) => `/data/files/${storageKey}`,
 }));
 
-const mockDbSelect = vi.fn();
-const mockDbUpdate = vi.fn();
-const mockDbDelete = vi.fn();
+const mockTenantRows = vi.fn();
+const mockWithTenantContext = vi.fn();
+const mockTxSelect = vi.fn();
+const mockTxDelete = vi.fn();
+const fakeTx = {
+  select: (...a: unknown[]) => mockTxSelect(...a),
+  delete: (...a: unknown[]) => mockTxDelete(...a),
+};
 
 vi.mock("@platform/db", () => ({
   db: {
-    select: (...args: unknown[]) => mockDbSelect(...args),
-    update: (...args: unknown[]) => mockDbUpdate(...args),
-    delete: (...args: unknown[]) => mockDbDelete(...args),
+    select: () => ({ from: () => ({ where: () => mockTenantRows() }) }),
   },
+  withTenantContext: (...args: unknown[]) => mockWithTenantContext(...args),
+  tenants: { id: "id", trialEndsAt: "trialEndsAt", status: "status" },
   files: {
     id: "id",
     tenantId: "tenantId",
@@ -69,30 +75,27 @@ vi.mock("./queues.js", () => ({
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function mockSelect(rows: unknown[]) {
-  const chain = {
-    select: vi.fn(),
-    from: vi.fn(),
-    where: vi.fn(),
-    // The cleanup query now chains .limit(BATCH_LIMIT) after .where(...)
-    limit: vi.fn(),
-  };
-  chain.select.mockReturnValue(chain);
+  const chain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
   chain.from.mockReturnValue(chain);
   chain.where.mockReturnValue(chain);
   chain.limit.mockResolvedValue(rows);
-  mockDbSelect.mockReturnValue(chain);
-  return chain;
+  mockTxSelect.mockReturnValue(chain);
 }
 
 function mockDelete() {
   const chain = { where: vi.fn().mockResolvedValue(undefined) };
-  mockDbDelete.mockReturnValue(chain);
+  mockTxDelete.mockReturnValue(chain);
   return chain;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockUnlink.mockResolvedValue(undefined);
+  mockTenantRows.mockResolvedValue([{ id: "tenant-1", trialEndsAt: null }]);
+  mockWithTenantContext.mockImplementation(
+    (_tenantId: string, fn: (tx: typeof fakeTx) => Promise<unknown>) =>
+      fn(fakeTx),
+  );
   // Note: capturedProcessor is NOT reset here — Worker() fires once at import
   // time. Clearing it would destroy the only reference we have.
 });
@@ -109,16 +112,30 @@ describe("file-cleanup worker", () => {
     await capturedProcessor!();
 
     expect(mockUnlink).not.toHaveBeenCalled();
-    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockTxDelete).not.toHaveBeenCalled();
   });
 
-  it("purges stale files: deletes on-disk file, releases quota, deletes row", async () => {
+  it("runs each tenant's work inside withTenantContext (issue #1078)", async () => {
+    mockTenantRows.mockResolvedValue([
+      { id: "tenant-1", trialEndsAt: null },
+      { id: "tenant-2", trialEndsAt: null },
+    ]);
+    mockSelect([]);
+
+    await capturedProcessor!();
+
+    expect(mockWithTenantContext.mock.calls.map((c) => c[0])).toEqual([
+      "tenant-1",
+      "tenant-2",
+    ]);
+  });
+
+  it("purges stale files: deletes on-disk file and the row", async () => {
     mockSelect([
       {
         id: "file-1",
-        tenantId: "tenant-1",
         storageKey: "tenants/t/files/file-1.pdf",
-        sizeBytes: 1024,
+        scanStatus: "pending",
       },
     ]);
     mockDelete();
@@ -126,23 +143,13 @@ describe("file-cleanup worker", () => {
     await capturedProcessor!();
 
     expect(mockUnlink).toHaveBeenCalledTimes(1);
-    expect(mockDbDelete).toHaveBeenCalledTimes(1); // row deletion
+    expect(mockTxDelete).toHaveBeenCalledTimes(1);
   });
 
   it("continues purging remaining files if one on-disk deletion fails", async () => {
     mockSelect([
-      {
-        id: "file-1",
-        tenantId: "tenant-1",
-        storageKey: "tenants/t/files/file-1.pdf",
-        sizeBytes: 1024,
-      },
-      {
-        id: "file-2",
-        tenantId: "tenant-1",
-        storageKey: "tenants/t/files/file-2.pdf",
-        sizeBytes: 2048,
-      },
+      { id: "file-1", storageKey: "k/file-1.pdf", scanStatus: "pending" },
+      { id: "file-2", storageKey: "k/file-2.pdf", scanStatus: "deleted" },
     ]);
     mockUnlink
       .mockRejectedValueOnce(new Error("disk error"))
@@ -151,24 +158,34 @@ describe("file-cleanup worker", () => {
 
     await capturedProcessor!();
 
-    // Both files should have their rows deleted even though first unlink call failed
-    expect(mockDbDelete).toHaveBeenCalledTimes(2);
+    expect(mockTxDelete).toHaveBeenCalledTimes(2);
   });
 
-  it("purges multiple stale files in a single run", async () => {
-    const staleFiles = Array.from({ length: 5 }, (_, i) => ({
-      id: `file-${i}`,
-      tenantId: "tenant-1",
-      storageKey: `tenants/t/files/file-${i}.pdf`,
-      sizeBytes: 512,
-    }));
-
-    mockSelect(staleFiles);
+  it("isolates a failing tenant: logs it and still sweeps the next tenant", async () => {
+    mockTenantRows.mockResolvedValue([
+      { id: "tenant-bad", trialEndsAt: null },
+      { id: "tenant-ok", trialEndsAt: null },
+    ]);
+    mockWithTenantContext.mockImplementation(
+      (tenantId: string, fn: (tx: typeof fakeTx) => Promise<unknown>) =>
+        tenantId === "tenant-bad"
+          ? Promise.reject(new Error("db error"))
+          : fn(fakeTx),
+    );
+    mockSelect([
+      { id: "file-1", storageKey: "k/file-1.pdf", scanStatus: "pending" },
+    ]);
     mockDelete();
 
-    await capturedProcessor!();
+    await expect(capturedProcessor!()).resolves.toBeUndefined();
 
-    expect(mockUnlink).toHaveBeenCalledTimes(5);
-    expect(mockDbDelete).toHaveBeenCalledTimes(5);
+    expect(mockTxDelete).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-bad",
+        code: "TENANT_SWEEP_FAILED",
+      }),
+      expect.any(String),
+    );
   });
 });
