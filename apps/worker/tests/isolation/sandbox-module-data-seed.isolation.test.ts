@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import {
   db,
   tenants,
-  modules,
+  syncModuleCatalog,
   entityTypes,
   entityFields,
   entityInstances,
@@ -33,35 +33,10 @@ const OTHER_TENANT = "cccccccc-0099-4000-c000-000000000099";
 const SEEDED_ADMIN = "395069484982800201";
 let installedSlugs: string[] = [];
 
-// The `modules` registry is normally seeded by apps/api's ModuleService.seedRegistry()
-// (called at API startup / in that package's own tests) -- apps/worker cannot import
-// apps/api, and no migration seeds these rows (confirmed: no INSERT INTO modules exists
-// anywhere in packages/db/migrations), so a CI run that only exercises apps/worker's own
-// test suite hits an empty `modules` table unless this test seeds it itself. Matches
-// ModuleService.seedRegistry()'s 7 core-module slugs; onConflictDoNothing so this is a
-// no-op against a shared dev DB where the real registry already has richer rows.
-const CORE_MODULE_SLUGS = [
-  "helpdesk",
-  "crm",
-  "hrms",
-  "reimbursements",
-  "projects",
-  "invoicing",
-  "procurement",
-];
-
 beforeAll(async () => {
-  await db
-    .insert(modules)
-    .values(
-      CORE_MODULE_SLUGS.map((slug) => ({
-        slug,
-        name: slug,
-        version: "0.0.1",
-        category: "core" as const,
-      })),
-    )
-    .onConflictDoNothing();
+  // ADR-005 Amendment 1: the catalog is normally synced by run-migrations (migration_user).
+  // This suite connects as a superuser in CI, so it syncs the same source of truth itself.
+  await syncModuleCatalog(db);
 
   await db.insert(tenants).values([
     {

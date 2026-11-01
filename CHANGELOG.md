@@ -3,6 +3,24 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — module catalog sync (#1079)]
+
+### Fixed
+
+- The module catalog (`modules`, which drives the Templates page and which modules new tenants
+  get automatically) is now written by `pnpm db:migrate` / the `bootstrap` container as
+  `migration_user`, on every run, instead of by the API at runtime. Since migration 0061 the API
+  role could not write it, so a fresh database stayed empty and catalog changes never applied.
+  The admin visibility toggle works again (migration 0159, column-scoped grant on `is_visible`).
+
+### Changed
+
+- **Operators must run the migration step** (`pnpm db:migrate`, or `docker compose --profile
+bootstrap up bootstrap`) on a fresh database and after any change to the catalog. The API now
+  exits non-zero at startup, with a message naming that step, when the catalog is empty.
+- Removed `POST /modules/seed`, the "Seed Templates" button and the empty-registry auto-seed.
+  `pnpm seed:demo` and `pnpm reset:data` need `MIGRATION_DATABASE_URL` and re-sync the catalog.
+
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 
 ### Security

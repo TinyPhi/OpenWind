@@ -10,7 +10,7 @@ import {
   stopTenantStatusInvalidationSubscriber,
 } from "@platform/auth";
 import { createApp } from "./app.js";
-import { ModuleService } from "./services/module-service.js";
+import { assertModuleCatalog } from "./lib/module-catalog-assertion.js";
 import {
   attachNotificationWebSocket,
   stopNotificationWebSocket,
@@ -37,26 +37,42 @@ if (env.NODE_ENV === "production") {
   }
 }
 
-const server = serve({ fetch: app.fetch, port }, () => {
-  logger.info({ port }, "API server listening");
-  startTenantStatusInvalidationSubscriber();
-  ModuleService.seedRegistry().catch((err: unknown) => {
-    logger.error({ err }, "Failed to seed modules registry on startup");
+async function start(): Promise<void> {
+  // ADR-005 Amendment 1: the catalog is written by the migration step. Refuse to
+  // serve traffic on an empty one instead of showing an empty Templates page.
+  try {
+    await assertModuleCatalog();
+  } catch (err: unknown) {
+    logger.error(
+      { err },
+      err instanceof Error ? err.message : "Module catalog check failed",
+    );
+    process.exit(1);
+  }
+
+  const server = serve({ fetch: app.fetch, port }, () => {
+    logger.info({ port }, "API server listening");
+    startTenantStatusInvalidationSubscriber();
   });
-});
 
-attachNotificationWebSocket(server);
+  attachNotificationWebSocket(server);
 
-async function shutdown(): Promise<void> {
-  logger.info({}, "API server shutting down");
-  await new Promise<void>((resolve, reject) =>
-    server.close((err) => (err ? reject(err) : resolve())),
-  );
-  await stopTenantStatusInvalidationSubscriber();
-  await stopNotificationWebSocket();
-  await closeRedis();
-  process.exit(0);
+  async function shutdown(): Promise<void> {
+    logger.info({}, "API server shutting down");
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    await stopTenantStatusInvalidationSubscriber();
+    await stopNotificationWebSocket();
+    await closeRedis();
+    process.exit(0);
+  }
+
+  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown());
 }
 
-process.on("SIGTERM", () => void shutdown());
-process.on("SIGINT", () => void shutdown());
+start().catch((err: unknown) => {
+  logger.error({ err }, "API failed to start");
+  process.exit(1);
+});

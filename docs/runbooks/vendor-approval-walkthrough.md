@@ -65,7 +65,8 @@ Zitadel roles are the roles claim of the access token; the API maps them straigh
 The requester must not be an approver (`actor_not_creator`), so install and create as `owAdmin`.
 
 - [ ] **2a.** As `owAdmin`, open **Templates** (sidebar; page title "Module Templates"). If the list is empty,
-      click **Seed Templates** (calls `POST /modules/seed`, admin only).
+      the catalog was never synced: run the migration step (`pnpm db:migrate`, or the compose `bootstrap`
+      container) as `migration_user`. There is no Seed Templates button any more (ADR-005 Amendment 1).
 - [ ] **2b.** Find **Vendor Approval**, click **Copy Template**, accept or change the workflow name
       (default is the module name, since `vendor-approval` is not in `MODULE_DEFAULT_NAMES`,
       `apps/admin-ui/src/pages/modules.tsx:39-47`), confirm **Copy Template**. Expected: modal closes with no error

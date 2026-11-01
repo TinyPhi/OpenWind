@@ -114,15 +114,16 @@ Costing / Documents & Submission), and the create-form field order.
 
 ## Module registration
 
-Modules are **not** registered via SQL in this codebase. `apps/api/src/services/module-service.ts`
-(`ModuleService.seedRegistry()`) hardcodes a `standardModules` array (slug, name,
-description, version, isSystem, minPlan) and upserts it into the `modules` table on
-first API boot / registry-empty. A `tender` entry has been added to that array (see
-diff in `apps/api/src/services/module-service.ts`) following the exact shape used
-for `helpdesk`, `crm`, etc. Install/uninstall then works through the existing
+Modules are **not** registered via SQL in this codebase. `packages/db/src/module-catalog.ts`
+(`MODULE_CATALOG`) holds the array (slug, name, description, version, isSystem, minPlan,
+category) and `syncModuleCatalog` upserts it into the `modules` table as `migration_user`,
+right after the migrations in `packages/db/src/run-migrations.ts` (ADR-005 Amendment 1; the
+API role is read-only on `modules`). `tender` is the entry with `category: "optional"`.
+Install/uninstall then works through the existing
 `ModuleService.installModule()` / `uninstallModule()` flow, which reads
 `modules/tender/seed/*.sql` off disk and runs it inside `withTenantContext` —
-no further wiring needed beyond that array entry.
+no further wiring needed beyond that array entry. After editing the array, re-run
+`pnpm db:migrate` to refresh an existing database.
 
 ## Out of scope (per spec §C)
 
