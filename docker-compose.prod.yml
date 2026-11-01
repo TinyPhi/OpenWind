@@ -115,6 +115,7 @@ services:
       # is deliberately not required: it is what turns Superset Stage 2 on (ADR-019),
       # so requiring it would force Stage 2 on. When Stage 2 is on, store it at this
       # path too, or the API treats Stage 2 as off (docs/runbooks/superset-erasure.md).
+      # SUPERSET_DEPLOYMENT (below) is a plain setting, not a secret, so it is not a required key.
       BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SERVICE_ACCOUNT_PASSWORD
       # Backend calls Transit at runtime, so it keeps its AppRole login.
       BAO_KEEP_LOGIN: "1"
@@ -129,6 +130,10 @@ services:
       SUPERSET_DASHBOARD_TENANT_SLUG: ${SUPERSET_DASHBOARD_TENANT_SLUG:-openwind-tenant-overview}
       SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
       SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      # This compose file runs Superset, so the API expects it (#1137): erasure fails closed until
+      # the worker's self-check has confirmed Superset. Set SUPERSET_DEPLOYMENT=off in .env only on
+      # an install that removes the superset services.
+      SUPERSET_DEPLOYMENT: ${SUPERSET_DEPLOYMENT:-on}
       FILES_STORAGE_PATH: /data/files
     depends_on: !override
       pgbouncer:
@@ -171,6 +176,8 @@ services:
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:?set ZITADEL_URL in .env}/oauth/v2/introspect
       SUPERSET_INTERNAL_URL: ${SUPERSET_INTERNAL_URL:-http://superset:8088}
       SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      # As on ow-backend: Superset runs in this stack, so it is expected (#1137).
+      SUPERSET_DEPLOYMENT: ${SUPERSET_DEPLOYMENT:-on}
       FILES_STORAGE_PATH: /data/files
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310

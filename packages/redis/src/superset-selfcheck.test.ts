@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("ioredis", () => ({ default: vi.fn() }));
 vi.mock("@platform/config", () => ({
-  env: { REDIS_URL: "redis://localhost:6379", NODE_ENV: "test" },
+  env: {
+    REDIS_URL: "redis://localhost:6379",
+    NODE_ENV: "test",
+    SUPERSET_SELFCHECK_TTL_MINUTES: 30,
+  },
 }));
 vi.mock("@platform/logger", () => ({
   logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -11,8 +15,12 @@ vi.mock("@platform/logger", () => ({
 const {
   resolveSupersetErasureMode,
   parseSupersetSelfcheck,
-  SUPERSET_SELFCHECK_TTL_SECONDS,
+  supersetSelfcheckTtlSeconds,
 } = await import("./superset-selfcheck.js");
+
+const { env } = (await import("@platform/config")) as unknown as {
+  env: { SUPERSET_SELFCHECK_TTL_MINUTES: number };
+};
 
 const NOW = 1_800_000_000_000;
 const check = (
@@ -62,8 +70,25 @@ describe("resolveSupersetErasureMode (#1137, fail closed)", () => {
     );
   });
 
+  it("honours SUPERSET_SELFCHECK_TTL_MINUTES", () => {
+    env.SUPERSET_SELFCHECK_TTL_MINUTES = 60;
+    try {
+      expect(supersetSelfcheckTtlSeconds()).toBe(3600);
+      expect(
+        resolveSupersetErasureMode("cache-only", check(false, 45 * 60_000), NOW)
+          .verified,
+      ).toBe(true);
+    } finally {
+      env.SUPERSET_SELFCHECK_TTL_MINUTES = 30;
+    }
+    expect(
+      resolveSupersetErasureMode("cache-only", check(false, 45 * 60_000), NOW)
+        .verified,
+    ).toBe(false);
+  });
+
   it("leaves cache-only unverified when there is no fresh answer", () => {
-    const stale = check(false, (SUPERSET_SELFCHECK_TTL_SECONDS + 1) * 1000);
+    const stale = check(false, (supersetSelfcheckTtlSeconds() + 1) * 1000);
     const future = check(false, -10 * 60_000);
     for (const c of [null, check(null, 1000, "unreachable"), stale, future]) {
       expect(resolveSupersetErasureMode("cache-only", c, NOW).verified).toBe(

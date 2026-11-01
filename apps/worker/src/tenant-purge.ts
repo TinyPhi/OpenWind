@@ -234,7 +234,8 @@ async function cleanUpOutsideDatabase(tenantId: string): Promise<void> {
   // purge job fails so its own retry (the "already purged" path) queues it again.
   //
   // #1137: "on" is what Superset reports (the worker self-check), not only this process's own
-  // SUPERSET_OAUTH_CLIENT_ID. When this process says Stage 2 is off and Superset has not confirmed
+  // SUPERSET_DEPLOYMENT / SUPERSET_OAUTH_CLIENT_ID. With SUPERSET_DEPLOYMENT=off nothing waits on
+  // Superset. When the deployment is on, this process says Stage 2 is off and Superset has not confirmed
   // that, the purge must not look finished: it fails, so the job shows as failed (and its retry
   // looks again) instead of leaving a tenant's Superset accounts behind with no signal.
   const localMode = supersetErasureMode(env);
@@ -245,7 +246,7 @@ async function cleanUpOutsideDatabase(tenantId: string): Promise<void> {
   if (overridden) {
     logger.error(
       { tenantId },
-      "tenant-purge: Superset reports Stage 2 is on but SUPERSET_OAUTH_CLIENT_ID is not set on the worker; erasing in Superset anyway",
+      "tenant-purge: Superset reports Stage 2 is on but the worker has SUPERSET_DEPLOYMENT off or no SUPERSET_OAUTH_CLIENT_ID; erasing in Superset anyway",
     );
   }
   if (mode === "full") {

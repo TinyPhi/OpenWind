@@ -47,9 +47,6 @@ export default defineConfig({
       OPENBAO_ADDR: "http://localhost:8200",
       OPENBAO_TOKEN: "dev-root-token",
       APP_URL: "https://platform.example.com",
-      // The tests have no Superset. Left on, a tenant purge would fail as "Superset erasure could not
-      // be verified" (#1137), which is right in production and beside the point for these suites.
-      SUPERSET_ERASURE_ENABLED: "false",
     },
     server: {
       deps: {

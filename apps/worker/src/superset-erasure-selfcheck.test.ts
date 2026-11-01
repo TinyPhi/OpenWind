@@ -8,10 +8,27 @@ const {
   mockErase,
   mockError,
   mockInfo,
+  mockQueueAdd,
+  mockQueueClose,
+  mockGetRepeatable,
+  mockRemoveRepeatable,
+  mockWorkerClose,
+  workerArgs,
+  seeded,
+  mockRead,
 } = vi.hoisted(() => ({
+  mockRead: vi.fn(),
+  seeded: [] as unknown[][],
+  mockQueueAdd: vi.fn(),
+  mockQueueClose: vi.fn(),
+  mockGetRepeatable: vi.fn(),
+  mockRemoveRepeatable: vi.fn(),
+  mockWorkerClose: vi.fn(),
+  workerArgs: [] as unknown[][],
   mockEnv: {
     SUPERSET_OAUTH_CLIENT_ID: "client-id" as string | undefined,
-    SUPERSET_ERASURE_ENABLED: true,
+    SUPERSET_DEPLOYMENT: "on" as "on" | "off",
+    SUPERSET_SELFCHECK_INTERVAL_MINUTES: 15,
   },
   mockCount: vi.fn(),
   mockWrite: vi.fn(),
@@ -24,19 +41,41 @@ const {
 vi.mock("@platform/config", () => ({
   env: mockEnv,
   supersetErasureMode: (e: typeof mockEnv): string =>
-    e.SUPERSET_OAUTH_CLIENT_ID
-      ? "full"
-      : e.SUPERSET_ERASURE_ENABLED
-        ? "cache-only"
-        : "off",
+    e.SUPERSET_DEPLOYMENT === "off"
+      ? "off"
+      : e.SUPERSET_OAUTH_CLIENT_ID
+        ? "full"
+        : "cache-only",
 }));
 vi.mock("@platform/logger", () => ({
   logger: { warn: vi.fn(), info: mockInfo, error: mockError },
 }));
 vi.mock("@platform/telemetry", () => ({
-  supersetErasureSelfcheckTotal: { add: mockCount },
+  supersetErasureSelfcheckTotal: {
+    add: (...args: unknown[]): unknown => {
+      if (args[0] === 0) seeded.push(args);
+      return mockCount(...args);
+    },
+  },
+  Queue: class {
+    add = mockQueueAdd;
+    close = mockQueueClose;
+    getRepeatableJobs = mockGetRepeatable;
+    removeRepeatableByKey = mockRemoveRepeatable;
+  },
+  Worker: class {
+    constructor(...args: unknown[]) {
+      workerArgs.push(args);
+    }
+    on = vi.fn();
+    close = mockWorkerClose;
+  },
 }));
-vi.mock("@platform/redis", () => ({ writeSupersetSelfcheck: mockWrite }));
+vi.mock("./queues.js", () => ({ connection: { conn: true } }));
+vi.mock("@platform/redis", () => ({
+  writeSupersetSelfcheck: mockWrite,
+  readSupersetSelfcheck: mockRead,
+}));
 vi.mock("./superset-erasure.js", () => ({
   openSession: mockOpen,
   eraseOnce: mockErase,
@@ -47,8 +86,11 @@ const {
   compareEnablement,
   runSupersetSelfcheck,
   SMOKE_TENANT_ID,
-  startSupersetErasureSelfcheck,
+  scheduleSupersetErasureSelfcheck,
   stopSupersetErasureSelfcheck,
+  SELFCHECK_QUEUE_NAME,
+  SELFCHECK_REPEAT_JOB_ID,
+  SELFCHECK_START_JOB_ID,
 } = await import("./superset-erasure-selfcheck.js");
 
 const SESSION = { accessToken: "tok", csrfToken: "csrf", cookie: "s=1" };
@@ -80,7 +122,10 @@ function statusReply(stage2: boolean, status = 200, erasure = true): void {
 beforeEach(() => {
   vi.clearAllMocks();
   mockEnv.SUPERSET_OAUTH_CLIENT_ID = "client-id";
-  mockEnv.SUPERSET_ERASURE_ENABLED = true;
+  mockEnv.SUPERSET_DEPLOYMENT = "on";
+  mockEnv.SUPERSET_SELFCHECK_INTERVAL_MINUTES = 15;
+  mockGetRepeatable.mockResolvedValue([]);
+  mockRead.mockResolvedValue(null);
   mockOpen.mockResolvedValue(SESSION);
   mockErase.mockResolvedValue(NO_OP);
   mockWrite.mockResolvedValue(undefined);
@@ -215,7 +260,7 @@ describe("runSupersetSelfcheck (#1137)", () => {
 
   it("is skipped, not an alarm, when Superset is unreachable and erasure is turned off", async () => {
     mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
-    mockEnv.SUPERSET_ERASURE_ENABLED = false;
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
     mockOpen.mockRejectedValue(new Error("fetch failed"));
     const r = await runSupersetSelfcheck();
     expect(r).toMatchObject({
@@ -234,26 +279,139 @@ describe("runSupersetSelfcheck (#1137)", () => {
     expect(mockError).toHaveBeenCalled();
   });
 
-  it("starts with every outcome at zero and stops cleanly", async () => {
-    vi.useFakeTimers();
-    try {
-      startSupersetErasureSelfcheck();
-      for (const outcome of [
-        "ok",
-        "mismatch",
-        "smoke_failed",
-        "unreachable",
-        "skipped",
-      ]) {
-        expect(mockCount).toHaveBeenCalledWith(0, { outcome });
-      }
-      await vi.advanceTimersByTimeAsync(0);
-      expect(mockOpen).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
-      expect(mockOpen).toHaveBeenCalledTimes(2);
-    } finally {
-      stopSupersetErasureSelfcheck();
-      vi.useRealTimers();
+  it("with the flag off and Superset reachable but Stage 2 off, is skipped and runs no smoke erase", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
+    statusReply(false);
+    expect(await runSupersetSelfcheck()).toMatchObject({
+      outcome: "skipped",
+      stage2: false,
+      mismatch: false,
+    });
+    expect(mockErase).not.toHaveBeenCalled();
+    expect(mockError).not.toHaveBeenCalled();
+  });
+
+  it("with the flag off, a failing status route is skipped, not an alarm", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
+    statusReply(false, 404);
+    expect(await runSupersetSelfcheck()).toMatchObject({
+      outcome: "skipped",
+      stage2: null,
+    });
+    expect(mockError).not.toHaveBeenCalled();
+  });
+
+  it("with the flag off, keeps a last known Stage 2 on alive as unreachable when Superset cannot be asked", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
+    mockRead.mockResolvedValue({
+      checkedAt: 1,
+      outcome: "mismatch",
+      stage2: true,
+      mismatch: true,
+    });
+    mockOpen.mockRejectedValue(new Error("fetch failed"));
+    expect(await runSupersetSelfcheck()).toMatchObject({
+      outcome: "unreachable",
+      stage2: true,
+      mismatch: true,
+    });
+    mockOpen.mockResolvedValue(SESSION);
+    statusReply(false, 503);
+    expect(await runSupersetSelfcheck()).toMatchObject({
+      outcome: "unreachable",
+      stage2: true,
+    });
+  });
+
+  it("with the flag off but Superset reporting Stage 2 on, is a mismatch (safety net) with stage2 recorded", async () => {
+    mockEnv.SUPERSET_OAUTH_CLIENT_ID = undefined;
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
+    statusReply(true);
+    const r = await runSupersetSelfcheck();
+    expect(r).toMatchObject({
+      outcome: "mismatch",
+      stage2: true,
+      mismatch: true,
+    });
+    expect(mockWrite).toHaveBeenCalledWith(r);
+    expect(mockError).toHaveBeenCalled();
+  });
+});
+
+describe("scheduling (#1137: one repeatable job, however many workers)", () => {
+  it("builds its worker on its own queue with the shared connection", () => {
+    expect(workerArgs).toHaveLength(1);
+    expect(workerArgs[0]?.[0]).toBe(SELFCHECK_QUEUE_NAME);
+    expect(workerArgs[0]?.[2]).toEqual({ connection: { conn: true } });
+  });
+
+  it("starts every outcome at zero at import, so the first one still moves increase()", () => {
+    for (const outcome of [
+      "ok",
+      "mismatch",
+      "smoke_failed",
+      "unreachable",
+      "skipped",
+    ]) {
+      expect(seeded).toContainEqual([0, { outcome }]);
     }
+  });
+
+  it("registers a repeatable job with a fixed id every interval, plus one run at start", async () => {
+    await scheduleSupersetErasureSelfcheck();
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "check",
+      {},
+      {
+        repeat: { every: 15 * 60_000 },
+        jobId: SELFCHECK_REPEAT_JOB_ID,
+        removeOnComplete: true,
+        removeOnFail: 50,
+      },
+    );
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "check-on-start",
+      {},
+      {
+        jobId: SELFCHECK_START_JOB_ID,
+        removeOnComplete: true,
+        removeOnFail: 50,
+      },
+    );
+    expect(mockRemoveRepeatable).not.toHaveBeenCalled();
+    expect(mockQueueClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes the interval from SUPERSET_SELFCHECK_INTERVAL_MINUTES", async () => {
+    mockEnv.SUPERSET_SELFCHECK_INTERVAL_MINUTES = 5;
+    await scheduleSupersetErasureSelfcheck();
+    expect(mockQueueAdd.mock.calls[0]?.[2]).toMatchObject({
+      repeat: { every: 300_000 },
+    });
+  });
+
+  it("removes a repeatable left by an earlier interval, and keeps the current one", async () => {
+    mockGetRepeatable.mockResolvedValue([
+      { name: "check", key: "old", every: "600000" },
+      { name: "check", key: "same", every: String(15 * 60_000) },
+      { name: "other", key: "unrelated", every: "1" },
+    ]);
+    await scheduleSupersetErasureSelfcheck();
+    expect(mockRemoveRepeatable).toHaveBeenCalledTimes(1);
+    expect(mockRemoveRepeatable).toHaveBeenCalledWith("old");
+  });
+
+  it("closes its queue handle even when registration fails", async () => {
+    mockQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+    await expect(scheduleSupersetErasureSelfcheck()).rejects.toThrow();
+    expect(mockQueueClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes its worker on shutdown", async () => {
+    await stopSupersetErasureSelfcheck();
+    expect(mockWorkerClose).toHaveBeenCalledTimes(1);
   });
 });

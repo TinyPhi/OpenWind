@@ -7,26 +7,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `SUPERSET_DEPLOYMENT` (`off` default, `on`): says whether an install runs Superset. Read by the API and the
+  worker. `off`: no Superset is expected, the self-check records `skipped`, a user erase answers `disabled`,
+  a tenant purge does not wait on Superset, nothing alerts and no other Superset variable is needed. `on`:
+  the self-check is mandatory and erasure fails closed (see Changed).
 - Superset `GET /openwind/erasure/status` (service account only) reports whether Stage 2 and erasure are on
-  there. The worker compares it with its own setting every 15 minutes, runs a no-op smoke erase for a
-  synthetic tenant, and records the result. New metrics `openwind_superset_erasure_selfcheck_total{outcome}`
-  and `openwind_superset_erasure_config_mismatch`; new alerts `SupersetErasureConfigMismatch` and
-  `SupersetErasureSelfcheckFailing`; `SupersetErasureFailed` also covers `outcome="unverified"`.
-- API: `DELETE /users/:userId` can answer `superset.status: "unverified"` (additive enum value).
+  there. A worker BullMQ repeatable job (queue `superset-erasure-selfcheck`, fixed job id, one run per
+  interval however many worker replicas) compares it with the local setting, runs a no-op smoke erase for a
+  synthetic tenant, and records the result in Redis. New settings `SUPERSET_SELFCHECK_INTERVAL_MINUTES`
+  (default 15) and `SUPERSET_SELFCHECK_TTL_MINUTES` (default 30, at least twice the interval). New metrics
+  `openwind_superset_erasure_selfcheck_total{outcome}` and `openwind_superset_erasure_config_mismatch`; new
+  alerts `SupersetErasureConfigMismatch` and `SupersetErasureSelfcheckFailing`; `SupersetErasureFailed` also
+  covers `outcome="unverified"`.
+- API: `DELETE /users/:userId` can answer `superset.status: "unverified"` (additive enum value, HTTP 200). It
+  also writes a `superset_erasure.failed` audit row (existing action, no migration) with
+  `metadata.status: "unverified"` for the reconciler (#1138).
 
 ### Upgrade note
 
-- A deployment that has no Superset must set `SUPERSET_ERASURE_ENABLED=false` when upgrading. At its default
-  (`true`) the worker expects Superset, user erases answer `unverified` and tenant purge jobs fail.
+- **Existing deployments that run Superset must set `SUPERSET_DEPLOYMENT=on`** on `ow-backend` and `ow-worker`.
+  `docker-compose.prod.yml` now defaults it to `on` for both; with `docker-compose.yml` and the `reporting`
+  profile, set it in `.env`. Left at `off`, the worker's self-check still notices a Superset that reports
+  Stage 2 on (a `mismatch` alert) and erasure still runs in full, but a Stage 1 install would flush nothing.
+- `SUPERSET_ERASURE_ENABLED` is removed from the settings: it is ignored, and the API and worker log a startup
+  warning if it is still set. Remove it. Installs without Superset need nothing: `off` is the default.
+- An `SUPERSET_OAUTH_CLIENT_ID` set while `SUPERSET_DEPLOYMENT` is `off` logs a startup warning. The id no
+  longer decides whether erasure is enabled; with the deployment `on` it only tells Stage 2 from Stage 1.
 
 ### Changed
 
-- Erasure fails closed when Superset's Stage 2 state cannot be confirmed. A user erase with the local mode
-  "cache-only" and no fresh self-check answers `unverified` (200, admin-ui warning) instead of "Superset
-  holds no account"; the tenant purge job fails and retries instead of completing. When Superset reports
-  Stage 2 on, user erase and tenant purge erase in Superset even if this service's
-  `SUPERSET_OAUTH_CLIENT_ID` is unset. A deployment without Superset should set
-  `SUPERSET_ERASURE_ENABLED=false` (self-check `skipped`, erase answers `disabled`).
+- Erasure fails closed when Superset's Stage 2 state cannot be confirmed (deployment `on` only). A user erase
+  with the local mode "cache-only" and no fresh self-check answers `unverified` (200, admin-ui warning)
+  instead of "Superset holds no account"; the tenant purge job fails and retries instead of completing. When
+  Superset reports Stage 2 on, user erase, tenant purge and the cache flush run in full even if this service
+  has the flag `off` or no `SUPERSET_OAUTH_CLIENT_ID`.
+- The Superset cache flush with the flag `off` is logged at info instead of warn.
 
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 

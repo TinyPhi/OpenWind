@@ -429,7 +429,7 @@ export const supersetErasureTotal = meter.createCounter(
 // #1137: the worker's Superset erasure self-check (apps/worker/src/superset-erasure-selfcheck.ts), one
 // count per run. "mismatch": Superset and this platform disagree on whether Stage 2 is on;
 // "smoke_failed": the status route or the no-op smoke erase failed; "unreachable": Superset could not
-// be asked; "skipped": unreachable and SUPERSET_ERASURE_ENABLED=false, so nothing is expected.
+// be asked; "skipped": SUPERSET_DEPLOYMENT=off and Superset not reporting Stage 2 on, so nothing is expected.
 export const supersetErasureSelfcheckTotal = meter.createCounter(
   "openwind_superset_erasure_selfcheck_total",
   { description: "Superset erasure self-check runs by outcome" },

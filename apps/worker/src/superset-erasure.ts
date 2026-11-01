@@ -265,13 +265,6 @@ export async function processSupersetErasure(job: {
   }
 }
 
-if (supersetErasureMode(env) === "full" && !env.SUPERSET_ERASURE_ENABLED) {
-  // Stage 2 on means Superset holds user accounts, so the setting cannot turn the erasure off.
-  logger.warn(
-    "SUPERSET_ERASURE_ENABLED is false but Superset Stage 2 is on; Superset erasure stays on",
-  );
-}
-
 // A counter only appears in Prometheus once it has a value, and increase() of a series that starts at
 // 1 is 0, so the first failure of a process would never raise SupersetErasureFailed. Start each at 0.
 supersetErasureTotal.add(0, { outcome: "completed" });
@@ -356,7 +349,7 @@ export function supersetErasureJobId(
  * id is removed first; one still queued or running is left to finish.
  *
  * `force` is for a caller that has already learned from Superset itself that Stage 2 is on while
- * this process's own SUPERSET_OAUTH_CLIENT_ID says otherwise (#1137): the local setting must not
+ * this process's own SUPERSET_DEPLOYMENT / SUPERSET_OAUTH_CLIENT_ID say otherwise (#1137): the local setting must not
  * veto an erasure Superset needs.
  */
 export async function enqueueSupersetErasure(

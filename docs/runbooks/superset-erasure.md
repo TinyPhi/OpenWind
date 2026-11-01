@@ -15,13 +15,21 @@ and an active account. The platform cannot reach it, so Superset erases its own 
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | An admin erases a user (`DELETE /users/:id`)  | A `superset-erasure` job erases that user's Superset data, and the result cache is flushed. Only for a member of the admin's own tenant; for anyone else only the cache is flushed.                         |
 | A tenant is purged (after its deletion delay) | A `superset-erasure` job erases every Superset user of that tenant, and the result cache is flushed.                                                                                                        |
-| Superset Stage 2 is off                       | Only the result cache is flushed. Guests are not stored as Superset users, so there is nothing else to erase. Only when Superset has confirmed Stage 2 is off; otherwise the erase is `unverified` (below). |
+| `SUPERSET_DEPLOYMENT=off` (the default)       | Nothing: no Superset is expected (the user erase answers `disabled`, the tenant purge does not wait on Superset). Unless Superset itself reports Stage 2 on, which overrides it (below).                    |
+| Deployment on, Superset Stage 2 off           | Only the result cache is flushed. Guests are not stored as Superset users, so there is nothing else to erase. Only when Superset has confirmed Stage 2 is off; otherwise the erase is `unverified` (below). |
 
-Stage 2 is on when `SUPERSET_OAUTH_CLIENT_ID` is set in Superset. The API and worker use their own copy, now
-checked against Superset's (see "Enablement self-check"). With Stage 2 on, `SUPERSET_ERASURE_ENABLED=false`
-cannot turn the erasure off (the worker logs a warning). With Stage 2 off it decides whether the cache
-flush runs at all: set to `false`, an erasure or purge flushes nothing and logs a warning ("Superset
-erasure is turned off").
+**`SUPERSET_DEPLOYMENT`** (`off` default, or `on`) says whether this install runs Superset at all. Set it to
+`on` on the API (`ow-backend`) and the worker (`ow-worker`) of every deployment that runs Superset: the
+production compose file defaults it to `on` (the superset services are part of that stack), the dev
+compose file defaults it to `off` and you set it in `.env` together with `--profile reporting`. With `off`
+no other Superset variable is needed, nothing alerts, and no job fails. It replaces
+`SUPERSET_ERASURE_ENABLED`, which is now ignored (the API and worker log a startup warning if it is
+still set).
+
+Stage 2 is on when `SUPERSET_OAUTH_CLIENT_ID` is set in Superset. With the deployment `on`, the API and
+worker use their own copy of the id to tell Stage 2 (erase accounts) from Stage 1 (flush the cache), and
+it is checked against Superset's (see "Enablement self-check"). The id is OAuth wiring: it no longer
+decides whether erasure is enabled. An id set while the deployment is `off` logs a startup warning.
 
 The job logs in to Superset as the service account, calls the endpoint until it reports it has
 finished, and writes one audit row. If a call fails it retries: after 1, 2, 4, 8, 16 and 32 minutes,
@@ -99,45 +107,61 @@ incident and follow the [breach notification runbook](breach-notification.md).
 ## Enablement self-check
 
 Superset decides whether Stage 2 is on from its own `SUPERSET_OAUTH_CLIENT_ID`; the API and the worker
-decide from theirs (#1137). Every 15 minutes (and at worker startup) the worker asks Superset
-(`GET /openwind/erasure/status`), compares the answer with its own setting, and runs a no-op erase for a
-synthetic tenant that matches nobody, which proves the erase route, CSRF, role and database access work.
-It writes no audit row and touches no tenant data. The result is kept in Redis for 30 minutes, and the
-API and the tenant purge act on it.
+decide from `SUPERSET_DEPLOYMENT` and theirs (#1137). A BullMQ repeatable job (queue
+`superset-erasure-selfcheck`, fixed job id, so one run per interval however many worker replicas there
+are, plus one at worker startup) asks Superset (`GET /openwind/erasure/status`), compares the answer with
+the local setting, and runs a no-op erase for a synthetic tenant that matches nobody, which proves the
+erase route, CSRF, role and database access work. It writes no audit row and touches no tenant data. The
+result is kept in Redis, and the API and the tenant purge act on it.
 
-| `openwind_superset_erasure_selfcheck_total{outcome}` | Meaning                                                                                     | What to do                                                                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `ok`                                                 | Superset and the worker agree, and the smoke erase worked.                                  | Nothing.                                                                                                    |
-| `mismatch`                                           | They disagree on Stage 2 (the worker log says which way).                                   | Store `SUPERSET_OAUTH_CLIENT_ID` at every path in "Production setup" (or remove it from all), then restart. |
-| `smoke_failed`                                       | The status route or the smoke erase failed (404: old Superset image; 403: role; 400: CSRF). | Same causes as the table under "When it did not finish".                                                    |
-| `unreachable`                                        | No session could be opened: Superset is down, or the service account password is wrong.     | Start Superset, or fix `SUPERSET_SERVICE_ACCOUNT_PASSWORD` at the worker.                                   |
-| `skipped`                                            | Superset is unreachable and `SUPERSET_ERASURE_ENABLED=false`: nothing is expected.          | Nothing. This is the setting for a deployment with no Superset.                                             |
+Settings: `SUPERSET_SELFCHECK_INTERVAL_MINUTES` (default 15) and `SUPERSET_SELFCHECK_TTL_MINUTES`
+(default 30, at least twice the interval). Changing the interval takes effect at the next worker start,
+which removes the old repeat schedule.
+
+| `openwind_superset_erasure_selfcheck_total{outcome}` | Meaning                                                                                            | What to do                                                                                                                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`                                                 | Superset and the worker agree, and the smoke erase worked.                                         | Nothing.                                                                                                                                           |
+| `mismatch`                                           | They disagree on Stage 2 (the worker log says which way).                                          | Set `SUPERSET_DEPLOYMENT=on` and store `SUPERSET_OAUTH_CLIENT_ID` at every path in "Production setup" (or remove the id everywhere), then restart. |
+| `smoke_failed`                                       | The status route or the smoke erase failed (404: old Superset image; 403: role; 400: CSRF).        | Same causes as the table under "When it did not finish".                                                                                           |
+| `unreachable`                                        | No session could be opened: Superset is down, or the service account password is wrong.            | Start Superset, or fix `SUPERSET_SERVICE_ACCOUNT_PASSWORD` at the worker.                                                                          |
+| `skipped`                                            | `SUPERSET_DEPLOYMENT=off` and Superset is unreachable or reports Stage 2 off: nothing is expected. | Nothing. This is the state of a deployment with no Superset.                                                                                       |
 
 Alerts: `SupersetErasureConfigMismatch` fires when the gauge `openwind_superset_erasure_config_mismatch`
 has been 1 for 10 minutes. `SupersetErasureSelfcheckFailing` fires when checks ran for an hour and none
-was `ok`.
+was `ok`. With `SUPERSET_DEPLOYMENT=off` neither alert can fire unless Superset itself reports Stage 2 on
+(then the first does).
 
 **What an erase says while this is not `ok`.**
 
-- Superset reports Stage 2 on, but this service's id is unset: the erase runs in full anyway (the job is
-  queued, or the tenant purge queues it) and an error is logged. The mismatch alert tells you to fix the
-  setting.
-- This service says Stage 2 is off and Superset has not confirmed that (no result in the last 30 minutes,
-  or Superset unreachable): the user erase answers `superset.status: "unverified"` with HTTP 200, and the
+- Superset reports Stage 2 on, but this service has `SUPERSET_DEPLOYMENT=off` or no id: the erase runs in
+  full anyway (the job is queued, or the tenant purge queues it), the cache flush runs, and an error is
+  logged. The mismatch alert tells you to fix the setting.
+- The deployment is `on`, this service says Stage 2 is off and Superset has not confirmed that (no fresh
+  result, or Superset unreachable): the user erase answers `superset.status: "unverified"` with HTTP 200, and the
   Users page shows a warning, not a success. The platform data is erased, but it is **not known** whether
   Superset holds an account. The API counts it as `openwind_superset_erasure_total{outcome="unverified"}`
-  (alert `SupersetErasureFailed`). Once the self-check is `ok`, check Superset for the person (step 3
-  under "When it did not finish") and run the erase by hand if an account is there. Nothing queues it
-  again, because the person is no longer a member.
+  (alert `SupersetErasureFailed`). The API also writes a `superset_erasure.failed` audit row on the user
+  (as the system, `metadata`: `kind: "user"`, `status: "unverified"`, `userId`), which is what the
+  reconciler (#1138, not built yet) will use to retry once the check is green. Until it exists: once the
+  self-check is `ok`, check Superset for the person (step 3 under "When it did not finish") and run the
+  erase by hand if an account is there. Nothing queues it again, because the person is no longer a member.
+  Search the audit log for `superset_erasure.failed` rows with status `unverified` to find them.
 - A tenant purge in the same state fails with "the Superset erasure could not be verified" and retries
   (3 attempts). The database purge has already committed, so a retry only repeats the cleanup outside the
   database. Once the self-check is `ok`, add the purge job again (the "already purged" path queues the
   Superset erasure).
-- A deployment with no Superset: set `SUPERSET_ERASURE_ENABLED=false`. Left at its default (`true`), the
-  worker expects Superset, reports `unreachable`, user erases answer `unverified` and tenant purges fail.
+- With `SUPERSET_DEPLOYMENT=off` the safety net only works while the worker can ask Superset: it needs
+  `SUPERSET_SERVICE_ACCOUNT_PASSWORD` and a reachable `SUPERSET_INTERNAL_URL`. An install that runs Superset
+  with Stage 2 on but has neither the flag nor the password never learns that Superset holds accounts (the
+  check says `skipped`), so set `SUPERSET_DEPLOYMENT=on` there. If Superset last reported Stage 2 on and
+  then cannot be asked, the check keeps that answer (as `unreachable`) instead of falling back to `skipped`.
+  The result in Redis is trusted like the queue itself: anyone who can write that Redis can forge it.
+- A deployment with no Superset: leave `SUPERSET_DEPLOYMENT` at `off` (the default); nothing else is
+  needed. If it is `on` with no Superset, the worker reports `unreachable`, user erases answer
+  `unverified` and tenant purges fail, on purpose.
 
 To see the last result without logs: the Redis key `ops:superset-erasure:selfcheck` (JSON, no personal
-data). It has no value when the worker has not checked for 30 minutes.
+data). It has no value when the worker has not checked within `SUPERSET_SELFCHECK_TTL_MINUTES`.
 
 ## When the sign-in was not removed
 
@@ -149,9 +173,11 @@ retried. The API log line is "GDPR erasure: data erased but the Zitadel sign-in 
 
 ## Production setup
 
-Stage 2 is on in Superset when it has `SUPERSET_OAUTH_CLIENT_ID`. The API and the worker decide
-for themselves, from their own environment, whether Stage 2 is on. Each service reads its own OpenBao
-path, so enabling Stage 2 is one checklist across four services:
+Stage 2 is on in Superset when it has `SUPERSET_OAUTH_CLIENT_ID`. `SUPERSET_DEPLOYMENT` is a plain
+setting, not a secret: `docker-compose.prod.yml` sets it to `on` for `ow-backend` and `ow-worker`
+(override it in `.env` only for an install without Superset). With the deployment `on`, the API and the
+worker decide for themselves, from their own environment, whether Stage 2 is on. Each service reads its own
+OpenBao path, so enabling Stage 2 is one checklist across four services:
 
 | Service         | OpenBao path                   | Store when Stage 2 is enabled                              |
 | --------------- | ------------------------------ | ---------------------------------------------------------- |
@@ -175,7 +201,13 @@ self-check" below. If Superset has the client id but `ow-backend` or `ow-worker`
 self-check reports a mismatch and the API and the tenant purge erase in Superset anyway (they follow
 what Superset reports), but fix the missing key: the alert stays on until you do.
 
-**Upgrading an existing deployment.** Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to
+**Upgrading an existing deployment (#1137).** Existing deployments that run Superset must have
+`SUPERSET_DEPLOYMENT=on` on `ow-backend` and `ow-worker` (the production compose file does this by default;
+for the dev compose file set it in `.env`). Anything that set `SUPERSET_ERASURE_ENABLED` can drop it. Left
+unset on a dev-compose install with Superset, the flag is `off`, and the worker's self-check then reports
+`mismatch` if Superset has Stage 2 on (the safety net still erases in full).
+
+Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to
 `openwind/<env>/worker` **before** you deploy this compose file. `ow-worker` now requires it and
 exits 78 at startup if it is missing or empty, and the worker also runs the outbox, SLA, notification
 and schedule jobs, so a missing key stops all of them. It is required even when reporting is off.

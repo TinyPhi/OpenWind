@@ -1,3 +1,4 @@
+import { env } from "@platform/config";
 import type { SupersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
 import { getRedis } from "./index.js";
@@ -5,11 +6,17 @@ import { getRedis } from "./index.js";
 /**
  * The worker's last Superset erasure self-check (#1137), kept in Redis so the API and the tenant
  * purge can act on what Superset itself reports instead of on their own copy of
- * SUPERSET_OAUTH_CLIENT_ID. Written by apps/worker/src/superset-erasure-selfcheck.ts every 15
- * minutes; it expires after 30, so a worker that stops checking leaves the answer "unverified".
+ * SUPERSET_OAUTH_CLIENT_ID. Written by the worker's repeatable self-check job
+ * (apps/worker/src/superset-erasure-selfcheck.ts) every SUPERSET_SELFCHECK_INTERVAL_MINUTES (15); it
+ * expires after SUPERSET_SELFCHECK_TTL_MINUTES (30), so a worker that stops checking leaves the answer
+ * "unverified".
  */
 export const SUPERSET_SELFCHECK_KEY = "ops:superset-erasure:selfcheck";
-export const SUPERSET_SELFCHECK_TTL_SECONDS = 30 * 60;
+
+/** How long a stored result stays fresh (SUPERSET_SELFCHECK_TTL_MINUTES). */
+export function supersetSelfcheckTtlSeconds(): number {
+  return env.SUPERSET_SELFCHECK_TTL_MINUTES * 60;
+}
 
 export const SUPERSET_SELFCHECK_OUTCOMES = [
   "ok",
@@ -27,7 +34,7 @@ export interface SupersetSelfcheckResult {
   outcome: SupersetSelfcheckOutcome;
   /** What Superset reported; null when it could not be asked. */
   stage2: boolean | null;
-  /** Superset's report and this service's SUPERSET_OAUTH_CLIENT_ID disagree. */
+  /** Superset's report and this service's own setting (SUPERSET_DEPLOYMENT, SUPERSET_OAUTH_CLIENT_ID) disagree. */
   mismatch: boolean;
 }
 
@@ -38,7 +45,7 @@ export async function writeSupersetSelfcheck(
     SUPERSET_SELFCHECK_KEY,
     JSON.stringify(result),
     "EX",
-    SUPERSET_SELFCHECK_TTL_SECONDS,
+    supersetSelfcheckTtlSeconds(),
   );
 }
 
@@ -87,8 +94,8 @@ export interface ResolvedSupersetErasureMode {
   /** What to do. "full" also when Superset reports Stage 2 on and this service's env says not. */
   mode: SupersetErasureMode;
   /**
-   * False when this service's own setting is "cache-only" and there is no fresh answer from
-   * Superset that Stage 2 is off: a flushed cache is then not known to be all that is needed.
+   * False when this service's own setting is "cache-only" (deployment on, no Stage 2) and there is no
+   * fresh answer from Superset that Stage 2 is off: a flushed cache is then not known to be enough.
    */
   verified: boolean;
   /** Superset reports Stage 2 on while this service's setting does not say "full". */
@@ -99,7 +106,8 @@ export interface ResolvedSupersetErasureMode {
  * Combines this service's own mode with the last self-check, failing closed (#1137):
  * - Superset reports Stage 2 on: "full", whatever the local env says.
  * - Local "full": "full"; the job is durable and retries until Superset answers.
- * - Local "off": an operator's explicit choice, kept ("disabled" is not shown as success).
+ * - Local "off" (SUPERSET_DEPLOYMENT=off): no Superset expected, kept ("disabled" is not shown as
+ *   success). A fresh report of Stage 2 on is the only thing that overrides it.
  * - Local "cache-only": verified only by a fresh answer that Stage 2 is off.
  */
 export function resolveSupersetErasureMode(
@@ -109,7 +117,7 @@ export function resolveSupersetErasureMode(
 ): ResolvedSupersetErasureMode {
   const fresh =
     check !== null &&
-    now - check.checkedAt <= SUPERSET_SELFCHECK_TTL_SECONDS * 1000 &&
+    now - check.checkedAt <= supersetSelfcheckTtlSeconds() * 1000 &&
     check.checkedAt <= now + 60_000
       ? check
       : null;

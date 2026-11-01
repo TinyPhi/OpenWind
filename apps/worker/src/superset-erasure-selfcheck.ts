@@ -3,12 +3,17 @@
  *
  * Stops Superset erasure degrading to "cache only" without anyone knowing (#1137, #728). Superset
  * decides whether Stage 2 (per-user accounts) is on from its own SUPERSET_OAUTH_CLIENT_ID; the API
- * and the worker decide separately from theirs, and nothing compared the three. Every 15 minutes
- * (and at startup) this asks Superset what it thinks, compares that with supersetErasureMode(), runs
- * a no-op erase for a tenant that cannot exist (proving the route, CSRF, role, DB access and schema
- * work), and keeps the answer in Redis for 30 minutes. The API and the tenant purge read it:
- * Superset saying Stage 2 is on makes them erase fully whatever their own env says, and no fresh
- * answer leaves a "cache-only" service unable to claim Superset holds nothing ("unverified").
+ * and the worker decide separately from SUPERSET_DEPLOYMENT and theirs, and nothing compared the
+ * three. A BullMQ repeatable job (one run per SUPERSET_SELFCHECK_INTERVAL_MINUTES, whatever the
+ * number of worker replicas) asks Superset what it thinks, compares that with supersetErasureMode(),
+ * runs a no-op erase for a tenant that cannot exist (proving the route, CSRF, role, DB access and
+ * schema work), and keeps the answer in Redis for SUPERSET_SELFCHECK_TTL_MINUTES. The API and the
+ * tenant purge read it: Superset saying Stage 2 is on makes them erase fully whatever their own env
+ * says, and no fresh answer leaves a "cache-only" service unable to claim Superset holds nothing
+ * ("unverified").
+ *
+ * With SUPERSET_DEPLOYMENT=off no Superset is expected: the check records "skipped" and raises
+ * nothing, unless Superset answers and reports Stage 2 on (the safety net: "mismatch").
  *
  * It writes no audit row and no database row, and touches no tenant data: the synthetic tenant holds
  * no accounts, so the erase matches nobody.
@@ -18,12 +23,15 @@ import { z } from "zod";
 import { env, supersetErasureMode } from "@platform/config";
 import type { SupersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
+import { Queue, Worker } from "@platform/telemetry";
 import { supersetErasureSelfcheckTotal } from "@platform/telemetry";
 import {
+  readSupersetSelfcheck,
   writeSupersetSelfcheck,
   type SupersetSelfcheckOutcome,
   type SupersetSelfcheckResult,
 } from "@platform/redis";
+import { connection } from "./queues.js";
 import {
   eraseOnce,
   openSession,
@@ -31,7 +39,9 @@ import {
   type SupersetSession,
 } from "./superset-erasure.js";
 
-export const SUPERSET_SELFCHECK_INTERVAL_MS = 15 * 60 * 1000;
+export const SELFCHECK_QUEUE_NAME = "superset-erasure-selfcheck";
+export const SELFCHECK_REPEAT_JOB_ID = "superset-erasure-selfcheck-recurring";
+export const SELFCHECK_START_JOB_ID = "superset-erasure-selfcheck-on-start";
 const STATUS_TIMEOUT_MS = 15_000;
 
 /** A v4-shaped uuid no tenant can have: the erase finds no role for it. */
@@ -65,8 +75,8 @@ export function compareEnablement(
   return {
     mismatch: true,
     reason: status.stage2
-      ? `Superset has Stage 2 on but this service's mode is "${local}" (SUPERSET_OAUTH_CLIENT_ID is not set here)`
-      : `this service has SUPERSET_OAUTH_CLIENT_ID set but Superset has Stage 2 off`,
+      ? `Superset has Stage 2 on but this service's mode is "${local}" (SUPERSET_DEPLOYMENT=on and SUPERSET_OAUTH_CLIENT_ID must both be set here)`
+      : `this service has SUPERSET_DEPLOYMENT=on and SUPERSET_OAUTH_CLIENT_ID set but Superset has Stage 2 off`,
   };
 }
 
@@ -124,6 +134,23 @@ export async function runSupersetSelfcheck(
     return result;
   };
 
+  // With the flag off a failure to ask is "skipped", but it must not erase an earlier report that
+  // Superset has Stage 2 on: that report is what keeps erasure running while the flag is wrong. Keep
+  // it alive as "unreachable" (stage2 still true) for as long as Superset cannot be asked.
+  const skippedUnlessKnownOn = async (): Promise<SupersetSelfcheckResult> => {
+    const previous = await readSupersetSelfcheck();
+    if (previous?.stage2 === true) {
+      logger.error(
+        {},
+        "superset self-check: Superset could not be asked, and it last reported Stage 2 on; keeping that (SUPERSET_DEPLOYMENT is off here, docs/runbooks/superset-erasure.md)",
+      );
+      return finish("unreachable", true, true);
+    }
+    return finish("skipped", null, false);
+  };
+
+  // Off: nothing is expected. Any failure to ask is "skipped"; only Superset itself saying Stage 2 is
+  // on matters (the safety net).
   let session: SupersetSession;
   try {
     session = await openSession();
@@ -131,9 +158,9 @@ export async function runSupersetSelfcheck(
     if (local === "off") {
       logger.info(
         { err: String(err) },
-        "superset self-check skipped: Superset is not reachable and its erasure is turned off",
+        "superset self-check skipped: SUPERSET_DEPLOYMENT is off and Superset is not reachable",
       );
-      return finish("skipped", null, false);
+      return skippedUnlessKnownOn();
     }
     logger.error(
       { err: String(err), mode: local },
@@ -146,11 +173,26 @@ export async function runSupersetSelfcheck(
   try {
     status = await fetchStatus(session);
   } catch (err) {
+    if (local === "off") {
+      logger.info(
+        { err: String(err) },
+        "superset self-check skipped: SUPERSET_DEPLOYMENT is off and Superset's status could not be read",
+      );
+      return skippedUnlessKnownOn();
+    }
     logger.error(
       { err: String(err) },
       "superset self-check: the status route failed; is the Superset image current? (docs/runbooks/superset-erasure.md)",
     );
     return finish("smoke_failed", null, false);
+  }
+
+  if (local === "off" && !status.stage2) {
+    logger.info(
+      {},
+      "superset self-check skipped: SUPERSET_DEPLOYMENT is off and Superset has Stage 2 off",
+    );
+    return finish("skipped", false, false);
   }
 
   const comparison = compareEnablement(status, local);
@@ -160,6 +202,8 @@ export async function runSupersetSelfcheck(
       `superset self-check: Superset and this platform disagree on Stage 2: ${comparison.reason}`,
     );
   }
+
+  if (local === "off") return finish("mismatch", status.stage2, true);
 
   try {
     if (!status.erasure)
@@ -181,24 +225,8 @@ export async function runSupersetSelfcheck(
   return finish("ok", status.stage2, false);
 }
 
-let timer: ReturnType<typeof setInterval> | null = null;
-let running = false;
-
-async function tick(): Promise<void> {
-  if (running) return;
-  running = true;
-  try {
-    await runSupersetSelfcheck();
-  } catch (err) {
-    logger.error({ err: String(err) }, "superset self-check crashed");
-  } finally {
-    running = false;
-  }
-}
-
-/** Runs at once, then every 15 minutes. Several workers may each run it; the runs are harmless. */
-export function startSupersetErasureSelfcheck(): void {
-  if (timer) return;
+/** Counters start at 0 so the first outcome of a process still moves increase() in the alert rules. */
+function seedMetrics(): void {
   for (const outcome of [
     "ok",
     "mismatch",
@@ -208,12 +236,64 @@ export function startSupersetErasureSelfcheck(): void {
   ] as const) {
     supersetErasureSelfcheckTotal.add(0, { outcome });
   }
-  void tick();
-  timer = setInterval(() => void tick(), SUPERSET_SELFCHECK_INTERVAL_MS);
-  timer.unref();
+}
+seedMetrics();
+
+export const supersetErasureSelfcheckWorker = new Worker(
+  SELFCHECK_QUEUE_NAME,
+  async () => {
+    await runSupersetSelfcheck();
+  },
+  { connection },
+);
+
+supersetErasureSelfcheckWorker.on("failed", (_job, err) => {
+  logger.error({ err: String(err) }, "superset self-check: worker job failed");
+});
+
+/**
+ * Registers the repeatable job (fixed job id, so the key is the same on every worker replica and
+ * on every restart: one run per interval in total) plus one run at startup. A changed interval gets
+ * a different repeat key, so earlier registrations are removed first or both would keep firing.
+ * Idempotent.
+ */
+export async function scheduleSupersetErasureSelfcheck(): Promise<void> {
+  const everyMs = env.SUPERSET_SELFCHECK_INTERVAL_MINUTES * 60_000;
+  const queue = new Queue(SELFCHECK_QUEUE_NAME, { connection });
+  try {
+    for (const job of await queue.getRepeatableJobs()) {
+      if (job.name === "check" && job.every !== String(everyMs)) {
+        await queue.removeRepeatableByKey(job.key);
+      }
+    }
+    await queue.add(
+      "check",
+      {},
+      {
+        repeat: { every: everyMs },
+        jobId: SELFCHECK_REPEAT_JOB_ID,
+        removeOnComplete: true,
+        removeOnFail: 50,
+      },
+    );
+    await queue.add(
+      "check-on-start",
+      {},
+      {
+        jobId: SELFCHECK_START_JOB_ID,
+        removeOnComplete: true,
+        removeOnFail: 50,
+      },
+    );
+  } finally {
+    await queue.close();
+  }
+  logger.info(
+    { everyMinutes: env.SUPERSET_SELFCHECK_INTERVAL_MINUTES },
+    "superset self-check: scheduled (repeatable job and once at start)",
+  );
 }
 
-export function stopSupersetErasureSelfcheck(): void {
-  if (timer) clearInterval(timer);
-  timer = null;
+export async function stopSupersetErasureSelfcheck(): Promise<void> {
+  await supersetErasureSelfcheckWorker.close();
 }
