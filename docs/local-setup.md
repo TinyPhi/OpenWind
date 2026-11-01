@@ -19,6 +19,7 @@ repo's compose file (there isn't one).
 
 - [Local development](#local-development)
   - [Running DB-backed tests locally](#running-db-backed-tests-locally)
+- [Adding users](#adding-users)
 - [Production deployment (HTTPS)](#production-deployment-https)
   - [Production hardening checklist](deployment-hardening.md)
 - [What setup does — step by step](#what-setup-does--step-by-step)
@@ -207,6 +208,35 @@ docker exec ow-database psql -U platform -d platform -Atc \
   "select 'DROP DATABASE \"'||datname||'\";' from pg_database where datname like 'platform_test_%'" \
   | docker exec -i ow-database psql -U platform -d platform
 ```
+
+---
+
+## Adding users
+
+OpenWind does not currently create users from its admin UI. An organisation administrator creates
+each user in the Zitadel console first; after the user can sign in, OpenWind reads their identity
+and access from Zitadel.
+
+1. Sign in to the Zitadel console as an organisation administrator.
+2. Switch to the organisation that matches the OpenWind tenant or sandbox the user should join.
+   Creating the user in the wrong organisation will not give them access to the intended tenant.
+3. Open **Users**, choose **New**, and enter the user's first name, last name, and email address.
+4. Choose the email-verification behavior:
+   - Select **Email verified** (sometimes shown as **Already verified**) when the address is already
+     trusted and the user should not complete email or OTP verification on first sign-in.
+   - Leave it unselected when Zitadel should send the user a verification code.
+5. Save the user, then configure the sign-in method required by your organisation's policy. This
+   might be an initial password, an invitation, or a password-reset link sent by Zitadel.
+6. If the deployment requires explicit application access, give the user the appropriate OpenWind
+   project grant or role.
+7. Send the user the organisation's OpenWind login link. After their first successful sign-in,
+   they appear in OpenWind with the access supplied by Zitadel.
+
+The console URL, project name, roles, and sign-in policy depend on the deployment. Do not copy
+credentials or environment-specific values from another environment when following this procedure.
+
+Creating users directly from the OpenWind admin UI would require a separate integration with the
+Zitadel management API and is not part of the current workflow.
 
 ---
 

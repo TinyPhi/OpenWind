@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Stopped Sentry adding `sentry-trace` and `baggage` headers (which carry the DSN public key) to
   outbound HTTP calls to connectors, webhooks and partners (`tracePropagationTargets: []`).
 
+## [Unreleased — access-log retention role (#1131)]
+
+### Fixed
+
+- The daily access-log retention job could not delete from `admin_audit_log` under the default
+  stack (the worker runs as `app_user`, which is append-only there). Added a narrow
+  `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
+  new privileges.
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added
