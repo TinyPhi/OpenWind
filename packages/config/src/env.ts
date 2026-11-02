@@ -192,6 +192,14 @@ const EnvSchema = z
       .positive()
       .default(60),
     SCHEDULE_CATCH_UP_MAX: z.coerce.number().int().min(1).max(100).default(24),
+    // docs/specs/oncall-team-rotation.md R6 -- how often the recurring-roster worker polls for
+    // rotations whose next window is due; a window is created at most one interval late, and
+    // the 2-day notice lead leaves ample room for that lag.
+    ONCALL_ROTATION_TICK_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(300),
     // ADR-012 Phase G, ADR-013 — two more tiers on top of the tenant one
     // above, specific to third-party API-key traffic: aggregate per-key
     // (this key's total request volume, regardless of which acting person)

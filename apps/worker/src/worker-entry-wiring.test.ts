@@ -51,4 +51,13 @@ describe("worker entry point wiring", () => {
       "import these from apps/worker/src/index.ts (and close them in shutdown())",
     ).toEqual([]);
   });
+
+  // The on-call rotation worker is a poller, not a BullMQ Worker, so the check above cannot see it:
+  // it only runs if the entry point starts it, and a clean shutdown needs it stopped.
+  it("starts and stops the on-call rotation worker", () => {
+    const index = readFileSync(join(SRC_DIR, "index.ts"), "utf8");
+    expect(index).toContain('from "./oncall-rotation-worker.js"');
+    expect(index).toMatch(/^startOncallRotationWorker\(\);$/m);
+    expect(index).toContain("stopOncallRotationWorker(),");
+  });
 });
