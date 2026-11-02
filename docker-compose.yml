@@ -423,6 +423,10 @@ services:
       SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
       SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
       SUPERSET_SERVICE_ACCOUNT_PASSWORD: ${SUPERSET_SERVICE_ACCOUNT_PASSWORD:-}
+      # Whether this install runs Superset (the `reporting` profile). Off: no Superset is expected and
+      # no other Superset variable has to be set. Set SUPERSET_DEPLOYMENT=on in .env together with
+      # `--profile reporting`; on both ow-backend and ow-worker (#1137, docs/runbooks/superset-erasure.md).
+      SUPERSET_DEPLOYMENT: ${SUPERSET_DEPLOYMENT:-off}
       # Local-disk file storage (see docs/specs/local-disk-file-storage.md) —
       # in-container path only; the host-side bind-mount source is
       # FILES_STORAGE_PATH_HOST below, set from .env.
@@ -497,6 +501,8 @@ services:
       SUPERSET_INTERNAL_URL: ${SUPERSET_INTERNAL_URL:-http://superset:8088}
       SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
       SUPERSET_SERVICE_ACCOUNT_PASSWORD: ${SUPERSET_SERVICE_ACCOUNT_PASSWORD:-}
+      # As on ow-backend: set SUPERSET_DEPLOYMENT=on in .env when Superset runs (#1137).
+      SUPERSET_DEPLOYMENT: ${SUPERSET_DEPLOYMENT:-off}
       REDIS_CACHE_URL: redis://redis-cache:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect

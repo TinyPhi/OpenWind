@@ -78,7 +78,7 @@ tests:
               outcome: failed
             exp_annotations:
               summary: "A Superset erasure did not complete (failed)"
-              description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+              description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
 
   - name: an erasure that could not be queued raises SupersetErasureFailed
     interval: 1m
@@ -98,7 +98,103 @@ tests:
               outcome: not_queued
             exp_annotations:
               summary: "A Superset erasure did not complete (not_queued)"
-              description: "1 Superset erasure(s) with outcome not_queued in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+              description: "1 Superset erasure(s) with outcome not_queued in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+
+  - name: an unverified erasure raises SupersetErasureFailed (#1137)
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_total{outcome="unverified"}'
+        values: "0x10 1x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SupersetErasureFailed
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SupersetErasureFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              outcome: unverified
+            exp_annotations:
+              summary: "A Superset erasure did not complete (unverified)"
+              description: "1 Superset erasure(s) with outcome unverified in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+
+  - name: a config mismatch held for 10 minutes raises SupersetErasureConfigMismatch (#1137)
+    interval: 1m
+    input_series:
+      # The API and the worker both report the same value.
+      - series: 'openwind_superset_erasure_config_mismatch{instance="api"}'
+        values: "0x5 1x30"
+      - series: 'openwind_superset_erasure_config_mismatch{instance="worker"}'
+        values: "0x5 1x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SupersetErasureConfigMismatch
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SupersetErasureConfigMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+            exp_annotations:
+              summary: "Superset and the platform disagree on whether Stage 2 is on"
+              description: "The Superset erasure self-check found Superset and the API or worker disagreeing on whether Stage 2 is on for over 10 minutes. Set SUPERSET_DEPLOYMENT=on and SUPERSET_OAUTH_CLIENT_ID on backend and worker (and the id on superset and superset-init); see docs/runbooks/superset-erasure.md."
+
+  - name: a mismatch that clears within 10 minutes does not alert (#1137)
+    interval: 1m
+    input_series:
+      - series: "openwind_superset_erasure_config_mismatch"
+        values: "0x5 1x5 0x20"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: SupersetErasureConfigMismatch
+        exp_alerts: []
+
+  - name: a self-check that never passes raises SupersetErasureSelfcheckFailing (#1137)
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="ok"}'
+        values: "0x90"
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="unreachable"}'
+        values: "0+1x90"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SupersetErasureSelfcheckFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "No Superset erasure self-check has passed in the last hour"
+              description: "The worker's Superset erasure self-check has not passed for an hour, so erasure cannot be verified. Follow docs/runbooks/superset-erasure.md (a deployment without Superset: leave SUPERSET_DEPLOYMENT=off)."
+
+  - name: a passing self-check keeps SupersetErasureSelfcheckFailing quiet (#1137)
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="ok"}'
+        values: "0+1x90"
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="unreachable"}'
+        values: "0x90"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: SupersetErasureSelfcheckFailing
+        exp_alerts: []
+
+  - name: a deployment without Superset (only skipped checks) never raises SupersetErasureSelfcheckFailing (#1137)
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="ok"}'
+        values: "0x90"
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="unreachable"}'
+        values: "0x90"
+      - series: 'openwind_superset_erasure_selfcheck_total{outcome="skipped"}'
+        values: "0+1x90"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: SupersetErasureSelfcheckFailing
+        exp_alerts: []
 
   - name: successful erasures alone stay quiet
     interval: 1m
@@ -158,7 +254,7 @@ tests:
               outcome: failed
             exp_annotations:
               summary: "A Superset erasure did not complete (failed)"
-              description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+              description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
 
   - name: a slow tick raises ScheduleTickDurationSLOBreach
     interval: 1m

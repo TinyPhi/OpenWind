@@ -14,6 +14,7 @@ export {
   notificationPolicyMatchTotal,
   mentionRecordFailureTotal,
   supersetErasureTotal,
+  supersetErasureSelfcheckTotal,
   retentionDeletedRowsTotal,
   getSerializedMetrics,
 } from "./metrics.js";

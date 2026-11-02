@@ -340,6 +340,22 @@ describe("GET /users", () => {
       expect(mockEnqueueFlush).toHaveBeenCalledTimes(1);
     });
 
+    it("passes an unverified Superset result through on a 200, so the admin sees a warning (#1137)", async () => {
+      const unverified = {
+        status: "unverified",
+        switchIgnored: false,
+        message:
+          "The user's data was erased here, but it could not be confirmed whether Superset holds an account for them. An operator must check Superset (see the Superset erasure runbook).",
+      };
+      mockEnqueueErasure.mockResolvedValueOnce(unverified);
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+      const res = await makeApp().request("/users/some-member", {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, superset: unverified });
+    });
+
     it("audits each API key put on a forced rotation window (#688)", async () => {
       const rotateBy = new Date("2026-10-27T00:00:00.000Z");
       mockEraseUserFromTenant.mockResolvedValueOnce({
