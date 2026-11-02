@@ -3,14 +3,15 @@
  * reset-data.ts
  *
  * Truncates all workflow + entity data for the dev tenant, leaving the
- * tenant row, tenant users, and module registry intact.
+ * tenant row and tenant users intact. The module registry is cleared and re-synced from
+ * packages/db (module-catalog.ts) as migration_user.
  *
  * Run:
  *   pnpm exec dotenv -e .env.local -- tsx scripts/reset-data.ts
  */
 
 import "dotenv/config";
-import { db, withTenantContext } from "@platform/db";
+import { withTenantContext, syncModuleCatalogAsUrl } from "@platform/db";
 import {
   entityInstances,
   entityRelations,
@@ -20,7 +21,6 @@ import {
   workflowTransitions,
   workflowStates,
   workflows,
-  modules,
 } from "@platform/db";
 
 const DEV_TENANT_ID = "00000000-0000-0000-0000-000000000001";
@@ -55,9 +55,17 @@ async function reset(): Promise<void> {
     console.log("  ✓ entity_types cleared");
   });
 
-  // modules table has no RLS (global registry)
-  await db.delete(modules);
+  // modules is a global registry that app_user cannot write (migration 0061). Clear and
+  // re-sync it as migration_user in one go so the API never sees an empty catalog.
+  const migrationUrl = process.env["MIGRATION_DATABASE_URL"];
+  if (!migrationUrl) {
+    throw new Error(
+      "MIGRATION_DATABASE_URL is not set — the module catalog is written as migration_user (see docs/local-setup.md)",
+    );
+  }
+  const synced = await syncModuleCatalogAsUrl(migrationUrl, { reset: true });
   console.log("  ✓ modules cleared");
+  console.log(`  ✓ modules re-synced (${synced})`);
 
   console.log("\n✅  Reset complete — clean slate ready.\n");
   process.exit(0);

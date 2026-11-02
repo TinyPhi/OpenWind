@@ -39,6 +39,33 @@ describe("modules — write restriction (Issue #404)", () => {
     ).rejects.toMatchObject({ cause: { code: "42501" } });
   });
 
+  it("app_user UPDATE of category fails with permission denied (ADR-005 Amendment 1)", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx
+          .update(modules)
+          .set({ category: "core" })
+          .where(eq(modules.slug, "helpdesk"));
+      }),
+    ).rejects.toMatchObject({ cause: { code: "42501" } });
+  });
+
+  it("app_user UPDATE of is_visible is allowed by the column-scoped grant (migration 0159)", async () => {
+    // Rolled back on purpose: the point is that the privilege check passes.
+    class Rollback extends Error {}
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx
+          .update(modules)
+          .set({ isVisible: true, updatedAt: new Date() })
+          .where(eq(modules.slug, "helpdesk"));
+        throw new Rollback("rollback");
+      }),
+    ).rejects.toBeInstanceOf(Rollback);
+  });
+
   it("app_user DELETE fails with permission denied", async () => {
     await expect(
       db.transaction(async (tx) => {
