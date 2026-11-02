@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Button,
-  IconButton,
   Dialog,
   DialogContent,
   DialogClose,
@@ -22,6 +21,13 @@ import {
   TableHead,
   TableCell,
 } from "@platform/ui";
+import {
+  CircleActionButton,
+  EditIcon,
+  PauseIcon,
+  PlayIcon,
+  TrashIcon,
+} from "../../components/action-icons.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { useOutsideClick } from "../../hooks/use-outside-click.js";
@@ -46,6 +52,9 @@ type Frequency = "daily" | "weekly" | "monthly";
 // exhaustive: an existing rule's stored zone that isn't in this list (e.g.
 // set before this picker existed, or a less-common zone) is added as an
 // extra option on the fly so editing never silently changes it.
+// New rules default to India time; an existing rule keeps whatever zone it was saved with.
+const DEFAULT_TIMEZONE = "Asia/Kolkata";
+
 const TIMEZONE_OPTIONS = [
   { value: "UTC", label: "UTC" },
   { value: "Asia/Kolkata", label: "IST — India (Asia/Kolkata)" },
@@ -414,8 +423,8 @@ export function ScheduleRulesPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ScheduleRule | null>(null);
-  const [archiving, setArchiving] = useState<ScheduleRule | null>(null);
   const [deleting, setDeleting] = useState<ScheduleRule | null>(null);
+  const [pausing, setPausing] = useState<ScheduleRule | null>(null);
 
   const refresh = useCallback((): void => {
     setLoading(true);
@@ -444,6 +453,7 @@ export function ScheduleRulesPage(): React.ReactElement {
 
   async function handleTogglePause(rule: ScheduleRule): Promise<void> {
     const nextStatus = rule.status === "paused" ? "active" : "paused";
+    setPausing(null);
     try {
       await fetchWithAuth(`${API_URL}/admin/schedule-rules/${rule.id}`, {
         method: "PATCH",
@@ -464,19 +474,6 @@ export function ScheduleRulesPage(): React.ReactElement {
       refresh();
     } catch {
       showAlert(t("scheduleRules.failedToDelete"));
-    }
-  }
-
-  async function handleArchive(rule: ScheduleRule): Promise<void> {
-    try {
-      await fetchWithAuth(`${API_URL}/admin/schedule-rules/${rule.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "archived" }),
-      });
-      setArchiving(null);
-      refresh();
-    } catch {
-      showAlert(t("scheduleRules.failedToArchive"));
     }
   }
 
@@ -544,35 +541,40 @@ export function ScheduleRulesPage(): React.ReactElement {
                 </TableCell>
                 <TableCell>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <IconButton
-                      aria-label={
+                    <CircleActionButton
+                      size={30}
+                      color={rule.status === "paused" ? "green" : "yellow"}
+                      label={
                         rule.status === "paused" ? "Resume rule" : "Pause rule"
                       }
+                      icon={
+                        rule.status === "paused" ? (
+                          <PlayIcon size={14} />
+                        ) : (
+                          <PauseIcon size={14} />
+                        )
+                      }
                       disabled={rule.status === "archived"}
-                      onClick={() => void handleTogglePause(rule)}
-                    >
-                      {rule.status === "paused" ? "▶" : "⏸"}
-                    </IconButton>
-                    <IconButton
-                      aria-label={t("scheduleRules.editRule")}
+                      onClick={() =>
+                        rule.status === "paused"
+                          ? void handleTogglePause(rule)
+                          : setPausing(rule)
+                      }
+                    />
+                    <CircleActionButton
+                      size={30}
+                      color="grey"
+                      label={t("scheduleRules.editRule")}
+                      icon={<EditIcon size={14} />}
                       onClick={() => setEditing(rule)}
-                    >
-                      ✎
-                    </IconButton>
-                    {rule.status !== "archived" && (
-                      <IconButton
-                        aria-label={t("scheduleRules.archiveRule")}
-                        onClick={() => setArchiving(rule)}
-                      >
-                        ▣
-                      </IconButton>
-                    )}
-                    <IconButton
-                      aria-label={t("scheduleRules.deleteRule")}
+                    />
+                    <CircleActionButton
+                      size={30}
+                      color="red"
+                      label={t("scheduleRules.deleteRule")}
+                      icon={<TrashIcon size={14} />}
                       onClick={() => setDeleting(rule)}
-                    >
-                      🗑
-                    </IconButton>
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -606,24 +608,24 @@ export function ScheduleRulesPage(): React.ReactElement {
       />
 
       <AlertDialog
-        open={archiving !== null}
+        open={pausing !== null}
         onOpenChange={(next) => {
-          if (!next) setArchiving(null);
+          if (!next) setPausing(null);
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Archive schedule rule?</AlertDialogTitle>
+          <AlertDialogTitle>Pause schedule rule?</AlertDialogTitle>
           <AlertDialogDescription>
-            {archiving
-              ? `"${archiving.name}" will stop firing. Archived rules cannot be resumed. Execution history is preserved.`
+            {pausing
+              ? `"${pausing.name}" will stop firing while it is paused. ${pausing.catchUp ? "Catch-up is on, so fire times that pass in the meantime are run when you resume it" : "Fire times that pass in the meantime are skipped, not made up, when you resume it"}. You can resume it at any time.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("scheduleRules.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel>Keep running</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => archiving && void handleArchive(archiving)}
+              onClick={() => pausing && void handleTogglePause(pausing)}
             >
-              Archive
+              Pause rule
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -639,7 +641,7 @@ export function ScheduleRulesPage(): React.ReactElement {
           <AlertDialogTitle>{t("scheduleRules.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {deleting
-              ? `"${deleting.name}" will stop firing. Past executions remain visible in its history.`
+              ? `"${deleting.name}" will stop firing and be removed from this list. Records it already created are not affected, and past executions stay visible in its history. This cannot be undone. To stop it for now and keep it, pause it instead.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
@@ -687,7 +689,7 @@ export function initialRuleFormData(rule?: ScheduleRule): RuleFormData {
     timeOfDay: freq.timeOfDay,
     dayOfWeek: freq.dayOfWeek,
     dayOfMonth: freq.dayOfMonth,
-    timezone: rule?.timezone ?? "UTC",
+    timezone: rule?.timezone ?? DEFAULT_TIMEZONE,
     workflowId: rule?.workflowId ?? "",
     catchUp: rule?.catchUp ?? false,
     templateTitle: rule?.template.title ?? "",

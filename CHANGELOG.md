@@ -31,6 +31,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   saving at once cannot put someone on two teams. The team member picker is a searchable multi-select that
   lists only people not on another team.
 
+## [Unreleased — schedule rules page]
+
+### Changed
+
+- New schedule rules default to India time (Asia/Kolkata) instead of UTC. Existing rules keep the zone they
+  were saved with.
+- The rule list uses round icon buttons (pause or resume, edit, delete). Pausing and deleting now ask for
+  confirmation first, and the warning says what happens to missed fire times and to records already created.
+  Resuming has no warning.
+
+### Removed
+
+- The Archive button on the rule list. Pausing a rule does the same job. The API still accepts the archived
+  status, and rules archived earlier still show.
+
 ## [Unreleased — module catalog sync (#1079)]
 
 ### Fixed
