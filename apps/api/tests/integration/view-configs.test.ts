@@ -3,8 +3,7 @@ import type { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import { eq } from "drizzle-orm";
-import { db, tenants, viewConfigs } from "@platform/db";
-import { ModuleService } from "../../src/services/module-service.js";
+import { db, tenants, viewConfigs, syncModuleCatalog } from "@platform/db";
 import { createApp } from "../../src/app.js";
 
 const TEST_TENANT_ID = "00000000-0000-0000-0000-000000000088";
@@ -82,7 +81,7 @@ describe("View Configs Integration Tests", () => {
       .onConflictDoNothing();
 
     app = createApp();
-    await ModuleService.seedRegistry();
+    await syncModuleCatalog(db);
   });
 
   afterAll(async () => {

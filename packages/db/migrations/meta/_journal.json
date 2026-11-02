@@ -1114,6 +1114,13 @@
       "when": 1791967483781,
       "tag": "0158_access_log_retention_role",
       "breakpoints": false
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0159_modules_visibility_column_grant",
+      "breakpoints": false
     }
   ]
 }

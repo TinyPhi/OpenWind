@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type * as LoggerModule from "@platform/logger";
 
 // Mutable mock config
 const mockEnv = {
@@ -16,7 +17,8 @@ vi.mock("@platform/config", () => ({
 const mockWarn = vi.fn();
 const mockInfo = vi.fn();
 const mockError = vi.fn();
-vi.mock("@platform/logger", () => ({
+vi.mock("@platform/logger", async (importOriginal) => ({
+  ...(await importOriginal<typeof LoggerModule>()),
   logger: {
     warn: mockWarn,
     info: mockInfo,
@@ -243,5 +245,97 @@ describe("PII Scrubbing", () => {
     expect(payload.items[1].cookie).toBe("[REDACTED]");
     expect(payload.items[0].name).toBe("normal");
     expect(payload.items[1].name).toBe("normal2");
+  });
+});
+
+const SMOKE_MESSAGE =
+  "user bob@example.com token Bearer abc.def.ghi password=hunter2";
+
+describe("Sentry event scrubbing (ADR-015 Decision #2)", () => {
+  async function beforeSend(): Promise<(e: any) => any> {
+    vi.resetModules();
+    const { startErrorTracking: start } = await import("./errors.js");
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
+    mockSentryInit.mockClear();
+    start();
+    return mockSentryInit.mock.calls[0]?.[0]?.beforeSend;
+  }
+
+  const planted = [
+    "bob@example.com",
+    "abc.def.ghi",
+    "hunter2",
+    "dave@example.com",
+    "203.0.113.7",
+  ];
+
+  it("scrubs message, exception, breadcrumbs, extra, contexts and tags", async () => {
+    const hook = await beforeSend();
+    const event = hook({
+      message: SMOKE_MESSAGE,
+      exception: { values: [{ type: "Error", value: SMOKE_MESSAGE }] },
+      breadcrumbs: [
+        { message: "contact dave@example.com", data: { note: SMOKE_MESSAGE } },
+      ],
+      extra: { note: "contact dave@example.com", password: "x" },
+      contexts: { app: { detail: SMOKE_MESSAGE } },
+      tags: { who: "dave@example.com" },
+      user: { id: "u1", ip_address: "203.0.113.7" },
+      server_name: "abhinavs-macbook.local",
+    });
+    const out = JSON.stringify(event);
+    for (const s of planted) expect(out).not.toContain(s);
+    expect(event.message).toBe(
+      "user [REDACTED] token Bearer [REDACTED] password=[REDACTED]",
+    );
+    expect(event.extra.password).toBe("[REDACTED]");
+    expect(event.user).toEqual({ id: "u1" });
+    expect(event).not.toHaveProperty("server_name");
+  });
+
+  it("drops request body and query string and strips the URL query", async () => {
+    const hook = await beforeSend();
+    const event = hook({
+      request: {
+        url: "https://x.test/a/b?user=alice&ssn=1#frag",
+        query_string: "user=alice",
+        data: { name: "Alice" },
+        method: "POST",
+      },
+    });
+    expect(event.request).toEqual({
+      url: "https://x.test/a/b",
+      method: "POST",
+    });
+  });
+
+  it("drops stack-frame source context lines but keeps frame location", async () => {
+    const hook = await beforeSend();
+    const event = hook({
+      exception: {
+        values: [
+          {
+            stacktrace: {
+              frames: [
+                {
+                  filename: "a.ts",
+                  pre_context: ["const a = 1;"],
+                  context_line: 'const password = "hunter2";',
+                  post_context: ["login(bob@example.com);"],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    const out = JSON.stringify(event);
+    expect(out).not.toContain("hunter2");
+    expect(out).not.toContain("bob@example.com");
+    expect(out).not.toContain("const a = 1;");
+    expect(event.exception.values[0].stacktrace.frames[0]).toEqual({
+      filename: "a.ts",
+    });
   });
 });

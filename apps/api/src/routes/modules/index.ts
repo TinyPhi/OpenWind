@@ -109,22 +109,6 @@ router.post(
   },
 );
 
-// Seed the module registry (admin only) — idempotent, safe to call multiple times
-router.post("/seed", requireAuth(db), requireRole("admin"), async (c) => {
-  const auth = c.get("auth");
-  try {
-    await ModuleService.seedRegistry();
-    const list = await ModuleService.listModules(auth.tenantId, true);
-    return c.json({ data: { seeded: list.length } }, 201);
-  } catch (err: unknown) {
-    logger.error({ err }, "seedRegistry failed");
-    return c.json(
-      { error: "SEED_FAILED", message: "Failed to seed module registry" },
-      500,
-    );
-  }
-});
-
 // Toggle a template's global, platform-wide visibility (admin only — the
 // platform's top role, no separate superadmin tier). When hidden, the
 // template disappears from every tenant's Templates page for non-admin

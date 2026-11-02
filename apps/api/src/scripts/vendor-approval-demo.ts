@@ -31,6 +31,7 @@ import { executeTransition } from "@platform/workflow-engine";
 import { saveUpload } from "@platform/files";
 import { logger } from "@platform/logger";
 import { ModuleService, getWorkspaceRoot } from "../services/module-service.js";
+import { assertModuleCatalog } from "../lib/module-catalog-assertion.js";
 import { connection as redis } from "../lib/redis.js";
 import {
   VendorPayloadSchema,
@@ -277,8 +278,9 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const tenantId = args.tenant;
 
-  // Idempotent upsert — the API does this at boot, but the script may run first.
-  await ModuleService.seedRegistry();
+  // The catalog is written by the migration step (ADR-005 Amendment 1); this script runs as
+  // app_user and fails with the remediation message when it has not run.
+  await assertModuleCatalog();
   await ModuleService.installModule(tenantId, MODULE_SLUG);
   const { entityTypeId, workflowId, transitionIds } =
     await loadConfig(tenantId);

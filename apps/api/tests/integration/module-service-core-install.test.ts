@@ -10,6 +10,7 @@ import {
   workflowTransitions,
   modules,
   automationRules,
+  syncModuleCatalog,
 } from "@platform/db";
 import { ModuleService } from "../../src/services/module-service.js";
 
@@ -36,7 +37,7 @@ describe("ModuleService.installCoreModules", () => {
         config: {},
       })
       .onConflictDoNothing();
-    await ModuleService.seedRegistry();
+    await syncModuleCatalog(db);
   });
 
   afterAll(async () => {
