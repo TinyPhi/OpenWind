@@ -1,66 +1,66 @@
 import * as Sentry from "@sentry/node";
 import { env } from "@platform/config";
-import { logger } from "@platform/logger";
-
-const REDACT_KEYS = new Set([
-  "password",
-  "token",
-  "secret",
-  "authorization",
-  "cookie",
-  "email",
-  "api_key",
-  "apikey",
-  "access_token",
-  "refresh_token",
-  "phone",
-  "phone_number",
-  "x-api-key",
-  "private_key",
-]);
+import { logger, scrubPIIInPlace } from "@platform/logger";
 
 let initialized = false;
 
-/**
- * Recursively scrubs PII from a Sentry event payload in-place.
- * Prevents circular references via WeakSet.
- */
-export function scrubPIIInPlace(val: unknown, seen = new WeakSet()): void {
-  if (val === null || val === undefined) {
-    return;
-  }
+interface StackFrameLike {
+  pre_context?: unknown;
+  context_line?: unknown;
+  post_context?: unknown;
+}
 
-  if (typeof val !== "object") {
-    return;
-  }
+interface StacktraceHolder {
+  stacktrace?: { frames?: StackFrameLike[] };
+}
 
-  if (seen.has(val)) {
-    return;
-  }
-  seen.add(val);
-
-  if (Array.isArray(val)) {
-    const arr = val as unknown[]; // Array.isArray narrows to any[], not unknown[] — widen element type explicitly
-    for (let i = 0; i < arr.length; i++) {
-      const v = arr[i];
-      if (v && typeof v === "object") {
-        scrubPIIInPlace(v, seen);
-      }
-    }
-    return;
-  }
-
-  const obj = val as Record<string, unknown>; // typeof narrows to object but not the string-indexed record shape
-  for (const key of Object.keys(obj)) {
-    const value = obj[key];
-    const lowerKey = key.toLowerCase();
-    if (REDACT_KEYS.has(lowerKey)) {
-      obj[key] = "[REDACTED]";
-    } else if (value && typeof value === "object") {
-      scrubPIIInPlace(value, seen);
+function stripSourceContext(holders: StacktraceHolder[] | undefined): void {
+  for (const holder of holders ?? []) {
+    for (const frame of holder.stacktrace?.frames ?? []) {
+      delete frame.pre_context;
+      delete frame.context_line;
+      delete frame.post_context;
     }
   }
 }
+
+/**
+ * Scrubs a Sentry event in place with the rules shared with @platform/logger (key redaction plus
+ * free-text patterns over every string value: message, exception values, breadcrumbs, extra,
+ * contexts, tags). Then drops fields the shared rules cannot cover:
+ * - user.ip_address: client IP is PII; dropped rather than hashed, since a hash of an IPv4 is
+ *   trivially reversible.
+ * - server_name: the SDK's hostname, often a developer or container identifier.
+ * - request.data, request.query_string and the URL query/fragment: free-form user input.
+ * - source context lines (pre_context, context_line, post_context): hardcoded literals in code
+ *   are not pattern-detectable. Stack frames keep filename, line and function.
+ */
+export function scrubSentryEvent<T extends object>(event: T): T {
+  scrubPIIInPlace(event);
+  const e = event as {
+    user?: Record<string, unknown>;
+    server_name?: unknown;
+    request?: Record<string, unknown>;
+    exception?: { values?: StacktraceHolder[] };
+    threads?: { values?: StacktraceHolder[] };
+  }; // Sentry Event type not imported; only touching known optional fields
+  if (e.user && typeof e.user === "object") {
+    delete e.user["ip_address"];
+  }
+  delete e.server_name;
+  if (e.request && typeof e.request === "object") {
+    delete e.request["data"];
+    delete e.request["query_string"];
+    if (typeof e.request["url"] === "string") {
+      e.request["url"] = e.request["url"].replace(/[?#].*$/s, "");
+    }
+  }
+  stripSourceContext(e.exception?.values);
+  stripSourceContext(e.threads?.values);
+  return event;
+}
+
+export { scrubPIIInPlace };
 
 /**
  * Initializes Sentry-compatible error tracking if enabled.
@@ -109,8 +109,7 @@ export function startErrorTracking(): void {
       tracePropagationTargets: [],
       beforeSend(event) {
         try {
-          scrubPIIInPlace(event);
-          return event;
+          return scrubSentryEvent(event);
         } catch (error) {
           logger.error(
             { err: error },

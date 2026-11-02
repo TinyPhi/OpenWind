@@ -27,6 +27,7 @@ import {
   notificationRecipients,
   automationExecutions,
   withTenantContext,
+  syncModuleCatalog,
 } from "@platform/db";
 import { executeAutomationRules } from "@platform/automation-engine";
 import {
@@ -133,7 +134,7 @@ describe("vendor-approval module (#606)", () => {
         config: {},
       })
       .onConflictDoNothing();
-    await ModuleService.seedRegistry();
+    await syncModuleCatalog(db);
     await ModuleService.installModule(TENANT_ID, "vendor-approval");
 
     const [et] = await db

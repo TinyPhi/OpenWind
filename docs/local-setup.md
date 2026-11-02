@@ -458,11 +458,22 @@ Migrations live in `packages/db/migrations/` as numbered SQL files. Each runs
 in a transaction. The journal at `packages/db/migrations/meta/_journal.json`
 controls which files run — Drizzle reads it to determine pending migrations.
 
+### Module catalog
+
+The `modules` table (the Templates page, and what `category = 'core'` auto-installs for new
+tenants) is written only by the migration role. `pnpm db:migrate` (and the compose `bootstrap`
+container, which runs it) syncs it from `packages/db/src/module-catalog.ts` after the migrations,
+on every run: an idempotent upsert keyed on `slug` that refreshes name, description, version,
+`is_system`, `min_plan` and `category`, and never touches `is_visible` (an admin setting, which
+`app_user` may update through a column-scoped grant, migration 0159). The API role is read-only on
+the table (ADR-005 Amendment 1, migration 0061), so after changing the catalog file, re-run the
+migrations; restarting the API is not enough.
+
 ### Seeding
 
 ```bash
 pnpm db:seed           # base tenant seed (idempotent)
-pnpm seed:demo         # Helpdesk demo data — entity type, workflow, 5 tickets
+pnpm seed:demo         # re-syncs the module catalog (needs MIGRATION_DATABASE_URL)
 ```
 
 Both run automatically as part of setup. Safe to re-run — all inserts use
@@ -746,6 +757,22 @@ MIGRATION_DATABASE_URL=postgresql://migration_user:migration_user_dev_password@l
 ```
 
 If missing, it is in `.env.example` — copy it manually or re-run setup.
+
+### API exits at startup: module catalog is empty
+
+The API reads the `modules` catalog as `app_user` before it listens and exits non-zero if it has
+no rows, because `app_user` cannot write it. Run the migration step as `migration_user`, which also
+syncs the catalog, then start the API again:
+
+```bash
+pnpm db:migrate        # host mode; needs MIGRATION_DATABASE_URL in .env.local
+# or, in the compose stack:
+docker compose --profile bootstrap up bootstrap
+```
+
+`pnpm reset:data` clears and re-syncs the catalog in one transaction, so it never leaves it empty.
+Compose does not yet have a one-shot `migrate` service that `ow-backend` waits on, so `docker
+compose up -d` alone on a fresh database does not populate the catalog; run bootstrap first.
 
 ### Port already in use
 

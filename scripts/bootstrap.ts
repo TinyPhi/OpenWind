@@ -1130,7 +1130,7 @@ async function main(): Promise<void> {
   // This avoids turbo (whose workspace binary has the wrong platform binary on alpine).
   const dbPkgDir = join(ROOT, "packages", "db");
   run("pnpm exec tsx src/run-migrations.ts", { cwd: dbPkgDir, env: dbEnv });
-  ok("Migrations applied");
+  ok("Migrations applied (module catalog synced)");
 
   run("pnpm exec tsx src/seed.ts", { cwd: dbPkgDir, env: dbEnv });
   ok("Base data seeded (dev tenant, roles)");
@@ -1267,9 +1267,11 @@ async function main(): Promise<void> {
   step(9, "Module templates");
 
   ok(
-    "Templates auto-seed on first visit to the Templates page — no action needed",
+    "Module templates are synced by the migration step (step 6) — no action needed",
   );
-  info('Or click "Seed Templates" on the Templates page if the list is empty.');
+  info(
+    "After changing packages/db/src/module-catalog.ts, re-run the migrations (pnpm db:migrate) to refresh the catalog.",
+  );
 
   // ── 10. Summary ───────────────────────────────────────────────────────────────
 

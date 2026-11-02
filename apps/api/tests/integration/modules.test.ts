@@ -13,6 +13,7 @@ import {
   workflowTransitions,
   automationRules,
   modules,
+  syncModuleCatalog,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { ModuleService } from "../../src/services/module-service.js";
@@ -95,7 +96,7 @@ describe("Module System Integration Tests", () => {
     app = createApp();
 
     // 3. Populate modules registry
-    await ModuleService.seedRegistry();
+    await syncModuleCatalog(db);
   });
 
   afterAll(async () => {
@@ -343,7 +344,7 @@ describe("standard module seed SQL idempotency (#161 regression)", () => {
         })
         .onConflictDoNothing();
     }
-    await ModuleService.seedRegistry();
+    await syncModuleCatalog(db);
   });
 
   afterAll(async () => {
@@ -448,7 +449,7 @@ describe("installModule — workflowName rename (issue #170)", () => {
         })
         .onConflictDoNothing();
     }
-    await ModuleService.seedRegistry();
+    await syncModuleCatalog(db);
   });
 
   afterAll(async () => {
