@@ -19,12 +19,19 @@ describe("toPlatformAdminSandboxView", () => {
     isSandbox: true,
     trialEndsAt: null,
     createdAt: new Date("2026-10-01T00:00:00.000Z"),
+    loginKey: "3f9a1c7e2b4d8a60",
   };
 
   it("passes the logo through, and null when there is none (R12)", () => {
     const logo = "data:image/png;base64,iVBORw0KGgo=";
     expect(toPlatformAdminSandboxView({ ...base, logo }).logo).toBe(logo);
     expect(toPlatformAdminSandboxView({ ...base, logo: null }).logo).toBeNull();
+  });
+
+  it("passes the login key through for the login link (R13)", () => {
+    expect(toPlatformAdminSandboxView({ ...base, logo: null }).loginKey).toBe(
+      "3f9a1c7e2b4d8a60",
+    );
   });
 
   it("returns only the allow-listed fields", () => {
@@ -34,6 +41,7 @@ describe("toPlatformAdminSandboxView", () => {
       "createdAt",
       "id",
       "isSandbox",
+      "loginKey",
       "logo",
       "name",
       "trialEndsAt",

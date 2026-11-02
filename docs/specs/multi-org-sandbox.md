@@ -5,7 +5,7 @@
 
 status: draft
 created: 2026-10-05
-updated: 2026-10-23
+updated: 2026-10-27
 
 ---
 
@@ -23,15 +23,15 @@ does not write this ADR.
 
 ## §C Constraints
 
-| constraint   | value                                                                                                                                                                                                                                                                                                                                              |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| stack        | Hono API, Drizzle+Postgres (RLS), BullMQ worker, Zitadel (shared project, new org per sandbox), Refine/shadcn admin-ui                                                                                                                                                                                                                             |
-| auth         | `platform_admin` = Zitadel role claim, same OIDC mechanism as `admin`/`agent`/`user`, but NOT tenant-scoped — dedicated `/platform-admin` login route, required MFA                                                                                                                                                                                |
-| tenancy      | each sandbox = 1 real `tenants` row + 1 real Zitadel org, same isolation guarantees (RLS + explicit `tenant_id`) as any customer tenant                                                                                                                                                                                                            |
-| out of scope | self-serve signup; in-app cross-tenant data/log viewer; auto-deletion of expired data; randomized org _shapes_ (names only); conversion-to-paid automation; support impersonation capability; multiple concurrent platform admins or delegated/scoped platform-admin permissions — single trusted operator model for v1                            |
-| perf         | provisioning (~21+ Zitadel calls) shows live progress, not a single long-held request — built as a trackable/resumable job, polled by the UI                                                                                                                                                                                                       |
-| abuse/quota  | a single `platform_admin` can create at most N concurrently-active (non-deleted) sandboxes; N is a config value, not hardcoded                                                                                                                                                                                                                     |
-| UI scope     | the prospect-facing side has no sandbox-aware UI of its own — they use the normal tenant admin-ui/login exactly like any customer; "sandbox" is an internal-only concept, invisible to the prospect. **Amended 2026-10-23 (R12):** the one sandbox-driven UI element is the header brand (org logo + name), and it never says or implies "sandbox" |
+| constraint   | value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| stack        | Hono API, Drizzle+Postgres (RLS), BullMQ worker, Zitadel (shared project, new org per sandbox), Refine/shadcn admin-ui                                                                                                                                                                                                                                                                                                                                                                     |
+| auth         | `platform_admin` = Zitadel role claim, same OIDC mechanism as `admin`/`agent`/`user`, but NOT tenant-scoped — dedicated `/platform-admin` login route, required MFA                                                                                                                                                                                                                                                                                                                        |
+| tenancy      | each sandbox = 1 real `tenants` row + 1 real Zitadel org, same isolation guarantees (RLS + explicit `tenant_id`) as any customer tenant                                                                                                                                                                                                                                                                                                                                                    |
+| out of scope | self-serve signup; in-app cross-tenant data/log viewer; auto-deletion of expired data; randomized org _shapes_ (names only); conversion-to-paid automation; support impersonation capability; multiple concurrent platform admins or delegated/scoped platform-admin permissions — single trusted operator model for v1                                                                                                                                                                    |
+| perf         | provisioning (~21+ Zitadel calls) shows live progress, not a single long-held request — built as a trackable/resumable job, polled by the UI                                                                                                                                                                                                                                                                                                                                               |
+| abuse/quota  | a single `platform_admin` can create at most N concurrently-active (non-deleted) sandboxes; N is a config value, not hardcoded                                                                                                                                                                                                                                                                                                                                                             |
+| UI scope     | the prospect-facing side has no sandbox-aware UI of its own — they use the normal tenant admin-ui/login exactly like any customer; "sandbox" is an internal-only concept, invisible to the prospect. **Amended 2026-10-23 (R12):** the one sandbox-driven UI element is the header brand (org logo + name), and it never says or implies "sandbox". **Amended 2026-10-26 (R13):** the login page shows the same brand, but only for a visitor who arrives on that sandbox's own login link |
 
 ## §I Interfaces
 
@@ -45,6 +45,7 @@ POST   /platform-admin/sandboxes/:tenantId/reset  -> wipes+reseeds module data, 
 DELETE /platform-admin/sandboxes/:tenantId        -> purges OpenWind data + deletes Zitadel org/accts (200 on success, 504 DELETE_TIMEOUT, 500 DELETE_FAILED)
 
 PATCH  /platform-admin/sandboxes/:tenantId/branding -> { name?, logo? } sets display name / logo; logo: null clears it (R12; 200 {data: view}, 400 invalid input, 404)
+GET    /public/org-branding/:key                  -> UNAUTHENTICATED: { data: { name, logo } } for an active sandbox, one identical 404 for every miss (R13)
 GET    /me/org                                    -> tenant-scoped (any role): { data: { name, logo } | null } -- null for non-sandbox tenants (R12; exact path settled at T27)
 
 POST   /platform-admin/mfa/request               -> sends a one-time verification code (R1)
@@ -67,6 +68,10 @@ Key entities:
 - `tenants.is_sandbox: boolean`
 - `tenants.trial_ends_at: timestamp | null`
 - `tenants.created_by_platform_admin: text` (actor id)
+- `tenants.login_key: text | null` (R13) -- 16 lowercase hex characters, unique, random, set when a
+  sandbox is created (backfilled for older ones), `NULL` for every real tenant, never changed after
+  that; the sandbox's login link is `/login?org=<login_key>`. `PlatformAdminSandboxView.loginKey`
+  carries it; `platform_admin_role` gets `SELECT (login_key)` and no UPDATE.
 - `tenants.logo: text | null` (R12) -- a `data:image/{png,jpeg,webp};base64,` URL, never SVG; added to
   `PlatformAdminSandboxView` (deliberate widening, R2 still holds: it is tenant metadata, not business data)
 - A per-platform-admin active-sandbox counter, backing the quota constraint (R11)
@@ -316,6 +321,64 @@ usable. A broken logo image falls back to the initials tile.
 ✓ Reset (R7) keeps the name and logo; delete (R8) leaves none behind, the purge clears the logo on
 the tombstone row.
 
+R13 **(added 2026-10-26; owner request; keyed on a random login key 2026-10-27; blank fallback
+2026-10-28)**: A sandbox's own login link shows its name and logo on the login page; every other way
+of reaching the login page shows no brand at all, neither an org nor OpenWind.
+✓ `/login?org=<key>`, where `<key>` is the sandbox's login key, for an active sandbox shows that
+sandbox's logo (or, with none set, the initials tile of its name) and its name at the top left of the
+login page, shows its name in the card's breadcrumb ("<name> / Sign in"), and sets the browser tab
+title to its name. Nothing else on the page changes, and sign-in works exactly as before.
+✓ Without a valid match the login page carries no brand: no logo or icon and no name at the top left,
+the card's breadcrumb reads just "Sign in", and the browser tab title is "Sign in". That covers plain
+`/login` (which makes no lookup) and every miss: a missing, malformed or unknown key, a real
+(non-sandbox) tenant, a suspended or deleted sandbox, a slow or failed lookup, and a rate-limited one.
+The visitor cannot tell the cases apart, and the page never shows "OpenWind" or any other name there.
+The app learns the org after sign-in from `GET /me/org` (R12). The one thing this browser remembers
+is the login key of the last sandbox link that matched (2026-10-28, owner request), and only so that
+signing out, an idle logout or an expired session lands the person back on their own organisation's
+link: a plain `/login` visit then goes on to `/login?org=<key>`. The key is stored in the browser only
+(nothing server-side), is checked against the same 16-hex format on every read, and a mistyped or
+unknown link is never remembered.
+✓ While a lookup runs the page shows no brand either (it never flashes a name before the answer), and
+the sign-in button never waits on it. A hit then fills in the brand, breadcrumb and tab title.
+✓ The login key is a random value, not derived from the org's name or anything else a visitor could
+guess: 16 lowercase hex characters (64 bits, 60 of them random), generated when the sandbox is created
+and stored on the tenant row with a unique index and a database CHECK on its format. Existing sandboxes
+get one in the same migration. It never changes, so a handed-over link stays valid through renames and
+logo edits (R12). Real tenants have none.
+✓ The lookup is unauthenticated and returns exactly `{ name, logo }` for an `active` `is_sandbox`
+tenant whose login key matches. It never returns `isSandbox`, a tenant id, a status, the key or any
+other column. Every miss, including a key that fails validation, is the same `404` with the same body,
+and a malformed key is refused before the database is read.
+✓ Its own per-IP limit, in a bucket separate from the `/auth` class (10 per minute, shared with
+sign-in), so a flood of lookups can neither lock a visitor out of signing in nor be hidden inside that
+bucket. The limit is a config value (`RATE_LIMIT_PUBLIC_BRANDING_PER_MIN`, default 30), not hardcoded.
+A Redis outage lets the request through, as ADR-013's limiter already does.
+✓ A hit is cacheable for 60 s (`Cache-Control: public, max-age=60`); a miss is never cached
+(`no-store`), so a sandbox created a moment ago works at once. A name or logo edit (R12) shows on the
+login link within that minute.
+✓ The platform admin gets the link. `loginKey` is on the sandbox view (R2: tenant metadata, not
+business data) and `platform_admin_role` gains `SELECT (login_key)` and nothing wider; the earlier
+`SELECT (slug)` grant (migration 0161) is revoked, since nothing reads the slug any more. The
+dashboard row menu and the detail panel offer a copyable `<origin>/login?org=<login_key>`, and the
+handover CSV, the clipboard text and the creation reveal include the same link.
+✓ Accepted risks (security review, 2026-10-26, low): the per-IP key trusts `X-Real-IP` and
+`X-Forwarded-For` only when `TRUST_PROXY` says to, as the global limiter already does, and falls back
+to one shared `unknown` bucket when the peer address is unavailable; a flood then turns the brand off
+for everyone, never sign-in. A link that leaks cannot yet be revoked: regenerating a sandbox's key is
+a follow-up. The earlier readable-slug risk (guessing `<name>-<4 digits>`) is gone with the key.
+The key sits in the visitor's address bar, history and bookmarks, and is sent to the page's own server
+only; the login page sets no explicit `Referrer-Policy`, so the browser default
+(`strict-origin-when-cross-origin`) keeps the query string off cross-origin requests, and a
+`same-origin` policy at the proxy is optional hardening. A purged sandbox's tombstone row keeps its
+key: the lookup answers only `active` sandboxes, the key holds no personal data, and clearing it
+would need a further grant for the purge role. A sandbox name with control or bidirectional
+characters would show in the tab title and breadcrumb; only a platform admin can set it, and
+stripping them at write time is a follow-up.
+✓ Out of scope: branding Zitadel's own hosted sign-in screen (the visitor still sees Zitadel's after
+pressing sign-in; per-org Zitadel branding is a separate follow-up), a vanity domain or subdomain,
+branding any page other than `/login`, and regenerating or revoking a login key.
+
 ## §V Invariants
 
 - A `platform_admin`-authenticated request never resolves to, or is scoped by, any single tenant's
@@ -353,6 +416,12 @@ the tombstone row.
   SVG is rejected at the database CHECK as well as the route. The tenant `GET /me/org` filters on
   the caller's own `tenant_id` explicitly -- `tenants` has no RLS, so there is no second layer to
   lean on. (R12)
+- The unauthenticated brand lookup never lets a caller tell an unknown key from a real tenant, a
+  non-active sandbox or a malformed key (one `404`, one body), never returns more than `name` and
+  `logo`, validates the key before the database is read, and is rate limited in a bucket of its own.
+  The login key is random and unrelated to any name, never changes, and is never returned by any
+  tenant-facing route. The login page draws the logo only through an `<img>`, and shows no brand text (no org name, no
+  product name) unless a lookup matched. (R13)
 
 ## §T Tasks
 
@@ -427,6 +496,49 @@ logo of up to ~140 KB is not re-sent on every page load; (e) the platform-admin 
 so a `hasLogo` flag on the list and the image only on the detail view would shrink it; (f) a CSP, if
 one is ever added to the frontend, must allow `img-src data:` or logos stop rendering; (g) _resolved in review:_ #1063 merged, and migration 0155 is
 journaled at idx 155, after 0154 (`migration-journal.test.ts` guards the order).
+
+### Phase 5 — Login-page branding (R13) — ✅ implemented (the slug in its link is replaced by Phase 6's login key) (branch `feat/login-org-branding`, PR opens after #1077 merges)
+
+Dependency: needs `tenants.logo` and the name edit from Phase 4 (PR #1077). Built on a local branch
+off `feat/sandbox-branding`; the PR is opened only after #1077 merges, replaying these commits with
+`git rebase --onto upstream/main <#1077 tip>`.
+
+| id  | task                                                                                                                                                                                                                                                         | depends  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| T33 | Migration (next free number after 0155): `GRANT SELECT (slug) ON tenants TO platform_admin_role`; down migration — **done**                                                                                                                                  | —        |
+| T34 | `@platform/db` + platform-admin routes: `slug` on `PlatformAdminSandboxView`/row and every select that feeds it (list, detail, branding); unit tests; update the pinned field list in the list isolation test — **done**                                     | T33      |
+| T35 | `GET /public/org-branding/:slug`: Zod slug schema, explicit `status = 'active' AND is_sandbox` filter, identical 404, cache headers, own per-IP limiter + `RATE_LIMIT_PUBLIC_BRANDING_PER_MIN` in `@platform/config`; tests — **done**                       | T33      |
+| T36 | Handover response carries the sandbox's slug (read as `platform_admin_role`); route test — **done**                                                                                                                                                          | T34      |
+| T37 | admin-ui login page: read `?org=`, look up, show logo/initials + name, hidden-while-loading, generic fallback on every miss, no lookup without `org`; tests — **done**                                                                                       | T35      |
+| T38 | admin-ui platform-admin: copyable login link in the row menu and detail panel; link in the handover CSV, clipboard text and creation reveal (CSV escaping kept); tests — **done**                                                                            | T34, T36 |
+| T39 | Isolation tests: identical 404 for unknown, malformed, non-sandbox, suspended and deleted; response keys are exactly `name` and `logo`; `platform_admin_role` reads `slug` but still not `config`/`plan`; limiter bucket is separate from `/auth` — **done** | T35, T34 |
+| T40 | `/security-review` (new unauthenticated route that reads tenant data), then docs: week-log, tracker row — **done**                                                                                                                                           | T39      |
+
+### Phase 6 — Login key instead of the slug (R13, revised 2026-10-27) — ✅ implemented (branch `feat/login-org-branding`, PR opens after #1077 merges)
+
+Replaces the readable slug in `/login?org=` with a random login key, and brands the login card's
+breadcrumb and the browser tab title. Same branch and PR as Phase 5 (`feat/login-org-branding`).
+
+| id  | task                                                                                                                                                                                                                                                                          | depends  |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| T41 | Migration (next free number after 0156): `tenants.login_key` text, unique index, CHECK `^[0-9a-f]{16}$`, backfill every existing sandbox from `gen_random_uuid()`, `GRANT SELECT (login_key)` and `REVOKE SELECT (slug)` for `platform_admin_role`; down migration — **done** | —        |
+| T42 | Sandbox provisioning worker generates the key when it creates the tenant row; worker test — **done**                                                                                                                                                                          | T41      |
+| T43 | `@platform/db` + platform-admin routes: `loginKey` replaces `slug` on the view, row and every select that feeds it; handover response carries `loginKey`; unit tests; pinned field list in the list isolation test — **done**                                                 | T41      |
+| T44 | `GET /public/org-branding/:key`: key schema, lookup by `login_key` with the explicit `status`/`is_sandbox` filter, same 404s and headers; unit and isolation tests updated — **done**                                                                                         | T41      |
+| T45 | admin-ui platform-admin: `loginLink(loginKey)`, row menu, detail panel, creation reveal, CSV and clipboard; tests — **done**                                                                                                                                                  | T43      |
+| T46 | admin-ui login page: validate `?org=` as a key, brand the card breadcrumb and the tab title (held while loading, restored on leaving); tests — **done**                                                                                                                       | T44      |
+| T47 | Isolation tests: key unique and format CHECK, real tenants have none, backfill covers every sandbox, `platform_admin_role` reads `login_key` and no longer `slug`, no UPDATE on it — **done**                                                                                 | T41, T44 |
+| T48 | `/security-review`, then docs: week-log, tracker, this spec — **done**                                                                                                                                                                                                        | T47      |
+
+### Phase 7 — Blank login page without a match (R13, revised 2026-10-28) — ✅ implemented (branch `feat/login-org-branding`, PR opens after #1077 merges)
+
+Same branch and PR as Phases 5 and 6 (`feat/login-org-branding`).
+
+| id  | task                                                                                                                                                                                                                                                                                                                                                              | depends |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| T49 | admin-ui login page: render no top-left brand unless a lookup matched (no OpenWind icon or wordmark on plain `/login`, on a miss or while loading); breadcrumb reads "Sign in" without a match and "<name> / Sign in" with one; tab title "Sign in" without a match, the name with one, restored on leaving; drop the now-unused `login.brandName` use — **done** | —       |
+| T50 | Login page and hook tests: no brand on plain `/login`, on every miss kind and while loading; brand, breadcrumb and title on a hit; no "OpenWind" text anywhere in the page's brand areas — **done**                                                                                                                                                               | T49     |
+| T51 | Docs: week-log, tracker, this spec; `/review` of the diff (UI-only, no new route, table or grant, so no new security review) — **done**                                                                                                                                                                                                                           | T50     |
 
 ## §O Operations — OTP delivery failure and break-glass (#801)
 

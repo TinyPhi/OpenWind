@@ -214,6 +214,16 @@ const EnvSchema = z
     // ADR-013, #692 — per-(tenant, user) cap on entity-list exports, which can
     // each pull up to 10,000 rows including PII/financial fields.
     RATE_LIMIT_EXPORT_PER_MIN: z.coerce.number().int().positive().default(5),
+    // docs/specs/multi-org-sandbox.md R13 -- per-IP cap on the unauthenticated login-page brand
+    // lookup (GET /public/org-branding/:slug). It has its own bucket, apart from the /auth class
+    // (10/min, shared with sign-in), so a flood here can neither lock a visitor out of signing in
+    // nor hide inside that bucket. A visitor makes one lookup per login-page load, so 30 is
+    // generous for a shared office address and still stops slug scanning.
+    RATE_LIMIT_PUBLIC_BRANDING_PER_MIN: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(30),
     // docs/specs/multi-org-sandbox.md T7, security review — per-platform_admin cap on
     // POST /platform-admin/sandboxes. The generic global rate limit (500/min/IP) is sized
     // for ordinary CRUD, not for a route whose happy path drives ~21+ outbound Zitadel

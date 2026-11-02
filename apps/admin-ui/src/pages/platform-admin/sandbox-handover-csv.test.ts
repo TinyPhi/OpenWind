@@ -102,3 +102,54 @@ describe("handoverCsvFileName", () => {
     expect(handoverCsvFileName("***")).toBe("sandbox-accounts.csv");
   });
 });
+
+describe("the login link column (R13)", () => {
+  const accounts = [
+    {
+      username: "abigail.smith",
+      email: "abigail.smith@example.com",
+      role: "admin",
+      password: "Ow-abc123-9!",
+    },
+    {
+      username: "olivia.jones",
+      email: "olivia.jones@example.com",
+      role: "user",
+      password: "Ow-def456-9!",
+    },
+  ];
+  const link = "https://app.example.com/login?org=3f9a1c7e2b4d8a60";
+
+  it("adds a Login link column to the CSV, on every row", () => {
+    expect(buildHandoverCsv(accounts, link)).toBe(
+      BOM +
+        "Username,Email,Role,Password,Login link\r\n" +
+        `abigail.smith,abigail.smith@example.com,admin,Ow-abc123-9!,${link}\r\n` +
+        `olivia.jones,olivia.jones@example.com,user,Ow-def456-9!,${link}`,
+    );
+  });
+
+  it("adds the same column to the clipboard text", () => {
+    expect(formatHandoverClipboard(accounts, link)).toBe(
+      "Username\tEmail\tRole\tPassword\tLogin link\n" +
+        `abigail.smith\tabigail.smith@example.com\tadmin\tOw-abc123-9!\t${link}\n` +
+        `olivia.jones\tolivia.jones@example.com\tuser\tOw-def456-9!\t${link}`,
+    );
+  });
+
+  it.each([null, undefined, ""])(
+    "leaves both outputs unchanged when the link is %j",
+    (none) => {
+      expect(buildHandoverCsv(accounts, none)).toBe(buildHandoverCsv(accounts));
+      expect(formatHandoverClipboard(accounts, none)).toBe(
+        formatHandoverClipboard(accounts),
+      );
+    },
+  );
+
+  it("keeps the CSV formula guard on the link cell", () => {
+    expect(buildHandoverCsv(accounts, "=HYPERLINK(1)")).toContain(
+      ",'=HYPERLINK(1)",
+    );
+  });
+});

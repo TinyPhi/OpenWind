@@ -59,6 +59,7 @@ vi.mock("@platform/db", () => ({
     resultTenantId: "resultTenantId",
     rolledBack: "rolledBack",
   },
+  tenants: { id: "id", loginKey: "loginKey" },
   withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
   checkSandboxQuota: (...args: unknown[]) => mockCheckSandboxQuota(...args),
   // Real, minimal re-implementation (not mocked away) so these tests exercise the actual
@@ -368,6 +369,7 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
     mockSelectRows.mockResolvedValueOnce([
       { resultTenantId: TENANT_ID, status: "completed" },
     ]);
+    mockSelectRows.mockResolvedValueOnce([{ loginKey: "3f9a1c7e2b4d8a60" }]);
     mockGetSandboxHandoverCredentials.mockResolvedValueOnce({
       seededAccounts: [
         {
@@ -386,6 +388,7 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
     expect(await res.json()).toEqual({
       data: {
         tenantId: TENANT_ID,
+        loginKey: "3f9a1c7e2b4d8a60",
         seededAccounts: [
           {
             username: "admin.user",
@@ -396,6 +399,34 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
         ],
       },
     });
+  });
+
+  it("still returns the handover, with a null login key, when the tenant row cannot be read back (R13)", async () => {
+    mockSelectRows.mockResolvedValueOnce([
+      { resultTenantId: TENANT_ID, status: "completed" },
+    ]);
+    mockSelectRows.mockResolvedValueOnce([]);
+    mockGetSandboxHandoverCredentials.mockResolvedValueOnce({
+      seededAccounts: [],
+    });
+
+    const res = await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      data: { tenantId: TENANT_ID, loginKey: null },
+    });
+  });
+
+  it("does not read the tenant row when the handover window has expired", async () => {
+    mockSelectRows.mockResolvedValueOnce([
+      { resultTenantId: TENANT_ID, status: "completed" },
+    ]);
+    mockGetSandboxHandoverCredentials.mockResolvedValueOnce(null);
+
+    await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
+
+    expect(mockSelectRows).toHaveBeenCalledTimes(1);
   });
 
   it("returns 409 when the job exists but hasn't completed yet, without reading Redis", async () => {

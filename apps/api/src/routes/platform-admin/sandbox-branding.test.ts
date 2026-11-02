@@ -57,6 +57,7 @@ const ROW = {
   trialEndsAt: null,
   createdAt: new Date("2026-10-01T00:00:00.000Z"),
   logo: LOGO,
+  loginKey: "3f9a1c7e2b4d8a60",
 };
 
 beforeEach(() => {
