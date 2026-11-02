@@ -43,6 +43,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   has the flag `off` or no `SUPERSET_OAUTH_CLIENT_ID`.
 - The Superset cache flush with the flag `off` is logged at info instead of warn.
 
+## [Unreleased — module catalog sync (#1079)]
+
+### Fixed
+
+- The module catalog (`modules`, which drives the Templates page and which modules new tenants
+  get automatically) is now written by `pnpm db:migrate` / the `bootstrap` container as
+  `migration_user`, on every run, instead of by the API at runtime. Since migration 0061 the API
+  role could not write it, so a fresh database stayed empty and catalog changes never applied.
+  The admin visibility toggle works again (migration 0159, column-scoped grant on `is_visible`).
+
+### Changed
+
+- **Operators must run the migration step** (`pnpm db:migrate`, or `docker compose --profile
+bootstrap up bootstrap`) on a fresh database and after any change to the catalog. The API now
+  exits non-zero at startup, with a message naming that step, when the catalog is empty.
+- Removed `POST /modules/seed`, the "Seed Templates" button and the empty-registry auto-seed.
+  `pnpm seed:demo` and `pnpm reset:data` need `MIGRATION_DATABASE_URL` and re-sync the catalog.
+
+## [Unreleased — migration 0158 fresh install (#1153)]
+
+### Fixed
+
+- Migration 0158 (`access_log_retention_role`) no longer stops a from-scratch migrate as the
+  non-superuser `migration_user`. The unconditional `ALTER ROLE` is replaced by an attribute check that
+  raises on a pre-existing role with unsafe attributes (and repairs it only for a superuser). Edited in
+  place; databases that already applied 0158 are unaffected.
+
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 
 ### Security
@@ -75,6 +102,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   stack (the worker runs as `app_user`, which is append-only there). Added a narrow
   `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
   new privileges.
+
+## [Unreleased — Sentry free-text scrubbing (#1149)]
+
+### Security
+
+- Sentry events and `@platform/logger` now share one scrubbing module (`packages/logger/src/redact.ts`).
+  Besides key-based redaction, string values (message, exception values, breadcrumbs, `extra`,
+  `contexts`, `tags`) are scrubbed for email addresses, bearer/JWT tokens and `key=value` secrets.
+- Sentry events no longer carry `user.ip_address`, `server_name`, `request.data`, the request query
+  string or stack-frame source context lines.
+  Free-text IP addresses inside messages are not scrubbed.
+- The logger now also redacts one level of nested sensitive keys, and scrubs the log message and
+  top-level string fields. Its redaction marker is `[REDACTED]` (was pino's `[Redacted]`).
 
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 

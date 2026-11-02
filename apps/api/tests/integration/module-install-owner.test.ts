@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { db, tenants, entityTypes, modules, workflows } from "@platform/db";
+import {
+  db,
+  tenants,
+  entityTypes,
+  modules,
+  workflows,
+  syncModuleCatalog,
+} from "@platform/db";
 import { ModuleService } from "../../src/services/module-service.js";
 
 // docs/specs/mandatory-ticket-fields.md R7: installing a module records the installer as the
@@ -34,7 +41,7 @@ beforeAll(async () => {
     slug: `module-install-owner-${TENANT_ID}`,
     config: {},
   });
-  await ModuleService.seedRegistry();
+  await syncModuleCatalog(db);
 });
 
 afterAll(async () => {
