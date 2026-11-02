@@ -11,6 +11,7 @@ import {
 } from "@platform/auth";
 import { createApp } from "./app.js";
 import { assertModuleCatalog } from "./lib/module-catalog-assertion.js";
+import { logSupersetConfigWarnings } from "./lib/superset-config-warnings.js";
 import {
   attachNotificationWebSocket,
   stopNotificationWebSocket,
@@ -20,6 +21,7 @@ const app = createApp();
 const port = 3000;
 
 logger.info({ port }, "API server starting");
+logSupersetConfigWarnings(env);
 
 if (env.NODE_ENV === "production") {
   // TRUST_PROXY defaults to "false" in the config schema, so unset reaches here as "false".

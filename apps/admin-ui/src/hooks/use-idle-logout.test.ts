@@ -203,13 +203,13 @@ describe("useIdleLogout — config-driven via env (no explicit timeoutMs overrid
     addSpy.mockRestore();
   });
 
-  it("defaults to enabled with a 5-minute timeout when neither env var is set", async () => {
+  it("defaults to enabled with a 15-minute timeout when neither env var is set", async () => {
     import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = undefined;
     import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = undefined;
 
     renderHook(() => useIdleLogout(), { wrapper });
 
-    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 - 1);
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000 - 1);
     expect(mockLogout).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(mockLogout).toHaveBeenCalled();
@@ -227,13 +227,13 @@ describe("useIdleLogout — config-driven via env (no explicit timeoutMs overrid
     expect(mockLogout).toHaveBeenCalled();
   });
 
-  it("falls back to the 5-minute default for an invalid VITE_IDLE_LOGOUT_TIMEOUT_MINUTES value", async () => {
+  it("falls back to the 15-minute default for an invalid VITE_IDLE_LOGOUT_TIMEOUT_MINUTES value", async () => {
     import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = undefined;
     import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = "not-a-number";
 
     renderHook(() => useIdleLogout(), { wrapper });
 
-    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
     expect(mockLogout).toHaveBeenCalled();
   });
 

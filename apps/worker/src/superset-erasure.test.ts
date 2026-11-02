@@ -27,7 +27,7 @@ const {
     SUPERSET_SERVICE_ACCOUNT_USER: "service_account",
     SUPERSET_SERVICE_ACCOUNT_PASSWORD: "pw" as string | undefined,
     SUPERSET_OAUTH_CLIENT_ID: "client-id" as string | undefined,
-    SUPERSET_ERASURE_ENABLED: true,
+    SUPERSET_DEPLOYMENT: "on" as "on" | "off",
   },
 }));
 
@@ -52,11 +52,11 @@ vi.mock("@platform/telemetry", () => ({
 vi.mock("@platform/config", () => ({
   env: mockEnv,
   supersetErasureMode: (e: typeof mockEnv): string =>
-    e.SUPERSET_OAUTH_CLIENT_ID
-      ? "full"
-      : e.SUPERSET_ERASURE_ENABLED
-        ? "cache-only"
-        : "off",
+    e.SUPERSET_DEPLOYMENT === "off"
+      ? "off"
+      : e.SUPERSET_OAUTH_CLIENT_ID
+        ? "full"
+        : "cache-only",
 }));
 vi.mock("@platform/logger", () => ({
   logger: { warn: mockWarn, info: mockInfo, error: mockError },
@@ -173,7 +173,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockEnv.SUPERSET_SERVICE_ACCOUNT_PASSWORD = "pw";
   mockEnv.SUPERSET_OAUTH_CLIENT_ID = "client-id";
-  mockEnv.SUPERSET_ERASURE_ENABLED = true;
+  mockEnv.SUPERSET_DEPLOYMENT = "on";
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -550,18 +550,18 @@ describe("queueing", () => {
     expect(
       await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
     ).toBe(false);
-    mockEnv.SUPERSET_ERASURE_ENABLED = false;
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
     expect(
       await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
     ).toBe(false);
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
-  it("still queues with Stage 2 on when the setting says off: the setting cannot turn it off", async () => {
-    mockEnv.SUPERSET_ERASURE_ENABLED = false;
-    expect(
-      await enqueueSupersetErasure({ kind: "tenant", tenantId: TENANT }),
-    ).toBe(true);
+  it("queues nothing with SUPERSET_DEPLOYMENT=off even with an OAuth client id set, unless forced", async () => {
+    mockEnv.SUPERSET_DEPLOYMENT = "off";
+    const job = { kind: "tenant", tenantId: TENANT } as const;
+    expect(await enqueueSupersetErasure(job)).toBe(false);
+    expect(await enqueueSupersetErasure(job, { force: true })).toBe(true);
   });
 
   it("never throws when the queue is down, says how to run it by hand, and counts it for the alert", async () => {

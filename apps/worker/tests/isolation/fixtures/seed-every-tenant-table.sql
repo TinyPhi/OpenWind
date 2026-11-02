@@ -63,6 +63,10 @@ BEGIN
   INSERT INTO services (tenant_id, name, created_by) VALUES (t, 'svc', u);
   INSERT INTO on_call_schedules (tenant_id, team_id, label, starts_at, ends_at, primary_user_id, backup_user_id, escalation_manager_user_id, created_by)
     VALUES (t, team, 'week', now(), now() + interval '7 days', u, u, u, u);
+  INSERT INTO on_call_rotations (tenant_id, team_id, cycle_days, next_starts_at, last_primary_user_id, last_backup_user_id, escalation_manager_user_id, created_by)
+    VALUES (t, team, 7, now() + interval '7 days', u, u, u, u);
+  INSERT INTO on_call_schedule_notices (tenant_id, schedule_id, user_id, role)
+    SELECT t, id, u, 'primary' FROM on_call_schedules WHERE tenant_id = t LIMIT 1;
   INSERT INTO notification_policies (tenant_id, severity, channels, created_by) VALUES (t, 'high', ARRAY['email'], u);
 
   INSERT INTO schedule_rules (tenant_id, name, cron_expr, entity_type_id, workflow_id, template, created_by)

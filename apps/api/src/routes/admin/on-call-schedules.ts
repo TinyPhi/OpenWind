@@ -32,6 +32,7 @@ import {
   onCallSchedules,
   teams,
   teamMembers,
+  onCallRotations,
   tenantUsers,
 } from "@platform/db";
 import type { DbOrTx } from "@platform/db";
@@ -39,10 +40,17 @@ import {
   validateCrossTenantRefs,
   lookupValidIdsInTable,
   classifyOncallUser,
+  loadTeamMemberIds,
+  ROTATION_MIN_CYCLE_DAYS,
+  ROTATION_MAX_CYCLE_DAYS,
   type FieldError,
   type CrossTenantRefCheck,
 } from "@platform/teams";
 import { writeAuditEntry } from "@platform/audit";
+import {
+  alignRotationCursor,
+  releaseWindowsAfter,
+} from "../../lib/rotation-windows.js";
 import { logger } from "@platform/logger";
 import {
   checkPeopleAreOnCall,
@@ -75,6 +83,17 @@ const CreateScheduleSchema = z
     primaryUserId: z.string().min(1),
     backupUserId: z.string().min(1).optional(),
     escalationManagerUserId: z.string().min(1).optional(),
+    // Repeat the roster: later windows are made by the rotation worker, each cycleDays long
+    // (docs/specs/oncall-team-rotation.md R4).
+    repeat: z
+      .object({
+        cycleDays: z
+          .number()
+          .int()
+          .min(ROTATION_MIN_CYCLE_DAYS)
+          .max(ROTATION_MAX_CYCLE_DAYS),
+      })
+      .optional(),
   })
   .refine((v) => v.startsAt < v.endsAt, {
     message: "startsAt must be before endsAt",
@@ -494,11 +513,72 @@ router.post(
         if (refErrors.length > 0) {
           return { status: "invalid" as const, refErrors };
         }
+        let rotationId: string | null = null;
+        if (input.repeat) {
+          const members = await loadTeamMemberIds(
+            tx,
+            auth.tenantId,
+            input.teamId,
+          );
+          if (members.length === 0) {
+            return {
+              status: "invalid" as const,
+              refErrors: [
+                {
+                  field: "repeat",
+                  message:
+                    "A repeating roster needs a team with at least one member",
+                },
+              ],
+            };
+          }
+          const [active] = await tx
+            .select({ id: onCallRotations.id })
+            .from(onCallRotations)
+            .where(
+              and(
+                eq(onCallRotations.tenantId, auth.tenantId),
+                eq(onCallRotations.teamId, input.teamId),
+                eq(onCallRotations.status, "active"),
+              ),
+            )
+            .limit(1);
+          if (active) return { status: "rotation_exists" as const };
+          const [rotation] = await tx
+            .insert(onCallRotations)
+            .values({
+              tenantId: auth.tenantId,
+              teamId: input.teamId,
+              cycleDays: input.repeat.cycleDays,
+              nextStartsAt: input.endsAt,
+              lastPrimaryUserId: input.primaryUserId,
+              lastBackupUserId: input.backupUserId ?? null,
+              escalationManagerUserId: input.escalationManagerUserId ?? null,
+              createdBy: auth.userId,
+            })
+            .returning();
+          if (!rotation) throw new Error("rotation insert returned no row");
+          rotationId = rotation.id;
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "on_call_rotation",
+            resourceId: rotation.id,
+            action: "created",
+            afterSnapshot: {
+              teamId: rotation.teamId,
+              cycleDays: rotation.cycleDays,
+              nextStartsAt: rotation.nextStartsAt,
+            },
+          });
+        }
         const [row] = await tx
           .insert(onCallSchedules)
           .values({
             tenantId: auth.tenantId,
             teamId: input.teamId,
+            rotationId,
             label: input.label,
             startsAt: input.startsAt,
             endsAt: input.endsAt,
@@ -540,8 +620,35 @@ router.post(
           422,
         );
       }
+      if (result.status === "rotation_exists") {
+        return c.json(
+          {
+            error: "CONFLICT",
+            message: "This team already has an active rotation",
+          },
+          409,
+        );
+      }
       return c.json({ data: result.row }, 201);
     } catch (err: unknown) {
+      // The one-active-rotation-per-team index, hit by a concurrent create.
+      if (
+        err &&
+        typeof err === "object" &&
+        "cause" in err &&
+        err.cause &&
+        typeof err.cause === "object" &&
+        "code" in err.cause &&
+        err.cause.code === "23505"
+      ) {
+        return c.json(
+          {
+            error: "CONFLICT",
+            message: "This team already has an active rotation",
+          },
+          409,
+        );
+      }
       // GIST exclusion constraint violation (R5: overlapping window for the
       // same team + tenant).
       if (isExclusionViolation(err)) {
@@ -588,7 +695,7 @@ router.patch(
         if (refErrors.length > 0) {
           return { status: "invalid" as const, refErrors };
         }
-        const [existing] = await tx
+        const [peek] = await tx
           .select()
           .from(onCallSchedules)
           .where(
@@ -600,9 +707,62 @@ router.patch(
           )
           .limit(1);
 
-        if (!existing) return { status: "not_found" as const };
-        if (existing.startsAt <= new Date()) {
-          return { status: "already_started" as const };
+        if (!peek) return { status: "not_found" as const };
+        let existing = peek;
+        if (peek.rotationId) {
+          // Same lock, same order as the rotation worker (rotation first, then its windows), so an
+          // edit and a generation run cannot interleave.
+          await tx
+            .select({ id: onCallRotations.id })
+            .from(onCallRotations)
+            .where(
+              and(
+                eq(onCallRotations.id, peek.rotationId),
+                eq(onCallRotations.tenantId, auth.tenantId),
+              ),
+            )
+            .for("update");
+          const [locked] = await tx
+            .select()
+            .from(onCallSchedules)
+            .where(
+              and(
+                eq(onCallSchedules.id, id),
+                eq(onCallSchedules.tenantId, auth.tenantId),
+                isNull(onCallSchedules.deletedAt),
+              ),
+            )
+            .for("update");
+          if (!locked) return { status: "not_found" as const };
+          existing = locked;
+        }
+        const now = new Date();
+        if (existing.startsAt <= now) {
+          // A window running now may only have its label or end changed, and the end must stay in
+          // the future: the people and start are already on call.
+          const touchesLocked =
+            (input.startsAt !== undefined &&
+              input.startsAt.getTime() !== existing.startsAt.getTime()) ||
+            (input.primaryUserId !== undefined &&
+              input.primaryUserId !== existing.primaryUserId) ||
+            (input.backupUserId !== undefined &&
+              input.backupUserId !== existing.backupUserId) ||
+            (input.escalationManagerUserId !== undefined &&
+              input.escalationManagerUserId !==
+                existing.escalationManagerUserId);
+          if (existing.endsAt <= now || touchesLocked) {
+            return { status: "already_started" as const };
+          }
+          if (input.endsAt !== undefined && input.endsAt <= now) {
+            return { status: "end_in_past" as const };
+          }
+        }
+
+        if (
+          (input.startsAt ?? existing.startsAt) >=
+          (input.endsAt ?? existing.endsAt)
+        ) {
+          return { status: "bad_window" as const };
         }
 
         const memberErrors = await validateTeamMembership(
@@ -638,11 +798,28 @@ router.patch(
           return { status: "invalid" as const, refErrors: memberErrors };
         }
 
+        const endChanges =
+          input.endsAt !== undefined &&
+          input.endsAt.getTime() !== existing.endsAt.getTime();
+        if (existing.rotationId && endChanges) {
+          // before the update, so a longer window does not hit the next one's exclusion constraint
+          await releaseWindowsAfter(tx, auth.tenantId, auth.userId, existing);
+        }
+
         const [row] = await tx
           .update(onCallSchedules)
           .set({ ...input, updatedAt: new Date() })
-          .where(eq(onCallSchedules.id, id))
+          .where(
+            and(
+              eq(onCallSchedules.id, id),
+              eq(onCallSchedules.tenantId, auth.tenantId),
+              isNull(onCallSchedules.deletedAt),
+            ),
+          )
           .returning();
+        if (row?.rotationId && endChanges) {
+          await alignRotationCursor(tx, auth.tenantId, auth.userId, row);
+        }
         if (row) {
           await writeAuditEntry(tx, {
             tenantId: auth.tenantId,
@@ -688,11 +865,33 @@ router.patch(
           404,
         );
       }
+      if (result.status === "bad_window") {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "startsAt must be before endsAt",
+            fields: [
+              { field: "endsAt", message: "startsAt must be before endsAt" },
+            ],
+          },
+          422,
+        );
+      }
+      if (result.status === "end_in_past") {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "A window that is running can only end in the future",
+          },
+          422,
+        );
+      }
       if (result.status === "already_started") {
         return c.json(
           {
             error: "VALIDATION_ERROR",
-            message: "Only future-window schedule entries can be modified",
+            message:
+              "Only a window that has not started can be changed. A running window can only have its end moved later or earlier (still in the future)",
           },
           422,
         );

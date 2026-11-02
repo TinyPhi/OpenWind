@@ -211,6 +211,32 @@ describe("UsersPage — erase a user (#728)", () => {
     );
   });
 
+  it("warns, never shows success, when Superset's state could not be confirmed (#1137)", async () => {
+    signInAs("me", ["admin"]);
+    const message =
+      "The user's data was erased here, but it could not be confirmed whether Superset holds an account for them. An operator must check Superset (see the Superset erasure runbook).";
+    apiAnswers({
+      success: true,
+      superset: { status: "unverified", switchIgnored: false, message },
+    });
+    render(<UsersPage />);
+    await openEraseFor("Ravi Kumar");
+    fireEvent.change(screen.getByLabelText("Type Ravi Kumar to confirm"), {
+      target: { value: "Ravi Kumar" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Erase" }));
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith({
+        title: "Ravi Kumar was erased.",
+        message,
+        tone: "warning",
+      }),
+    );
+    expect(showToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "success" }),
+    );
+  });
+
   it("still confirms the erasure when the API sends no Superset result", async () => {
     signInAs("me", ["admin"]);
     apiAnswers({ success: true });

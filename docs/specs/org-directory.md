@@ -134,11 +134,19 @@ R7: Any authenticated tenant user can view the full org chart; only tenant admin
 per-viewer redaction).
 
 R8: Org chart UI renders as a visual tree (boxes + connecting lines), not a list/table.
-✓ Default render expands to depth 3 from root; deeper nodes show a fold/unfold affordance and
-expand only on click.
+✓ Default render expands to depth 3 from root for an organisation of more than 60 people; deeper
+nodes show a fold/unfold affordance and expand only on click. An organisation of 60 or fewer opens
+fully expanded (2026-10-28), because a chain of managers is deeper than 3 and would hide most of
+a small organisation behind collapsed cards.
 ✓ Each card shows name, title, department (blank if unset), email, and a fold/unfold toggle.
 ✓ For a tenant with ≤500 synced employees, the page becomes interactive (default depth-3 view
 rendered, fold/search controls responsive) within 200ms of data arriving client-side.
+
+Idle logout (policy, 2026-10-30): the admin UI signs a person out after 15 minutes without input
+(`useIdleLogout`; `VITE_IDLE_LOGOUT_TIMEOUT_MINUTES` overrides, `VITE_IDLE_LOGOUT_ENABLED=false`
+disables). The default was 5; the owner accepted 15 because 5 was too short on sandboxes and for
+admins reading long pages. Token and refresh lifetimes are unchanged, so this only bounds an unattended
+browser. A deployment holding sensitive data can set a shorter value.
 
 R9: Search finds a person by name or email, highlights their card, and reveals it in context.
 ✓ Match is case-insensitive substring match against name or email (e.g. "jan" matches "Jane
