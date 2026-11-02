@@ -31,6 +31,79 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   saving at once cannot put someone on two teams. The team member picker is a searchable multi-select that
   lists only people not on another team.
 
+## [Unreleased — module catalog sync (#1079)]
+
+### Fixed
+
+- The module catalog (`modules`, which drives the Templates page and which modules new tenants
+  get automatically) is now written by `pnpm db:migrate` / the `bootstrap` container as
+  `migration_user`, on every run, instead of by the API at runtime. Since migration 0061 the API
+  role could not write it, so a fresh database stayed empty and catalog changes never applied.
+  The admin visibility toggle works again (migration 0159, column-scoped grant on `is_visible`).
+
+### Changed
+
+- **Operators must run the migration step** (`pnpm db:migrate`, or `docker compose --profile
+bootstrap up bootstrap`) on a fresh database and after any change to the catalog. The API now
+  exits non-zero at startup, with a message naming that step, when the catalog is empty.
+- Removed `POST /modules/seed`, the "Seed Templates" button and the empty-registry auto-seed.
+  `pnpm seed:demo` and `pnpm reset:data` need `MIGRATION_DATABASE_URL` and re-sync the catalog.
+
+## [Unreleased — migration 0158 fresh install (#1153)]
+
+### Fixed
+
+- Migration 0158 (`access_log_retention_role`) no longer stops a from-scratch migrate as the
+  non-superuser `migration_user`. The unconditional `ALTER ROLE` is replaced by an attribute check that
+  raises on a pre-existing role with unsafe attributes (and repairs it only for a superuser). Edited in
+  place; databases that already applied 0158 are unaffected.
+
+## [Unreleased — OTel/Sentry upgrade (#793)]
+
+### Security
+
+- Upgraded `@sentry/node` to 10.x and removed an unused OTel 1.x metrics dependency, clearing
+  GHSA-8988-4f7v-96qf (OTel core baggage memory) and GHSA-qqmp-wf37-98f9 (DB username in spans).
+  Sentry PII (`sendDefaultPii: false`) is now pinned explicitly; tracing stays off.
+- Stopped Sentry adding `sentry-trace` and `baggage` headers (which carry the DSN public key) to
+  outbound HTTP calls to connectors, webhooks and partners (`tracePropagationTargets: []`).
+
+## [Unreleased — Superset production config (#1142)]
+
+### Fixed
+
+- Production compose now requires `SUPERSET_SERVICE_ACCOUNT_PASSWORD` for `ow-worker` and passes it
+  `SUPERSET_INTERNAL_URL` and `SUPERSET_SERVICE_ACCOUNT_USER`, so GDPR erasure jobs no longer retry for
+  about 26 hours against a worker that cannot log in to Superset. The Superset erasure runbook lists
+  the four OpenBao paths to set when Stage 2 is enabled.
+
+### Upgrade note
+
+- Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to `openwind/<env>/worker` in OpenBao before deploying this
+  compose file, even with reporting off, or `ow-worker` refuses to start (exit 78).
+
+## [Unreleased — access-log retention role (#1131)]
+
+### Fixed
+
+- The daily access-log retention job could not delete from `admin_audit_log` under the default
+  stack (the worker runs as `app_user`, which is append-only there). Added a narrow
+  `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
+  new privileges.
+
+## [Unreleased — Sentry free-text scrubbing (#1149)]
+
+### Security
+
+- Sentry events and `@platform/logger` now share one scrubbing module (`packages/logger/src/redact.ts`).
+  Besides key-based redaction, string values (message, exception values, breadcrumbs, `extra`,
+  `contexts`, `tags`) are scrubbed for email addresses, bearer/JWT tokens and `key=value` secrets.
+- Sentry events no longer carry `user.ip_address`, `server_name`, `request.data`, the request query
+  string or stack-frame source context lines.
+  Free-text IP addresses inside messages are not scrubbed.
+- The logger now also redacts one level of nested sensitive keys, and scrubs the log message and
+  top-level string fields. Its redaction marker is `[REDACTED]` (was pino's `[Redacted]`).
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added

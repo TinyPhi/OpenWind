@@ -28,9 +28,13 @@ Owner testing of the rebuilt local stack changed how repeating rosters are edite
   locks the rotation row before reading it, so the audit snapshot and the resume check cannot go stale
   against the worker. Known and accepted: messages already sent are not retracted when pausing removes a
   future window.
-- Review follow-up (2026-10-30): migration 0158 now adds a unique index on `team_members (tenant_id,
+- Review follow-up (2026-10-30): migration 0160 now adds a unique index on `team_members (tenant_id,
 user_id)` in place of the plain one, so the one-team-per-person race ends in a `422`; schedule `PATCH`
   also filters deleted windows in its write; a rotation whose team was deleted shows why it makes no
   windows; Escape closes the member picker. Not changed: the worker still polls every active rotation,
   because a rotation's next start is past the notice lead as soon as its windows exist, so filtering on it
   would skip the notices still due on those windows.
+- Merge with main (2026-11-02): main took migrations 0158 (access-log retention role, #1131) and 0159, so the
+  rotation migration is now `0160_oncall_rotations` with a journal `when` later than 0159's. A database that
+  applied the old 0158 rotation migration from this branch (local or test only, never main) has the objects
+  already and needs the journal row for `0160_oncall_rotations` inserted by hand instead of re-running it.

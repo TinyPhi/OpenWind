@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +25,7 @@ export function EditApiKeyModal({
   onClose,
   onSaved,
 }: EditApiKeyModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [applicationDescription, setApplicationDescription] = useState("");
   const [applicationContactEmail, setApplicationContactEmail] = useState("");
   const [saving, setSaving] = useState(false);
@@ -54,7 +56,7 @@ export function EditApiKeyModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save changes");
+      setError(err instanceof Error ? err.message : t("apiKeys.failedToSave"));
     } finally {
       setSaving(false);
     }
@@ -87,7 +89,7 @@ export function EditApiKeyModal({
           <DialogClose asChild>
             <button
               type="button"
-              aria-label="Close"
+              aria-label={t("apiKeys.close")}
               style={{
                 background: "none",
                 border: "none",
@@ -110,10 +112,10 @@ export function EditApiKeyModal({
 
         <form onSubmit={(e) => void handleSave(e)}>
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="form-label">{t("apiKeys.description")}</label>
             <input
               className="form-input"
-              placeholder="What this integration does"
+              placeholder={t("apiKeys.descriptionPlaceholder")}
               value={applicationDescription}
               onChange={(e) => setApplicationDescription(e.target.value)}
             />
@@ -137,7 +139,7 @@ export function EditApiKeyModal({
             disabled={!isValid || saving}
             style={{ marginTop: "16px" }}
           >
-            {saving ? "Saving…" : "Save Changes"}
+            {saving ? t("apiKeys.saving") : t("apiKeys.saveChanges")}
           </Button>
         </form>
       </DialogContent>

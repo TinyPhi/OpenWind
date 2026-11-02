@@ -733,4 +733,17 @@ describe("CustomerRecordCreate — remark warning after create", () => {
       window.removeEventListener("ui:alert-dialog", onAlert);
     }
   });
+
+  it.each(["//evil.example", "/\\evil.example", "https://evil.example"])(
+    "ignores a returnTo of %s that points off the app",
+    async (returnTo) => {
+      await createTicket(
+        { entityTypeId: "et-1", workflowId: "wf-1", returnTo },
+        { data: { id: "new-ticket-1" } },
+      );
+      await waitFor(() => {
+        expect(screen.getByText("record page")).toBeDefined();
+      });
+    },
+  );
 });

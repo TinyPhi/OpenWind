@@ -19,6 +19,7 @@ repo's compose file (there isn't one).
 
 - [Local development](#local-development)
   - [Running DB-backed tests locally](#running-db-backed-tests-locally)
+- [Adding users](#adding-users)
 - [Production deployment (HTTPS)](#production-deployment-https)
   - [Production hardening checklist](deployment-hardening.md)
 - [What setup does — step by step](#what-setup-does--step-by-step)
@@ -207,6 +208,35 @@ docker exec ow-database psql -U platform -d platform -Atc \
   "select 'DROP DATABASE \"'||datname||'\";' from pg_database where datname like 'platform_test_%'" \
   | docker exec -i ow-database psql -U platform -d platform
 ```
+
+---
+
+## Adding users
+
+OpenWind does not currently create users from its admin UI. An organisation administrator creates
+each user in the Zitadel console first; after the user can sign in, OpenWind reads their identity
+and access from Zitadel.
+
+1. Sign in to the Zitadel console as an organisation administrator.
+2. Switch to the organisation that matches the OpenWind tenant or sandbox the user should join.
+   Creating the user in the wrong organisation will not give them access to the intended tenant.
+3. Open **Users**, choose **New**, and enter the user's first name, last name, and email address.
+4. Choose the email-verification behavior:
+   - Select **Email verified** (sometimes shown as **Already verified**) when the address is already
+     trusted and the user should not complete email or OTP verification on first sign-in.
+   - Leave it unselected when Zitadel should send the user a verification code.
+5. Save the user, then configure the sign-in method required by your organisation's policy. This
+   might be an initial password, an invitation, or a password-reset link sent by Zitadel.
+6. If the deployment requires explicit application access, give the user the appropriate OpenWind
+   project grant or role.
+7. Send the user the organisation's OpenWind login link. After their first successful sign-in,
+   they appear in OpenWind with the access supplied by Zitadel.
+
+The console URL, project name, roles, and sign-in policy depend on the deployment. Do not copy
+credentials or environment-specific values from another environment when following this procedure.
+
+Creating users directly from the OpenWind admin UI would require a separate integration with the
+Zitadel management API and is not part of the current workflow.
 
 ---
 
@@ -428,11 +458,22 @@ Migrations live in `packages/db/migrations/` as numbered SQL files. Each runs
 in a transaction. The journal at `packages/db/migrations/meta/_journal.json`
 controls which files run — Drizzle reads it to determine pending migrations.
 
+### Module catalog
+
+The `modules` table (the Templates page, and what `category = 'core'` auto-installs for new
+tenants) is written only by the migration role. `pnpm db:migrate` (and the compose `bootstrap`
+container, which runs it) syncs it from `packages/db/src/module-catalog.ts` after the migrations,
+on every run: an idempotent upsert keyed on `slug` that refreshes name, description, version,
+`is_system`, `min_plan` and `category`, and never touches `is_visible` (an admin setting, which
+`app_user` may update through a column-scoped grant, migration 0159). The API role is read-only on
+the table (ADR-005 Amendment 1, migration 0061), so after changing the catalog file, re-run the
+migrations; restarting the API is not enough.
+
 ### Seeding
 
 ```bash
 pnpm db:seed           # base tenant seed (idempotent)
-pnpm seed:demo         # Helpdesk demo data — entity type, workflow, 5 tickets
+pnpm seed:demo         # re-syncs the module catalog (needs MIGRATION_DATABASE_URL)
 ```
 
 Both run automatically as part of setup. Safe to re-run — all inserts use
@@ -716,6 +757,22 @@ MIGRATION_DATABASE_URL=postgresql://migration_user:migration_user_dev_password@l
 ```
 
 If missing, it is in `.env.example` — copy it manually or re-run setup.
+
+### API exits at startup: module catalog is empty
+
+The API reads the `modules` catalog as `app_user` before it listens and exits non-zero if it has
+no rows, because `app_user` cannot write it. Run the migration step as `migration_user`, which also
+syncs the catalog, then start the API again:
+
+```bash
+pnpm db:migrate        # host mode; needs MIGRATION_DATABASE_URL in .env.local
+# or, in the compose stack:
+docker compose --profile bootstrap up bootstrap
+```
+
+`pnpm reset:data` clears and re-syncs the catalog in one transaction, so it never leaves it empty.
+Compose does not yet have a one-shot `migrate` service that `ow-backend` waits on, so `docker
+compose up -d` alone on a fresh database does not populate the catalog; run bootstrap first.
 
 ### Port already in use
 

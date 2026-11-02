@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import { Refine, Authenticated } from "@refinedev/core";
-import routerProvider from "@refinedev/react-router-v6";
+import routerProvider from "@refinedev/react-router";
 import {
   BrowserRouter,
   Routes,
@@ -112,8 +112,9 @@ export function App(): React.ReactElement {
 
   const i18nProvider = {
     translate: (key: string, params?: object) =>
+      // Refine's i18nProvider types params as object; i18next expects Record<string, unknown>
       t(key, params as Record<string, unknown>),
-    changeLocale: (lng: string) => changeLocale(lng),
+    changeLocale,
     getLocale: () => locale,
   };
 

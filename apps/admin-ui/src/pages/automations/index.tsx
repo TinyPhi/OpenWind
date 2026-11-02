@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Button,
   IconButton,
@@ -39,6 +40,7 @@ const TRIGGER_COLORS: Record<string, string> = {
 };
 
 export function Automations(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,16 +115,14 @@ export function Automations(): React.ReactElement {
         }}
       >
         <div>
-          <h2 className="page-title">Automation Rules</h2>
-          <p className="page-subtitle">
-            Trigger actions automatically based on workflow events.
-          </p>
+          <h2 className="page-title">{t("automations.rulesTitle")}</h2>
+          <p className="page-subtitle">{t("automations.rulesSubtitle")}</p>
         </div>
         <Button
           variant="primary"
           onClick={() => void navigate("/automations/new")}
         >
-          + New Rule
+          {t("automations.newRule")}
         </Button>
       </div>
 
@@ -135,34 +135,34 @@ export function Automations(): React.ReactElement {
       {loading ? (
         <div className="loading-center">
           <div className="spinner" />
-          <p className="loader-text">Loading rules…</p>
+          <p className="loader-text">{t("automations.loadingRules")}</p>
         </div>
       ) : rules.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">⚡</div>
           <p style={{ fontWeight: 600, marginBottom: "4px" }}>
-            No automation rules yet
+            {t("automations.noRules")}
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-            Create a rule to trigger actions when workflow events occur.
+            {t("automations.noRulesDesc")}
           </p>
           <Button
             variant="primary"
             style={{ marginTop: "16px" }}
             onClick={() => void navigate("/automations/new")}
           >
-            + New Rule
+            {t("automations.newRule")}
           </Button>
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Trigger</TableHead>
-              <TableHead>Actions</TableHead>
-              <TableHead>Priority</TableHead>
-              <TableHead>Enabled</TableHead>
+              <TableHead>{t("users.name")}</TableHead>
+              <TableHead>{t("automations.trigger")}</TableHead>
+              <TableHead>{t("automations.actions")}</TableHead>
+              <TableHead>{t("automations.priority")}</TableHead>
+              <TableHead>{t("automations.enabled")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -207,7 +207,7 @@ export function Automations(): React.ReactElement {
                           marginTop: "4px",
                         }}
                       >
-                        Trigger not supported
+                        {t("automations.triggerNotSupported")}
                       </div>
                     )}
                   </TableCell>
@@ -215,8 +215,9 @@ export function Automations(): React.ReactElement {
                     <span
                       style={{ color: "var(--text-muted)", fontSize: "13px" }}
                     >
-                      {rule.actions.length}{" "}
-                      {rule.actions.length === 1 ? "action" : "actions"}
+                      {t("automations.actionCount", {
+                        count: rule.actions.length,
+                      })}
                     </span>
                     {/* docs/specs/mandatory-ticket-fields.md R7: still runs, on defaults. */}
                     {needsTemplate(rule.actions) && (
@@ -228,7 +229,7 @@ export function Automations(): React.ReactElement {
                           marginTop: "4px",
                         }}
                       >
-                        Needs template
+                        {t("automations.needsTemplate")}
                       </div>
                     )}
                   </TableCell>
@@ -301,7 +302,9 @@ export function Automations(): React.ReactElement {
                           }}
                         />
                       </span>
-                      {rule.isEnabled ? "On" : "Off"}
+                      {rule.isEnabled
+                        ? t("automations.on")
+                        : t("automations.off")}
                     </button>
                   </TableCell>
                   <TableCell>

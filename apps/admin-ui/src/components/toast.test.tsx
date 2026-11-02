@@ -1,3 +1,4 @@
+import "../i18n.js";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   render,

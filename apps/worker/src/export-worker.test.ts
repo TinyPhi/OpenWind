@@ -246,3 +246,39 @@ describe("processExportJob — audit trail", () => {
     await expect(processExportJob(job(["agent"]))).rejects.toThrow("original");
   });
 });
+
+// exceljs calls uuid v4() only when writing/reading conditional-formatting
+// extension rules; pinned uuid >=11.1.1 <12 must keep that CJS require working.
+describe("exceljs conditional formatting round-trip (uuid override)", () => {
+  it("writes and reloads a workbook with a dataBar rule", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Export");
+    ws.addRow(["id", "score"]);
+    ws.addRow(["a", 1]);
+    ws.addRow(["b", 5]);
+    ws.addConditionalFormatting({
+      ref: "B2:B3",
+      rules: [
+        {
+          type: "dataBar",
+          priority: 1,
+          gradient: false,
+          minLength: 0,
+          maxLength: 100,
+          cfvo: [{ type: "min" }, { type: "max" }],
+          color: { argb: "FF638EC6" },
+          // exceljs types require extLst fields the writer fills in itself
+        } as ExcelJS.DataBarRuleType,
+      ],
+    });
+
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    const loaded = new ExcelJS.Workbook();
+    await loaded.xlsx.load(buf);
+    const sheet = loaded.getWorksheet("Export");
+
+    expect(sheet?.getRow(1).values).toEqual([undefined, "id", "score"]);
+    expect(sheet?.getRow(3).getCell(2).value).toBe(5);
+    expect(sheet?.conditionalFormattings).toHaveLength(1);
+  });
+});

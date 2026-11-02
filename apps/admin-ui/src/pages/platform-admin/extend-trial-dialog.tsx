@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -37,6 +38,7 @@ export function ExtendTrialDialog({
   onClose,
   onSaved,
 }: ExtendTrialDialogProps): React.ReactElement {
+  const { t } = useTranslation();
   const [days, setDays] = React.useState("7");
   const [saving, setSaving] = React.useState(false);
 
@@ -61,7 +63,9 @@ export function ExtendTrialDialog({
       onSaved();
     } catch (err) {
       showAlert(
-        err instanceof Error ? err.message : "Failed to extend the trial",
+        err instanceof Error
+          ? err.message
+          : t("platformAdmin.failedToExtendTrial"),
       );
     } finally {
       setSaving(false);
@@ -77,7 +81,9 @@ export function ExtendTrialDialog({
     >
       <DialogContent style={{ maxWidth: 440 }}>
         <DialogTitle asChild>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Extend trial</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>
+            {t("platformAdmin.extendTrial")}
+          </h2>
         </DialogTitle>
         <p style={{ color: "var(--text-secondary)", margin: "8px 0 16px" }}>
           <strong>{tenantName}</strong>:{" "}
@@ -129,7 +135,11 @@ export function ExtendTrialDialog({
             onClick={() => void handleSave()}
             disabled={!valid || saving}
           >
-            {saving ? "Saving…" : expired ? "Reactivate" : "Extend"}
+            {saving
+              ? t("platformAdmin.saving")
+              : expired
+                ? t("platformAdmin.reactivate")
+                : t("platformAdmin.extend")}
           </Button>
         </div>
       </DialogContent>

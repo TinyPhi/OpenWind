@@ -60,7 +60,7 @@ export function CreateWorkflow(): React.ReactElement {
         }),
       });
 
-      navigate(`/workflows/${toWorkflowSlug(name.trim())}`);
+      void navigate(`/workflows/${toWorkflowSlug(name.trim())}`);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to create workflow",
@@ -80,7 +80,7 @@ export function CreateWorkflow(): React.ReactElement {
             cursor: "pointer",
             padding: 0,
           }}
-          onClick={() => navigate("/workflows")}
+          onClick={() => void navigate("/workflows")}
         >
           ← Workflows
         </button>
@@ -164,7 +164,7 @@ export function CreateWorkflow(): React.ReactElement {
             <Button
               type="button"
               variant="secondary"
-              onClick={() => navigate("/workflows")}
+              onClick={() => void navigate("/workflows")}
             >
               Cancel
             </Button>

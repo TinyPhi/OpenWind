@@ -63,8 +63,18 @@ export async function setScheduleSweeperRole(tx: Tx): Promise<void> {
 }
 
 /**
+ * Switches to access_log_retention_role (migration 0158, #1131) for the remainder of the
+ * current transaction. For access-log-retention.ts's cross-tenant aggregate-then-delete batch:
+ * app_user cannot DELETE admin_audit_log (append-only, 0061). The role is NOT BYPASSRLS; it has
+ * role-only policies and column-scoped grants on admin_audit_log and its daily rollup table.
+ */
+export async function setAccessLogRetentionRole(tx: Tx): Promise<void> {
+  await tx.execute(sql`SET LOCAL ROLE access_log_retention_role`);
+}
+
+/**
  * Switches to oncall_rotation_sweeper (BYPASSRLS, column-scoped SELECT on on_call_rotations
- * only, see 0158_oncall_rotations.sql) for the remainder of the current transaction. For
+ * only, see 0160_oncall_rotations.sql) for the remainder of the current transaction. For
  * oncall-rotation-worker's cross-tenant discovery of due rotations; the work on each rotation
  * then runs under withTenantContext, so RLS applies to every write.
  */

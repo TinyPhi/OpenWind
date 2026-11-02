@@ -318,10 +318,12 @@ const PLAN_LABEL: Record<string, string> = {
 // ── main component ────────────────────────────────────────────────────────────
 
 export function Modules(): React.ReactElement {
-  const { data, isLoading, refetch } = useList<Module>({ resource: "modules" });
+  const {
+    result: data,
+    query: { isLoading },
+  } = useList<Module>({ resource: "modules" });
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [seeding, setSeeding] = useState(false);
 
   // Preview modal state
   const [previewTarget, setPreviewTarget] = useState<Module | null>(null);
@@ -334,7 +336,7 @@ export function Modules(): React.ReactElement {
     [],
   );
 
-  const modules = data?.data ?? [];
+  const modules = data.data;
 
   const filtered = useMemo(() => {
     if (!search.trim()) return modules;
@@ -346,19 +348,6 @@ export function Modules(): React.ReactElement {
         (m.description ?? "").toLowerCase().includes(q),
     );
   }, [modules, search]);
-
-  async function handleSeed(): Promise<void> {
-    setSeeding(true);
-    setActionError(null);
-    try {
-      await fetchWithAuth(`${API_URL}/modules/seed`, { method: "POST" });
-      await refetch();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Seed failed");
-    } finally {
-      setSeeding(false);
-    }
-  }
 
   function openForkModal(mod: Module): void {
     setForkTarget(mod);
@@ -483,20 +472,10 @@ export function Modules(): React.ReactElement {
           {search ? (
             <p>No templates match "{search}"</p>
           ) : (
-            <>
-              <p>
-                The template registry is empty. Click below to load the built-in
-                module templates.
-              </p>
-              <Button
-                variant="primary"
-                onClick={() => void handleSeed()}
-                disabled={seeding}
-                style={{ marginTop: "12px" }}
-              >
-                {seeding ? "Seeding…" : "Seed Templates"}
-              </Button>
-            </>
+            <p>
+              The template registry is empty. An administrator needs to run the
+              database migration step, which loads the built-in templates.
+            </p>
           )}
         </div>
       ) : (
@@ -1201,8 +1180,8 @@ function ModuleCard({
               {mod.name}
             </span>
             {/* ADR-005: category-driven, unlike the old isSystem-driven Core
-                badge this replaces — isSystem is hardcoded false for every
-                seeded module (see ModuleService.seedRegistry), so that badge
+                badge this replaces — isSystem is false for every
+                module in the catalog (packages/db/src/module-catalog.ts), so that badge
                 never actually rendered. This one reflects a real signal. */}
             {mod.category === "core" && (
               <span

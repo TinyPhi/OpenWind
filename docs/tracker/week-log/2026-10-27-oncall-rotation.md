@@ -34,9 +34,9 @@ An admin can repeat a roster every N days. A worker creates each next window by 
 
 - **The worker's database role is read-only.** `oncall_rotation_sweeper` can read six columns of `on_call_rotations` (BYPASSRLS, for cross-tenant discovery) and nothing else. Generation, the cursor update and notices all run in a normal per-tenant transaction under RLS. This is narrower than the spec's "read and advance rotations"; the spec's invariant is updated to match.
 - **Notices are sent when a window starts within 2 days**, not at creation: a generated window is made when the current one is within 2 days of ending, so it is announced right away, and an edit or a first window made further out is announced once it gets close.
-- **`notifications.type` is a database CHECK.** The new type `oncall.rotation_notice` is added in migration 0158 with every previous value kept. A mocked-database test cannot see this, so the worker test runs against a real database.
+- **`notifications.type` is a database CHECK.** The new type `oncall.rotation_notice` is added in migration 0160 with every previous value kept. A mocked-database test cannot see this, so the worker test runs against a real database.
 - The overlap check and the insert are in one transaction, and the insert names its conflict target so a concurrent manual window raises an error and rolls back (the next run then blocks on it) instead of silently skipping a cycle.
-- Migration number 0158 follows PR A's 0157 (merged in #1103).
+- Migration number 0160 follows PR A's 0157 (merged in #1103); it was 0158 until main took 0158 and 0159.
 - Outside the plan-lock's scope paths: `apps/api/src/app.ts` (router mount), `apps/worker/package.json` and `pnpm-lock.yaml` (a workspace dependency on `@platform/teams`; pnpm could not rewrite the lockfile offline, so the one entry was added by hand and pnpm's frozen-lockfile check accepts it).
 
 ## Review
@@ -47,6 +47,6 @@ An admin can repeat a roster every N days. A worker creates each next window by 
 
 - `pnpm typecheck` and `pnpm lint`: pass (52/52).
 - Unit and route tests: `@platform/teams` 39, `@platform/config` 110, admin route tests 207, worker lifecycle and wiring tests, admin-ui roster 18. The full admin-ui suite passes except `lazy-routes.test.ts`, which timed out once under full-suite load and passes on its own (71 tests).
-- Isolation, on a throwaway Postgres with every migration applied (including 0158): rotation routes (10), worker (18), the two erasure coverage guards, the user-data export guard, user-erasure suites, team-member isolation tests and all tenant-purge isolation files.
+- Isolation, on a throwaway Postgres with every migration applied (including 0160): rotation routes (10), worker (18), the two erasure coverage guards, the user-data export guard, user-erasure suites, team-member isolation tests and all tenant-purge isolation files.
 - Root `pnpm test` was not run (`.env.local` points at the live dev database).
 - Not covered by a test: the race between a manual window and generation (it needs two transactions interleaved); the fix is by construction.

@@ -20,6 +20,7 @@ import {
   TableHead,
   TableCell,
 } from "@platform/ui";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 
@@ -79,6 +80,7 @@ interface ResolveResult {
  * (no side effects — matches the route's own R20 contract).
  */
 export function NotificationPoliciesPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [policies, setPolicies] = useState<NotificationPolicy[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
@@ -99,7 +101,7 @@ export function NotificationPoliciesPage(): React.ReactElement {
         setTeams((teamsRes as { data: Team[] }).data);
         setWorkflows((workflowsRes as { data?: WorkflowOption[] }).data ?? []);
       })
-      .catch(() => showAlert("Failed to load notification policies."))
+      .catch(() => showAlert(t("notificationPolicies.failedToLoad")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -108,11 +110,13 @@ export function NotificationPoliciesPage(): React.ReactElement {
   }, [refresh]);
 
   const teamName = (teamId: string | null): string =>
-    teamId ? (teams.find((t) => t.id === teamId)?.name ?? "—") : "Any team";
+    teamId
+      ? (teams.find((t) => t.id === teamId)?.name ?? "—")
+      : t("notificationPolicies.anyTeam");
   const workflowName = (workflowId: string | null): string =>
     workflowId
       ? (workflows.find((w) => w.id === workflowId)?.name ?? "—")
-      : "Any workflow";
+      : t("notificationPolicies.anyWorkflow");
 
   async function handleDelete(policy: NotificationPolicy): Promise<void> {
     try {
@@ -123,7 +127,7 @@ export function NotificationPoliciesPage(): React.ReactElement {
       setDeleting(null);
       refresh();
     } catch {
-      showAlert("Failed to delete policy.");
+      showAlert(t("notificationPolicies.failedToDelete"));
     }
   }
 
@@ -131,7 +135,7 @@ export function NotificationPoliciesPage(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading notification policies…</span>
+        <span className="loader-text">{t("notificationPolicies.loading")}</span>
       </div>
     );
   }
@@ -140,35 +144,34 @@ export function NotificationPoliciesPage(): React.ReactElement {
     <div>
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">Notification Policies</h2>
-          <p className="page-subtitle">
-            Route severity-based ticket alerts to channels, per team and
-            workflow.
-          </p>
+          <h2 className="page-title">{t("notificationPolicies.title")}</h2>
+          <p className="page-subtitle">{t("notificationPolicies.subtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <Button variant="primary" onClick={() => setCreating(true)}>
-            New Policy
+            {t("notificationPolicies.newPolicy")}
           </Button>
         </div>
       </div>
 
       {policies.length === 0 ? (
         <div className="wfl-empty">
-          <h4>No notification policies yet</h4>
-          <p>Create one to route severity-based alerts to a channel.</p>
+          <h4>{t("notificationPolicies.noPolicies")}</h4>
+          <p>{t("notificationPolicies.noPoliciesDesc")}</p>
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Severity</TableHead>
-              <TableHead>Team</TableHead>
-              <TableHead>Workflow</TableHead>
-              <TableHead>Channels</TableHead>
-              <TableHead>Backup</TableHead>
-              <TableHead>Escalation mgr</TableHead>
-              <TableHead style={{ width: 120 }}>Actions</TableHead>
+              <TableHead>{t("notificationPolicies.severity")}</TableHead>
+              <TableHead>{t("notificationPolicies.team")}</TableHead>
+              <TableHead>{t("notificationPolicies.workflow")}</TableHead>
+              <TableHead>{t("notificationPolicies.channels")}</TableHead>
+              <TableHead>{t("notificationPolicies.backup")}</TableHead>
+              <TableHead>{t("notificationPolicies.escalationMgr")}</TableHead>
+              <TableHead style={{ width: 120 }}>
+                {t("notificationPolicies.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -178,20 +181,26 @@ export function NotificationPoliciesPage(): React.ReactElement {
                 <TableCell>{teamName(policy.teamId)}</TableCell>
                 <TableCell>{workflowName(policy.workflowTypeId)}</TableCell>
                 <TableCell>{policy.channels.join(", ")}</TableCell>
-                <TableCell>{policy.notifyBackup ? "Yes" : "No"}</TableCell>
                 <TableCell>
-                  {policy.notifyEscalationManager ? "Yes" : "No"}
+                  {policy.notifyBackup
+                    ? t("notificationPolicies.yes")
+                    : t("notificationPolicies.no")}
+                </TableCell>
+                <TableCell>
+                  {policy.notifyEscalationManager
+                    ? t("notificationPolicies.yes")
+                    : t("notificationPolicies.no")}
                 </TableCell>
                 <TableCell>
                   <div style={{ display: "flex", gap: 6 }}>
                     <IconButton
-                      aria-label="Edit policy"
+                      aria-label={t("notificationPolicies.editPolicy")}
                       onClick={() => setEditing(policy)}
                     >
                       ✎
                     </IconButton>
                     <IconButton
-                      aria-label="Delete policy"
+                      aria-label={t("notificationPolicies.deletePolicy")}
                       onClick={() => setDeleting(policy)}
                     >
                       🗑
@@ -233,18 +242,22 @@ export function NotificationPoliciesPage(): React.ReactElement {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete notification policy?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("notificationPolicies.deleteTitle")}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {deleting
               ? `The "${deleting.severity}" policy for ${teamName(deleting.teamId)} / ${workflowName(deleting.workflowTypeId)} will be removed.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>
+              {t("notificationPolicies.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleting && void handleDelete(deleting)}
             >
-              Delete
+              {t("notificationPolicies.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -289,6 +302,7 @@ function PolicyFormModal({
   onClose,
   onSaved,
 }: PolicyFormModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<PolicyFormData>(() =>
     getInitialPolicyFormData(policy),
   );
@@ -314,7 +328,7 @@ function PolicyFormModal({
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     if (formData.channels.length === 0) {
-      setError("Select at least one channel");
+      setError(t("notificationPolicies.selectChannel"));
       return;
     }
     setSaving(true);
@@ -336,7 +350,11 @@ function PolicyFormModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save policy");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("notificationPolicies.failedToSave"),
+      );
     } finally {
       setSaving(false);
     }
@@ -359,7 +377,9 @@ function PolicyFormModal({
         >
           <DialogTitle asChild>
             <h2 className="page-title">
-              {policy ? "Edit Policy" : "New Policy"}
+              {policy
+                ? t("notificationPolicies.editPolicy")
+                : t("notificationPolicies.newPolicy")}
             </h2>
           </DialogTitle>
           <DialogClose asChild>
@@ -388,7 +408,9 @@ function PolicyFormModal({
 
         <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="form-group">
-            <label className="form-label">Severity *</label>
+            <label className="form-label">
+              {t("notificationPolicies.severity")} *
+            </label>
             <select
               className="form-input"
               value={formData.severity}
@@ -407,7 +429,9 @@ function PolicyFormModal({
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Team</label>
+            <label className="form-label">
+              {t("notificationPolicies.team")}
+            </label>
             <select
               className="form-input"
               value={formData.teamId}
@@ -418,7 +442,7 @@ function PolicyFormModal({
                 }))
               }
             >
-              <option value="">Any team</option>
+              <option value="">{t("notificationPolicies.anyTeam")}</option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -427,7 +451,9 @@ function PolicyFormModal({
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Workflow</label>
+            <label className="form-label">
+              {t("notificationPolicies.workflow")}
+            </label>
             <select
               className="form-input"
               value={formData.workflowTypeId}
@@ -438,7 +464,7 @@ function PolicyFormModal({
                 }))
               }
             >
-              <option value="">Any workflow</option>
+              <option value="">{t("notificationPolicies.anyWorkflow")}</option>
               {workflows.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
@@ -447,7 +473,9 @@ function PolicyFormModal({
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Channels *</label>
+            <label className="form-label">
+              {t("notificationPolicies.channels")} *
+            </label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
               {CHANNELS.map((c) => (
                 <label
@@ -488,7 +516,7 @@ function PolicyFormModal({
                   }))
                 }
               />
-              Notify backup on-call
+              {t("notificationPolicies.notifyBackup")}
             </label>
           </div>
           <div className="form-group">
@@ -510,7 +538,7 @@ function PolicyFormModal({
                   }))
                 }
               />
-              Notify escalation manager
+              {t("notificationPolicies.notifyEscalation")}
             </label>
           </div>
           <Button
@@ -519,7 +547,11 @@ function PolicyFormModal({
             disabled={saving}
             style={{ marginTop: 8 }}
           >
-            {saving ? "Saving…" : policy ? "Save changes" : "Create policy"}
+            {saving
+              ? t("notificationPolicies.saving")
+              : policy
+                ? t("notificationPolicies.saveChanges")
+                : t("notificationPolicies.createPolicy")}
           </Button>
         </form>
       </DialogContent>
@@ -534,6 +566,7 @@ function ResolveSimulator({
   teams: Team[];
   workflows: WorkflowOption[];
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<SimulatorFormData>(
     INITIAL_SIMULATOR_FORM_DATA,
   );
@@ -556,7 +589,11 @@ function ResolveSimulator({
       );
       setResult((res as { data: ResolveResult }).data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to resolve");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("notificationPolicies.failedToResolve"),
+      );
     } finally {
       setLoading(false);
     }
@@ -565,11 +602,10 @@ function ResolveSimulator({
   return (
     <div style={{ marginTop: 32 }}>
       <h3 className="page-title" style={{ fontSize: 16 }}>
-        Preview
+        {t("notificationPolicies.previewTitle")}
       </h3>
       <p className="page-subtitle">
-        Dry-run the effective policy for a given severity/team/workflow — no
-        notification is sent.
+        {t("notificationPolicies.previewSubtitle")}
       </p>
       <div
         style={{
@@ -581,7 +617,9 @@ function ResolveSimulator({
         }}
       >
         <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Severity</label>
+          <label className="form-label">
+            {t("notificationPolicies.severity")}
+          </label>
           <select
             className="form-input"
             value={formData.severity}
@@ -600,7 +638,7 @@ function ResolveSimulator({
           </select>
         </div>
         <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Team</label>
+          <label className="form-label">{t("notificationPolicies.team")}</label>
           <select
             className="form-input"
             value={formData.teamId}
@@ -611,7 +649,7 @@ function ResolveSimulator({
               }))
             }
           >
-            <option value="">None</option>
+            <option value="">{t("notificationPolicies.none")}</option>
             {teams.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
@@ -620,7 +658,9 @@ function ResolveSimulator({
           </select>
         </div>
         <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Workflow</label>
+          <label className="form-label">
+            {t("notificationPolicies.workflow")}
+          </label>
           <select
             className="form-input"
             value={formData.workflowTypeId}
@@ -631,7 +671,7 @@ function ResolveSimulator({
               }))
             }
           >
-            <option value="">None</option>
+            <option value="">{t("notificationPolicies.none")}</option>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
@@ -644,7 +684,9 @@ function ResolveSimulator({
           disabled={loading}
           onClick={() => void handleResolve()}
         >
-          {loading ? "Resolving…" : "Resolve"}
+          {loading
+            ? t("notificationPolicies.resolving")
+            : t("notificationPolicies.resolve")}
         </Button>
       </div>
 
@@ -664,22 +706,29 @@ function ResolveSimulator({
           }}
         >
           <div>
-            <strong>Matched:</strong> {result.matchedAt}
+            <strong>{t("notificationPolicies.matched")}:</strong>{" "}
+            {result.matchedAt}
           </div>
           <div>
-            <strong>Channels:</strong> {result.channels.join(", ")}
+            <strong>{t("notificationPolicies.channels")}:</strong>{" "}
+            {result.channels.join(", ")}
           </div>
           <div>
-            <strong>Notify backup:</strong> {result.notifyBackup ? "Yes" : "No"}
+            <strong>{t("notificationPolicies.notifyBackup")}:</strong>{" "}
+            {result.notifyBackup
+              ? t("notificationPolicies.yes")
+              : t("notificationPolicies.no")}
           </div>
           <div>
-            <strong>Notify escalation manager:</strong>{" "}
-            {result.notifyEscalationManager ? "Yes" : "No"}
+            <strong>{t("notificationPolicies.notifyEscalation")}:</strong>{" "}
+            {result.notifyEscalationManager
+              ? t("notificationPolicies.yes")
+              : t("notificationPolicies.no")}
           </div>
           <div>
-            <strong>Recipients:</strong>{" "}
+            <strong>{t("notificationPolicies.recipients")}:</strong>{" "}
             {result.recipients.length === 0
-              ? "None"
+              ? t("notificationPolicies.none")
               : result.recipients
                   .map((r) => `${r.name ?? r.userId} (${r.role})`)
                   .join(", ")}

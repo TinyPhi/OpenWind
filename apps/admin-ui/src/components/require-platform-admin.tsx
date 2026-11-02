@@ -10,7 +10,7 @@ import { usePermissions } from "@refinedev/core";
  * the identical `Object.keys(rolesMap)` check server-side) -- no separate login mechanism.
  */
 export function RequirePlatformAdmin(): React.ReactElement {
-  const { data: roles, isLoading } = usePermissions<string[]>();
+  const { data: roles, isLoading } = usePermissions<string[]>({});
 
   if (isLoading) return <></>;
 
