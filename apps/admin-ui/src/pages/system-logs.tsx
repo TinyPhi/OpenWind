@@ -13,9 +13,11 @@ import {
   listSystemLogs,
   type SystemLogEntry,
 } from "../lib/system-logs-client.js";
+import { useTranslation } from "react-i18next";
 import { relativeTime } from "../lib/format.js";
 
 export function SystemLogsPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState<SystemLogEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,9 +31,7 @@ export function SystemLogsPage(): React.ReactElement {
         setCursor(res.nextCursor);
       })
       .catch((err: unknown) =>
-        setError(
-          err instanceof Error ? err.message : "Failed to load system logs",
-        ),
+        setError(err instanceof Error ? err.message : t("logs.failedToLoad")),
       )
       .finally(() => setLoading(false));
   }, []);
@@ -45,9 +45,7 @@ export function SystemLogsPage(): React.ReactElement {
         setCursor(res.nextCursor);
       })
       .catch((err: unknown) =>
-        setError(
-          err instanceof Error ? err.message : "Failed to load system logs",
-        ),
+        setError(err instanceof Error ? err.message : t("logs.failedToLoad")),
       )
       .finally(() => setLoadingMore(false));
   }
@@ -55,17 +53,14 @@ export function SystemLogsPage(): React.ReactElement {
   return (
     <div>
       <div style={{ marginBottom: "24px" }}>
-        <h2 className="page-title">System Logs</h2>
-        <p className="page-subtitle">
-          Permanent delivery failures and other system-level errors reported by
-          the platform.
-        </p>
+        <h2 className="page-title">{t("logs.title")}</h2>
+        <p className="page-subtitle">{t("logs.subtitle")}</p>
       </div>
 
       {loading && (
         <div className="loading-center">
           <div className="spinner" />
-          <span className="loader-text">Loading system logs…</span>
+          <span className="loader-text">{t("logs.loading")}</span>
         </div>
       )}
 
@@ -74,11 +69,8 @@ export function SystemLogsPage(): React.ReactElement {
       {!loading && !error && logs.length === 0 && (
         <div className="empty-state">
           <div className="empty-state-icon">✅</div>
-          <div className="empty-state-title">No system errors</div>
-          <div className="empty-state-subtitle">
-            Nothing to report — this list stays empty as long as the platform
-            has no unrecovered failures to surface.
-          </div>
+          <div className="empty-state-title">{t("logs.noErrors")}</div>
+          <div className="empty-state-subtitle">{t("logs.noErrorsDesc")}</div>
         </div>
       )}
 
@@ -90,7 +82,13 @@ export function SystemLogsPage(): React.ReactElement {
           <Table scroll={false}>
             <TableHeader>
               <TableRow>
-                {["", "Title", "Details", "Occurred", "ID"].map((h) => (
+                {[
+                  "",
+                  t("logs.columnTitle"),
+                  t("logs.columnDetails"),
+                  t("logs.columnOccurred"),
+                  "ID",
+                ].map((h) => (
                   <TableHead
                     key={h}
                     style={{
@@ -114,7 +112,7 @@ export function SystemLogsPage(): React.ReactElement {
                         borderRadius: "50%",
                         background: TOKENS.danger,
                       }}
-                      title="Urgent — system error"
+                      title={t("logs.urgentTitle")}
                     />
                   </TableCell>
                   <TableCell
@@ -177,9 +175,7 @@ export function SystemLogsPage(): React.ReactElement {
               alignItems: "center",
             }}
           >
-            <span>
-              {logs.length} entr{logs.length !== 1 ? "ies" : "y"}
-            </span>
+            <span>{t("logs.entryCount", { count: logs.length })}</span>
             {cursor && (
               <Button
                 type="button"
@@ -187,7 +183,7 @@ export function SystemLogsPage(): React.ReactElement {
                 onClick={loadMore}
                 disabled={loadingMore}
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                {loadingMore ? t("logs.loadingMore") : t("logs.loadMore")}
               </Button>
             )}
           </div>

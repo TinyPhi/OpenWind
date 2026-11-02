@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TOKENS } from "@platform/ui";
 
 /**
@@ -40,6 +41,7 @@ const ACCENT: Record<ToastTone, string> = {
 };
 
 export function ToastHost(): React.ReactElement | null {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const dismiss = useCallback((id: number) => {
@@ -82,11 +84,11 @@ export function ToastHost(): React.ReactElement | null {
         maxWidth: 380,
       }}
     >
-      {toasts.map((t) => (
+      {toasts.map((toast) => (
         <div
-          key={t.id}
+          key={toast.id}
           data-testid="toast"
-          data-tone={t.tone ?? "info"}
+          data-tone={toast.tone ?? "info"}
           style={{
             display: "flex",
             gap: 10,
@@ -95,7 +97,7 @@ export function ToastHost(): React.ReactElement | null {
             borderRadius: 10,
             background: TOKENS.bgSecondary,
             border: `1px solid ${TOKENS.borderColor}`,
-            borderLeft: `4px solid ${ACCENT[t.tone ?? "info"]}`,
+            borderLeft: `4px solid ${ACCENT[toast.tone ?? "info"]}`,
             boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)",
           }}
         >
@@ -107,9 +109,9 @@ export function ToastHost(): React.ReactElement | null {
                 color: TOKENS.textPrimary,
               }}
             >
-              {t.title}
+              {toast.title}
             </div>
-            {t.message && (
+            {toast.message && (
               <div
                 style={{
                   marginTop: 4,
@@ -117,14 +119,14 @@ export function ToastHost(): React.ReactElement | null {
                   color: TOKENS.textSecondary,
                 }}
               >
-                {t.message}
+                {toast.message}
               </div>
             )}
           </div>
           <button
             type="button"
-            aria-label="Dismiss"
-            onClick={() => dismiss(t.id)}
+            aria-label={t("toast.dismiss")}
+            onClick={() => dismiss(toast.id)}
             style={{
               border: "none",
               background: "transparent",

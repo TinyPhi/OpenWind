@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -197,6 +198,7 @@ export function OtpVerification({
   onVerified,
   secondaryAction,
 }: OtpVerificationProps): React.ReactElement {
+  const { t } = useTranslation();
   const [digits, setDigits] = React.useState<string[]>(() =>
     Array<string>(CODE_LENGTH).fill(""),
   );
@@ -252,12 +254,10 @@ export function OtpVerification({
         setNow(at);
         setResendAt(at + positiveSeconds(e.meta?.retryAfterSeconds) * 1000);
         if (needsNewCode) {
-          setError(
-            "A code was sent moments ago. Resend once the countdown ends.",
-          );
+          setError(t("platformAdmin.codeSentRecently"));
         }
       } else {
-        setError(e.message || "Could not send the code. Try again.");
+        setError(e.message || t("platformAdmin.couldNotSendCode"));
         setNeedsNewCode(true);
       }
     } finally {
@@ -302,7 +302,7 @@ export function OtpVerification({
       const token = (res as { data?: { sessionToken?: unknown } }).data
         ?.sessionToken;
       if (typeof token !== "string" || !token) {
-        throw new Error("Verification failed. Try again.");
+        throw new Error(t("platformAdmin.verificationFailed"));
       }
       setPlatformAdminMfaSession(token);
       onVerified();
@@ -314,7 +314,7 @@ export function OtpVerification({
         setError(
           left
             ? `That code is incorrect. ${left} ${left === 1 ? "attempt" : "attempts"} left.`
-            : "That code is incorrect.",
+            : t("platformAdmin.codeIncorrect"),
         );
       } else if (e.code === "CODE_EXPIRED" || e.code === "TOO_MANY_ATTEMPTS") {
         setError(e.message);
@@ -327,7 +327,7 @@ export function OtpVerification({
           setResendAt(at + wait * 1000);
         }
       } else {
-        setError(e.message || "Verification failed. Try again.");
+        setError(e.message || t("platformAdmin.verificationFailed"));
       }
       clearDigits();
       verifyingRef.current = false;
@@ -345,7 +345,7 @@ export function OtpVerification({
     >
       <p className="pa-otp-sent" aria-live="polite">
         {sending ? (
-          "Sending a code…"
+          t("platformAdmin.sendingCode")
         ) : sentTo ? (
           <>
             We sent a 6-digit code to <strong>{sentTo}</strong>.

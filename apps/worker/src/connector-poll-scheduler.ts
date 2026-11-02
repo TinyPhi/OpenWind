@@ -18,11 +18,13 @@
  * install time yet.
  */
 
-import { isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { connectorPollQueue } from "./queues.js";
-import { db, connectorCredentials } from "@platform/db";
+import { withTenantContext, connectorCredentials } from "@platform/db";
+import { isTenantTrialActive } from "@platform/auth";
 import { getConnectorDefinition } from "@platform/connector-sdk";
 import { logger } from "@platform/logger";
+import { listSweepTenants, forEachTenant } from "./tenant-sweep.js";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -39,61 +41,89 @@ export function pollJobId(tenantId: string, connectorId: string): string {
   return `connector-poll:${tenantId}:${connectorId}`;
 }
 
+function tenantIdOfJobKey(key: string): string {
+  return key.split(":")[1] ?? "";
+}
+
 interface DesiredPollJob {
   tenantId: string;
   connectorId: string;
   everyMs: number;
 }
 
-async function buildDesiredJobs(): Promise<Map<string, DesiredPollJob>> {
-  // Kill switch (issue #367) — filtered in SQL, not after the fact in JS:
-  // a disabled installation's row never crosses the wire into this process,
-  // and is excluded from the desired set entirely rather than merely
-  // skipped at execution time — no repeatable job is scheduled for it.
-  const installations = await db
-    .select({
-      tenantId: connectorCredentials.tenantId,
-      connectorId: connectorCredentials.connectorId,
-    })
-    .from(connectorCredentials)
-    .where(isNull(connectorCredentials.disabledAt));
+interface DesiredJobs {
+  desired: Map<string, DesiredPollJob>;
+  failedTenantIds: Set<string>;
+}
+
+async function buildDesiredJobs(): Promise<DesiredJobs> {
+  // Per-tenant under withTenantContext (issue #1078): connector_credentials has RLS and the
+  // worker runs as app_user, so a context-free cross-tenant select cannot work.
+  // T12 (docs/specs/multi-org-sandbox.md R6): an expired sandbox trial stops background
+  // jobs too, checked fresh against Date.now() every tick.
+  const activeTenants = (await listSweepTenants()).filter((tenant) =>
+    isTenantTrialActive(tenant.trialEndsAt?.getTime() ?? null),
+  );
+
+  const { results, failedTenantIds } = await forEachTenant(
+    "connector-poll-scheduler",
+    activeTenants.map((t) => t.id),
+    (tenantId) =>
+      // Kill switch (issue #367) — filtered in SQL, not after the fact in JS:
+      // a disabled installation's row never crosses the wire into this process,
+      // and is excluded from the desired set entirely rather than merely
+      // skipped at execution time — no repeatable job is scheduled for it.
+      withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ connectorId: connectorCredentials.connectorId })
+          .from(connectorCredentials)
+          .where(
+            and(
+              eq(connectorCredentials.tenantId, tenantId),
+              isNull(connectorCredentials.disabledAt),
+            ),
+          ),
+      ),
+  );
 
   const desired = new Map<string, DesiredPollJob>();
 
-  for (const row of installations) {
-    const definition = getConnectorDefinition(row.connectorId);
-    if (!definition) {
-      // Expected/benign until #368 ships the first registered connectors.
-      continue;
-    }
-    const trigger = definition.triggers.find((t) => t.type === "polling");
-    if (!trigger?.polling) continue;
+  for (const [tenantId, installations] of results) {
+    for (const row of installations) {
+      const definition = getConnectorDefinition(row.connectorId);
+      if (!definition) {
+        // Expected/benign until #368 ships the first registered connectors.
+        continue;
+      }
+      const trigger = definition.triggers.find((t) => t.type === "polling");
+      if (!trigger?.polling) continue;
 
-    const { intervalMinutes } = trigger.polling;
-    if (
-      !Number.isFinite(intervalMinutes) ||
-      intervalMinutes < MIN_INTERVAL_MINUTES
-    ) {
-      logger.error(
-        { connectorId: row.connectorId, intervalMinutes },
-        "connector-poll-scheduler: connector declared an invalid intervalMinutes — skipping installation",
-      );
-      continue;
-    }
+      const { intervalMinutes } = trigger.polling;
+      if (
+        !Number.isFinite(intervalMinutes) ||
+        intervalMinutes < MIN_INTERVAL_MINUTES
+      ) {
+        logger.error(
+          { tenantId, connectorId: row.connectorId, intervalMinutes },
+          "connector-poll-scheduler: connector declared an invalid intervalMinutes — skipping installation",
+        );
+        continue;
+      }
 
-    desired.set(pollJobId(row.tenantId, row.connectorId), {
-      tenantId: row.tenantId,
-      connectorId: row.connectorId,
-      everyMs: intervalMinutes * 60_000,
-    });
+      desired.set(pollJobId(tenantId, row.connectorId), {
+        tenantId,
+        connectorId: row.connectorId,
+        everyMs: intervalMinutes * 60_000,
+      });
+    }
   }
 
-  return desired;
+  return { desired, failedTenantIds: new Set(failedTenantIds) };
 }
 
 export async function reconcile(): Promise<void> {
   try {
-    const desired = await buildDesiredJobs();
+    const { desired, failedTenantIds } = await buildDesiredJobs();
     const existing = await connectorPollQueue.getRepeatableJobs();
 
     // BullMQ's getRepeatableJobs() never returns an `id` field for jobs
@@ -106,6 +136,12 @@ export async function reconcile(): Promise<void> {
     // desired-map key, with no decoding step.
     const alreadyCorrect = new Set<string>();
     for (const job of existing) {
+      // A tenant whose installation lookup failed this tick has an unknown desired set:
+      // leave its existing jobs alone rather than tearing them down on a transient error.
+      if (failedTenantIds.has(tenantIdOfJobKey(job.key))) {
+        alreadyCorrect.add(job.key);
+        continue;
+      }
       const wanted = desired.get(job.key);
       // `every` round-trips through Redis as a string — compare numerically.
       if (wanted?.everyMs === Number(job.every)) {

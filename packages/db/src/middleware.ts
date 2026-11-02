@@ -63,6 +63,16 @@ export async function setScheduleSweeperRole(tx: Tx): Promise<void> {
 }
 
 /**
+ * Switches to access_log_retention_role (migration 0158, #1131) for the remainder of the
+ * current transaction. For access-log-retention.ts's cross-tenant aggregate-then-delete batch:
+ * app_user cannot DELETE admin_audit_log (append-only, 0061). The role is NOT BYPASSRLS; it has
+ * role-only policies and column-scoped grants on admin_audit_log and its daily rollup table.
+ */
+export async function setAccessLogRetentionRole(tx: Tx): Promise<void> {
+  await tx.execute(sql`SET LOCAL ROLE access_log_retention_role`);
+}
+
+/**
  * Runs `fn` as platform_admin_role (column-scoped GRANT on `tenants` only, see
  * 0135_platform_admin_sandbox_columns.sql and ADR-022 Decision 1) instead of app_user +
  * a tenant_id GUC. There is no tenant to scope to -- a platform_admin request is

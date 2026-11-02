@@ -55,7 +55,7 @@ export function AuthCallback(): React.ReactElement {
         // Personal dashboard is reachable by every role (docs/specs/personal-dashboard.md
         // R5) — customers used to be sent straight to /records here, bypassing it entirely.
         if (!user) {
-          navigate("/login");
+          void navigate("/login");
           return;
         }
 
@@ -88,7 +88,7 @@ export function AuthCallback(): React.ReactElement {
         const rolesMap = (profile?.["urn:zitadel:iam:org:project:roles"] ??
           {}) as Record<string, unknown>;
         if (Object.keys(rolesMap).includes("platform_admin")) {
-          navigate("/platform-admin/dashboard");
+          void navigate("/platform-admin/dashboard");
           return;
         }
 
@@ -109,7 +109,7 @@ export function AuthCallback(): React.ReactElement {
             const slug = toTypeSlug(
               entityType.data.plural || entityType.data.name,
             );
-            navigate(`/records/${slug}/new`, {
+            void navigate(`/records/${slug}/new`, {
               state: {
                 workflowId: handoff.workflowId,
                 entityTypeId: handoff.entityTypeId,
@@ -123,7 +123,7 @@ export function AuthCallback(): React.ReactElement {
           }
         }
 
-        navigate("/dashboard");
+        void navigate("/dashboard");
       })
       .catch((err: Error) => {
         setError(err.message || String(err));
@@ -153,7 +153,7 @@ export function AuthCallback(): React.ReactElement {
         <p className="loader-text">{error}</p>
         <button
           className="login-btn"
-          onClick={() => navigate("/login")}
+          onClick={() => void navigate("/login")}
           style={{ marginTop: "24px", width: "auto" }}
         >
           {t("authCallback.backToLogin")}

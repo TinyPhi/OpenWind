@@ -1,3 +1,5 @@
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactFlow, {
   Background,
@@ -26,7 +28,7 @@ import {
 import { relativeTime } from "../lib/format.js";
 
 // docs/specs/org-directory.md T7 — the org chart page. Visible to every
-// authenticated tenant user (R7); only the manual "Sync now" button is
+// authenticated tenant user (R7); only the manual t("orgDirectory.syncNow") button is
 // admin-gated (also enforced server-side by the route itself — this is a UX
 // affordance, not the security boundary).
 //
@@ -189,6 +191,7 @@ const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
 };
 
 function OrgFlowNode({ data }: NodeProps<OrgFlowNodeData>): React.ReactElement {
+  const { t } = useTranslation();
   const { node, highlighted, hasChildren, isExpanded, onToggle } = data;
   return (
     <div style={{ position: "relative" }}>
@@ -203,7 +206,9 @@ function OrgFlowNode({ data }: NodeProps<OrgFlowNodeData>): React.ReactElement {
           type="button"
           className="nodrag nopan"
           onClick={() => onToggle(node.userId)}
-          aria-label={isExpanded ? "Collapse" : "Expand"}
+          aria-label={
+            isExpanded ? t("orgDirectory.collapse") : t("orgDirectory.expand")
+          }
           style={{
             position: "absolute",
             bottom: "-10px",
@@ -351,8 +356,10 @@ function OrgFlow({
 
 function formatSyncStatus(status: SyncStatus | null): string {
   if (!status) return "";
-  if (status.syncInProgress) return "Sync in progress…";
-  if (status.lastSyncedAt === null) return "Never synced";
+  if (status.syncInProgress)
+    return i18next.t("orgDirectory.syncInProgress") as string;
+  if (status.lastSyncedAt === null)
+    return i18next.t("orgDirectory.neverSynced") as string;
   const when = relativeTime(status.lastSyncedAt);
   return status.lastSyncOk
     ? `Last synced ${when}`
@@ -370,6 +377,7 @@ export function OrgChartPanel({
 }: {
   embedded?: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [tree, setTree] = useState<OrgTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -388,7 +396,7 @@ export function OrgChartPanel({
           setExpanded(collectDefaultExpanded(data, DEFAULT_EXPAND_DEPTH));
         setError(null);
       })
-      .catch(() => setError("Failed to load org chart"))
+      .catch(() => setError(t("orgDirectory.failedToLoad")))
       .finally(() => setLoading(false));
     getOrgSyncStatus()
       .then(setSyncStatus)
@@ -455,7 +463,7 @@ export function OrgChartPanel({
       await triggerOrgSync();
       load();
     } catch {
-      setError("Failed to trigger sync");
+      setError(t("orgDirectory.failedToSync"));
     } finally {
       setSyncing(false);
     }
@@ -496,7 +504,7 @@ export function OrgChartPanel({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={"Search by name or email…"}
+            placeholder={t("orgDirectory.searchPlaceholder")}
             style={{
               fontSize: "12px",
               padding: "7px 14px",
@@ -526,7 +534,7 @@ export function OrgChartPanel({
                 cursor: syncing ? "default" : "pointer",
               }}
             >
-              {syncing ? "Syncing…" : "Sync now"}
+              {syncing ? t("orgDirectory.syncing") : "Sync now"}
             </button>
           )}
         </div>
@@ -534,7 +542,7 @@ export function OrgChartPanel({
 
       {loading ? (
         <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-          {"Loading org chart…"}
+          {t("orgDirectory.loading")}
         </div>
       ) : error ? (
         <div style={{ fontSize: "13px", color: "hsl(350,80%,60%)" }}>
@@ -542,7 +550,7 @@ export function OrgChartPanel({
         </div>
       ) : !tree ? (
         <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-          {"No org chart yet — an admin needs to run the first sync."}
+          {t("orgDirectory.noData")}
         </div>
       ) : (
         <div className="data-panel" style={{ padding: 0, overflow: "hidden" }}>

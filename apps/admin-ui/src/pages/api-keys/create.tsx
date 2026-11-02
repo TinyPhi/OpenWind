@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,7 @@ export function CreateApiKeyModal({
   onClose,
   onCreated,
 }: CreateApiKeyModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [applicationName, setApplicationName] = useState("");
   const [applicationDescription, setApplicationDescription] = useState("");
   const [applicationContactEmail, setApplicationContactEmail] = useState("");
@@ -125,7 +127,9 @@ export function CreateApiKeyModal({
       })) as { data: { key: string } };
       setCreatedKey(res.data.key);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create key");
+      setError(
+        err instanceof Error ? err.message : t("apiKeys.failedToCreate"),
+      );
     } finally {
       setSaving(false);
     }
@@ -146,7 +150,7 @@ export function CreateApiKeyModal({
         {createdKey ? (
           <>
             <DialogTitle asChild>
-              <h2 className="page-title">Key created</h2>
+              <h2 className="page-title">{t("apiKeys.keyCreated2")}</h2>
             </DialogTitle>
             <p className="page-subtitle">
               Copy this key now — it cannot be shown again.
@@ -184,7 +188,7 @@ export function CreateApiKeyModal({
             >
               <div>
                 <DialogTitle asChild>
-                  <h2 className="page-title">New API Key</h2>
+                  <h2 className="page-title">{t("apiKeys.newApiKey")}</h2>
                 </DialogTitle>
                 <p className="page-subtitle">
                   Register a third-party application that can access tickets via
@@ -194,7 +198,7 @@ export function CreateApiKeyModal({
               <DialogClose asChild>
                 <button
                   type="button"
-                  aria-label="Close"
+                  aria-label={t("apiKeys.close")}
                   style={{
                     background: "none",
                     border: "none",
@@ -217,7 +221,9 @@ export function CreateApiKeyModal({
 
             <form onSubmit={(e) => void handleCreate(e)}>
               <div className="form-group">
-                <label className="form-label">Application Name *</label>
+                <label className="form-label">
+                  {t("apiKeys.applicationName")}
+                </label>
                 <input
                   className="form-input"
                   placeholder="e.g. Acme Helpdesk Sync"
@@ -229,10 +235,10 @@ export function CreateApiKeyModal({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Description</label>
+                <label className="form-label">{t("apiKeys.description")}</label>
                 <input
                   className="form-input"
-                  placeholder="What this integration does"
+                  placeholder={t("apiKeys.descriptionPlaceholder")}
                   value={applicationDescription}
                   onChange={(e) => setApplicationDescription(e.target.value)}
                 />
@@ -253,7 +259,9 @@ export function CreateApiKeyModal({
               </div>
 
               <div className="form-group">
-                <label className="form-label">OIDC Client ID *</label>
+                <label className="form-label">
+                  {t("apiKeys.oidcClientId")}
+                </label>
                 <input
                   className="form-input"
                   placeholder="acme-helpdesk-sync-client"
@@ -264,7 +272,9 @@ export function CreateApiKeyModal({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Identity Provider *</label>
+                <label className="form-label">
+                  {t("apiKeys.identityProvider")}
+                </label>
                 <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                   <Button
                     type="button"
@@ -312,7 +322,9 @@ export function CreateApiKeyModal({
                 {identityProviderMode === "external" && (
                   <>
                     <div className="form-group">
-                      <label className="form-label">Issuer URL *</label>
+                      <label className="form-label">
+                        {t("apiKeys.issuerUrl")}
+                      </label>
                       <input
                         className="form-input"
                         type="url"
@@ -323,7 +335,9 @@ export function CreateApiKeyModal({
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">External Org ID *</label>
+                      <label className="form-label">
+                        {t("apiKeys.externalOrgId")}
+                      </label>
                       <input
                         className="form-input"
                         placeholder="the org id this application's users belong to on that issuer"
@@ -337,7 +351,7 @@ export function CreateApiKeyModal({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Permissions *</label>
+                <label className="form-label">{t("apiKeys.permissions")}</label>
                 <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                   <Button
                     type="button"
@@ -402,7 +416,7 @@ export function CreateApiKeyModal({
                 disabled={!isValid || saving}
                 style={{ marginTop: "16px" }}
               >
-                {saving ? "Creating…" : "Create Key"}
+                {saving ? t("apiKeys.creating") : t("apiKeys.createKey")}
               </Button>
             </form>
           </>

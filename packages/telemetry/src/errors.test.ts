@@ -89,6 +89,25 @@ describe("Error Tracking Initialization", () => {
     );
   });
 
+  it("pins the privacy posture: PII off and no Sentry tracing/profiling options", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
+
+    startErrorTracking();
+
+    // vi.fn() call args are untyped; first init argument is the options object
+    const options = (mockSentryInit.mock.calls[0] ?? [])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(options.sendDefaultPii).toBe(false);
+    expect(options.tracePropagationTargets).toEqual([]);
+    expect(options).not.toHaveProperty("tracesSampleRate");
+    expect(options).not.toHaveProperty("tracesSampler");
+    expect(options).not.toHaveProperty("profilesSampleRate");
+    expect(options).not.toHaveProperty("integrations");
+  });
+
   it("drops the event by returning null when scrubbing throws", () => {
     mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
     mockEnv.SENTRY_DSN = "https://public@sentry.io/1";

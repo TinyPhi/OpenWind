@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   applyTheme,
   applyAccent,
@@ -37,6 +38,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 export function Settings(): React.ReactElement {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState<ThemeMode>(getSavedTheme);
   const [accent, setAccent] = useState<AccentColor>(getSavedAccent);
   const { locale, changeLocale } = useLocale();
@@ -159,7 +161,7 @@ export function Settings(): React.ReactElement {
   }> = [
     {
       id: "appearance",
-      label: "Appearance",
+      label: t("settings.tabAppearance"),
       icon: (
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -178,7 +180,7 @@ export function Settings(): React.ReactElement {
     },
     {
       id: "language" as const,
-      label: "Language",
+      label: t("settings.tabLanguage"),
       icon: (
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -199,7 +201,7 @@ export function Settings(): React.ReactElement {
       ? [
           {
             id: "notifications" as const,
-            label: "Notifications",
+            label: t("settings.tabNotifications"),
             icon: (
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -218,7 +220,7 @@ export function Settings(): React.ReactElement {
           },
           {
             id: "templates" as const,
-            label: "Templates",
+            label: t("settings.tabTemplates"),
             icon: (
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -263,9 +265,9 @@ export function Settings(): React.ReactElement {
             {/* Theme toggle */}
             <div className="settings-field">
               <div className="settings-field-label">
-                <span>Color mode</span>
+                <span>{t("settings.colorMode")}</span>
                 <span className="settings-field-hint">
-                  Switch between dark and light interface
+                  {t("settings.colorModeHint")}
                 </span>
               </div>
               <div className="theme-toggle-group">
@@ -289,7 +291,7 @@ export function Settings(): React.ReactElement {
                       />
                     </svg>
                   </span>
-                  Dark
+                  {t("settings.dark")}
                 </button>
                 <button
                   className={`theme-option ${theme === "light" ? "active" : ""}`}
@@ -311,7 +313,7 @@ export function Settings(): React.ReactElement {
                       />
                     </svg>
                   </span>
-                  Light
+                  {t("settings.light")}
                 </button>
               </div>
             </div>
@@ -319,9 +321,9 @@ export function Settings(): React.ReactElement {
             {/* Accent color */}
             <div className="settings-field">
               <div className="settings-field-label">
-                <span>Accent color</span>
+                <span>{t("settings.accentColor")}</span>
                 <span className="settings-field-hint">
-                  Sets the primary highlight color across the UI
+                  {t("settings.accentColorHint")}
                 </span>
               </div>
               <div className="color-palette">
@@ -342,8 +344,8 @@ export function Settings(): React.ReactElement {
                 ))}
                 <label
                   className={`color-swatch color-swatch-custom ${accent.id === "custom" ? "selected" : ""}`}
-                  title="Custom color"
-                  aria-label="Custom color"
+                  title={t("settings.customColor")}
+                  aria-label={t("settings.customColor")}
                   style={
                     {
                       "--swatch-color": `hsl(${accent.h}, ${accent.s}%, ${accent.l}%)`,
@@ -358,7 +360,7 @@ export function Settings(): React.ReactElement {
                     type="color"
                     value={hslToHex(accent.h, accent.s, accent.l)}
                     onChange={(e) => handleCustomAccent(e.target.value)}
-                    aria-label="Pick a custom accent color"
+                    aria-label={t("settings.pickCustomColor")}
                   />
                 </label>
               </div>
@@ -386,7 +388,7 @@ export function Settings(): React.ReactElement {
             {outboundLoading ? (
               <div className="settings-field">
                 <span className="settings-field-hint">
-                  Loading notification settings…
+                  {t("settings.loadingNotifications")}
                 </span>
               </div>
             ) : (
@@ -400,11 +402,11 @@ export function Settings(): React.ReactElement {
                 }}
               >
                 <div className="settings-field-label">
-                  <span>Outbound notifications</span>
+                  <span>{t("settings.outboundNotifications")}</span>
                   <span className="settings-field-hint">
                     {outboundEnabled
-                      ? "Email/SMS/WhatsApp handoff is active — turn off if the outbound service is misbehaving"
-                      : "Outbound handoff is disabled — in-app notifications keep working normally"}
+                      ? t("settings.outboundEnabled")
+                      : t("settings.outboundDisabled")}
                   </span>
                 </div>
                 <label className="settings-toggle">
@@ -427,15 +429,15 @@ export function Settings(): React.ReactElement {
           <div className="settings-section-body">
             <div className="settings-field">
               <div className="settings-field-label">
-                <span>Display language</span>
+                <span>{t("settings.displayLanguage")}</span>
                 <span className="settings-field-hint">
-                  Changes the interface language for this device only
+                  {t("settings.displayLanguageHint")}
                 </span>
               </div>
               <div
                 className="language-list"
                 role="listbox"
-                aria-label="Select display language"
+                aria-label={t("settings.selectDisplayLanguage")}
               >
                 {SUPPORTED_LANGUAGES.map((lng) => (
                   <button
@@ -479,7 +481,9 @@ export function Settings(): React.ReactElement {
           <div className="settings-section-body">
             {templatesLoading ? (
               <div className="settings-field">
-                <span className="settings-field-hint">Loading templates…</span>
+                <span className="settings-field-hint">
+                  {t("settings.loadingTemplates")}
+                </span>
               </div>
             ) : (
               templateModules.map((m) => (
@@ -497,8 +501,8 @@ export function Settings(): React.ReactElement {
                     <span>{m.name}</span>
                     <span className="settings-field-hint">
                       {m.isVisible
-                        ? "Visible on the Templates page for everyone"
-                        : "Hidden — no tenant can see or install this template"}
+                        ? t("settings.templateVisible")
+                        : t("settings.templateHidden")}
                     </span>
                   </div>
                   <label className="settings-toggle">

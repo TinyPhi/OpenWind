@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -28,9 +29,10 @@ const TABS = [
   { id: "policies", label: "Notification Policies" },
 ] as const;
 
-type TabId = (typeof TABS)[number]["id"];
+type TabId = "teams" | "services" | "roster" | "policies";
 
 export function OnCallAdminPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get("tab") ?? "teams") as TabId;
 
@@ -78,7 +80,7 @@ export function OnCallAdminPage(): React.ReactElement {
               transition: "color 0.15s, border-color 0.15s",
             }}
           >
-            {tab.label}
+            {t(`oncall.tab_${tab.id}`)}
           </button>
         ))}
       </div>
@@ -87,7 +89,7 @@ export function OnCallAdminPage(): React.ReactElement {
         fallback={
           <div className="loading-center">
             <div className="spinner" />
-            <span className="loader-text">Loading…</span>
+            <span className="loader-text">{t("oncall.loading")}</span>
           </div>
         }
       >

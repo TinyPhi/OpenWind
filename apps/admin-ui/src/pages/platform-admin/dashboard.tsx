@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -26,6 +27,7 @@ interface PlatformAdminSession {
  * RequirePlatformAdminMfa (MFA) both pass.
  */
 export function PlatformAdminDashboard(): React.ReactElement {
+  const { t } = useTranslation();
   const [session, setSession] = React.useState<PlatformAdminSession | null>(
     null,
   );
@@ -64,7 +66,9 @@ export function PlatformAdminDashboard(): React.ReactElement {
       .catch((err: unknown) => {
         if (!isMountedRef.current || seq !== refreshSeq.current) return;
         setLoadError(
-          err instanceof Error ? err.message : "Could not load sandboxes",
+          err instanceof Error
+            ? err.message
+            : t("platformAdmin.couldNotLoadSandboxes"),
         );
       });
   }, []);
@@ -96,7 +100,7 @@ export function PlatformAdminDashboard(): React.ReactElement {
       const redirectTo = await signOutPlatformAdmin();
       if (redirectTo) window.location.href = redirectTo;
     } catch {
-      setLogoutError("Logout failed. Please try again.");
+      setLogoutError(t("platformAdmin.logoutFailed"));
     }
   }
 
@@ -108,17 +112,17 @@ export function PlatformAdminDashboard(): React.ReactElement {
   const closePanel = React.useCallback(() => setSelectedId(null), []);
 
   const stats = sandboxes && [
-    { label: "Sandboxes", value: sandboxes.length },
+    { label: t("platformAdmin.sandboxes"), value: sandboxes.length },
     {
-      label: "Active trials",
+      label: t("platformAdmin.activeTrials"),
       value: sandboxes.filter((s) => s.trialStatus === "active").length,
     },
     {
-      label: "Expiring within 7 days",
+      label: t("platformAdmin.expiringWithin7Days"),
       value: sandboxes.filter((s) => isExpiringSoon(s.trialEndsAt)).length,
     },
     {
-      label: "Expired",
+      label: t("platformAdmin.expired"),
       value: sandboxes.filter((s) => s.trialStatus === "expired").length,
     },
   ];

@@ -18,6 +18,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The Archive button on the rule list. Pausing a rule does the same job. The API still accepts the archived
   status, and rules archived earlier still show.
 
+## [Unreleased — OTel/Sentry upgrade (#793)]
+
+### Security
+
+- Upgraded `@sentry/node` to 10.x and removed an unused OTel 1.x metrics dependency, clearing
+  GHSA-8988-4f7v-96qf (OTel core baggage memory) and GHSA-qqmp-wf37-98f9 (DB username in spans).
+  Sentry PII (`sendDefaultPii: false`) is now pinned explicitly; tracing stays off.
+- Stopped Sentry adding `sentry-trace` and `baggage` headers (which carry the DSN public key) to
+  outbound HTTP calls to connectors, webhooks and partners (`tracePropagationTargets: []`).
+
+## [Unreleased — Superset production config (#1142)]
+
+### Fixed
+
+- Production compose now requires `SUPERSET_SERVICE_ACCOUNT_PASSWORD` for `ow-worker` and passes it
+  `SUPERSET_INTERNAL_URL` and `SUPERSET_SERVICE_ACCOUNT_USER`, so GDPR erasure jobs no longer retry for
+  about 26 hours against a worker that cannot log in to Superset. The Superset erasure runbook lists
+  the four OpenBao paths to set when Stage 2 is enabled.
+
+### Upgrade note
+
+- Add `SUPERSET_SERVICE_ACCOUNT_PASSWORD` to `openwind/<env>/worker` in OpenBao before deploying this
+  compose file, even with reporting off, or `ow-worker` refuses to start (exit 78).
+
+## [Unreleased — access-log retention role (#1131)]
+
+### Fixed
+
+- The daily access-log retention job could not delete from `admin_audit_log` under the default
+  stack (the worker runs as `app_user`, which is append-only there). Added a narrow
+  `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
+  new privileges.
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added

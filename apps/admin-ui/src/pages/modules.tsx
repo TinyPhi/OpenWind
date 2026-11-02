@@ -318,7 +318,10 @@ const PLAN_LABEL: Record<string, string> = {
 // ── main component ────────────────────────────────────────────────────────────
 
 export function Modules(): React.ReactElement {
-  const { data, isLoading, refetch } = useList<Module>({ resource: "modules" });
+  const {
+    result: data,
+    query: { isLoading, refetch },
+  } = useList<Module>({ resource: "modules" });
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [seeding, setSeeding] = useState(false);
@@ -334,7 +337,7 @@ export function Modules(): React.ReactElement {
     [],
   );
 
-  const modules = data?.data ?? [];
+  const modules = data.data;
 
   const filtered = useMemo(() => {
     if (!search.trim()) return modules;

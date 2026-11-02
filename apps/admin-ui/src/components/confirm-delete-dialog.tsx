@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -51,16 +52,21 @@ export interface ConfirmDeleteDialogProps {
 
 export function ConfirmDeleteDialog({
   open,
-  title = "Delete this item?",
+  title,
   message,
   errorMessage,
-  confirmLabel = "Delete",
-  busyLabel = "Deleting…",
+  confirmLabel,
+  busyLabel,
   busy = false,
   typeToConfirm,
   onConfirm,
   onCancel,
 }: ConfirmDeleteDialogProps): React.ReactElement {
+  const { t } = useTranslation();
+  const resolvedTitle = title ?? t("confirmDelete.defaultTitle");
+  const resolvedConfirmLabel =
+    confirmLabel ?? t("confirmDelete.defaultConfirmLabel");
+  const resolvedBusyLabel = busyLabel ?? t("confirmDelete.defaultBusyLabel");
   const [typed, setTyped] = useState("");
   // A new target, or reopening, starts empty: text typed for one person must never confirm another.
   useEffect(() => {
@@ -93,7 +99,7 @@ export function ConfirmDeleteDialog({
         >
           🗑
         </div>
-        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogTitle>{resolvedTitle}</AlertDialogTitle>
         <AlertDialogDescription>{message}</AlertDialogDescription>
         <p
           style={{
@@ -102,7 +108,7 @@ export function ConfirmDeleteDialog({
             color: "var(--danger, hsl(350, 80%, 60%))",
           }}
         >
-          This action cannot be undone.
+          {t("confirmDelete.cannotBeUndone")}
         </p>
         {typeToConfirm !== undefined && (
           <label
@@ -113,7 +119,7 @@ export function ConfirmDeleteDialog({
               color: TOKENS.textSecondary,
             }}
           >
-            Type{" "}
+            {t("confirmDelete.typePrefix")}{" "}
             <strong
               style={{
                 color: TOKENS.textPrimary,
@@ -127,14 +133,16 @@ export function ConfirmDeleteDialog({
             >
               {typeToConfirm}
             </strong>{" "}
-            to confirm.
+            {t("confirmDelete.typeSuffix")}
             <input
               type="text"
               className="form-input"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               autoComplete="off"
-              aria-label={`Type ${typeToConfirm} to confirm`}
+              aria-label={t("confirmDelete.typeAriaLabel", {
+                name: typeToConfirm,
+              })}
               placeholder={typeToConfirm}
               style={{ marginTop: 8, width: "100%" }}
             />
@@ -155,13 +163,15 @@ export function ConfirmDeleteDialog({
           {/* No onClick here: Cancel already triggers onOpenChange(false)
               on click, which calls onCancel below - an explicit handler
               here would double-fire it. */}
-          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>
+            {t("confirmDelete.cancel")}
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
             disabled={busy || !typedMatches}
             style={{ minWidth: 90 }}
           >
-            {busy ? busyLabel : confirmLabel}
+            {busy ? resolvedBusyLabel : resolvedConfirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

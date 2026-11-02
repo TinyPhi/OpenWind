@@ -246,7 +246,7 @@ export function EntityInstanceCreate(): React.ReactElement {
       const created = (res as { data: { id: string } }).data;
       const et = getTypeById(entityTypeId);
       const slug = et ? toTypeSlug(et.name) : entityTypeId;
-      navigate(`/records/${slug}/${created.id}`);
+      void navigate(`/records/${slug}/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create");
       setSaving(false);

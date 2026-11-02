@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -188,6 +189,7 @@ function SearchableSelect({
   emptyLabel: string;
   allowClear?: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -291,7 +293,7 @@ function SearchableSelect({
             <input
               ref={inputRef}
               type="text"
-              placeholder="Search…"
+              placeholder={t("scheduleRules.searchPlaceholder")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{
@@ -413,6 +415,7 @@ export interface ScheduleRule {
  * docs/specs/temporal-scheduler.md T15, R1/R6.
  */
 export function ScheduleRulesPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [rules, setRules] = useState<ScheduleRule[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -437,7 +440,7 @@ export function ScheduleRulesPage(): React.ReactElement {
         setUsers((usersRes as { data?: UserOption[] }).data ?? []);
         setTeams((teamsRes as { data?: TeamOption[] }).data ?? []);
       })
-      .catch(() => showAlert("Failed to load schedule rules."))
+      .catch(() => showAlert(t("scheduleRules.failedToLoad")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -458,7 +461,7 @@ export function ScheduleRulesPage(): React.ReactElement {
       });
       refresh();
     } catch {
-      showAlert("Failed to update schedule rule status.");
+      showAlert(t("scheduleRules.failedToUpdateStatus"));
     }
   }
 
@@ -470,7 +473,7 @@ export function ScheduleRulesPage(): React.ReactElement {
       setDeleting(null);
       refresh();
     } catch {
-      showAlert("Failed to delete schedule rule.");
+      showAlert(t("scheduleRules.failedToDelete"));
     }
   }
 
@@ -478,7 +481,7 @@ export function ScheduleRulesPage(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading schedule rules…</span>
+        <span className="loader-text">{t("scheduleRules.loading")}</span>
       </div>
     );
   }
@@ -487,7 +490,7 @@ export function ScheduleRulesPage(): React.ReactElement {
     <div>
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">Schedule Rules</h2>
+          <h2 className="page-title">{t("scheduleRules.title")}</h2>
           <p className="page-subtitle">
             Auto-create tickets on a recurring schedule.
           </p>
@@ -501,19 +504,21 @@ export function ScheduleRulesPage(): React.ReactElement {
 
       {rules.length === 0 ? (
         <div className="wfl-empty">
-          <h4>No schedule rules yet</h4>
-          <p>Create one to auto-create tickets on a recurring schedule.</p>
+          <h4>{t("scheduleRules.noRules")}</h4>
+          <p>{t("scheduleRules.noRulesDesc")}</p>
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Schedule</TableHead>
-              <TableHead>Workflow</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Next Fire</TableHead>
-              <TableHead style={{ width: 150 }}>Actions</TableHead>
+              <TableHead>{t("scheduleRules.name")}</TableHead>
+              <TableHead>{t("scheduleRules.schedule")}</TableHead>
+              <TableHead>{t("scheduleRules.workflow")}</TableHead>
+              <TableHead>{t("scheduleRules.status")}</TableHead>
+              <TableHead>{t("scheduleRules.nextFire")}</TableHead>
+              <TableHead style={{ width: 150 }}>
+                {t("scheduleRules.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -559,14 +564,14 @@ export function ScheduleRulesPage(): React.ReactElement {
                     <CircleActionButton
                       size={30}
                       color="grey"
-                      label="Edit rule"
+                      label={t("scheduleRules.editRule")}
                       icon={<EditIcon size={14} />}
                       onClick={() => setEditing(rule)}
                     />
                     <CircleActionButton
                       size={30}
                       color="red"
-                      label="Delete rule"
+                      label={t("scheduleRules.deleteRule")}
                       icon={<TrashIcon size={14} />}
                       onClick={() => setDeleting(rule)}
                     />
@@ -633,7 +638,7 @@ export function ScheduleRulesPage(): React.ReactElement {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete schedule rule?</AlertDialogTitle>
+          <AlertDialogTitle>{t("scheduleRules.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {deleting
               ? `"${deleting.name}" will stop firing and be removed from this list. Records it already created are not affected, and past executions stay visible in its history. This cannot be undone. To stop it for now and keep it, pause it instead.`
@@ -724,6 +729,7 @@ function RuleFormModal({
   onClose,
   onSaved,
 }: RuleFormModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<RuleFormData>(() =>
     initialRuleFormData(rule),
   );
@@ -749,7 +755,7 @@ function RuleFormModal({
   function handleNext(e: React.FormEvent): void {
     e.preventDefault();
     if (!formData.name.trim() || !formData.timeOfDay) {
-      setError("Name and time of day are required.");
+      setError(t("scheduleRules.nameRequired"));
       return;
     }
     setError(null);
@@ -855,7 +861,7 @@ function RuleFormModal({
           <DialogClose asChild>
             <button
               type="button"
-              aria-label="Close"
+              aria-label={t("scheduleRules.close")}
               style={{
                 background: "none",
                 border: "none",
@@ -893,7 +899,7 @@ function RuleFormModal({
               <label className="form-label">Name *</label>
               <input
                 className="form-input"
-                placeholder="e.g. Weekly Standup"
+                placeholder={t("scheduleRules.namePlaceholder")}
                 value={formData.name}
                 autoFocus
                 onChange={(e) => updateField("name", e.target.value)}
@@ -901,7 +907,9 @@ function RuleFormModal({
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Description</label>
+              <label className="form-label">
+                {t("scheduleRules.description")}
+              </label>
               <input
                 className="form-input"
                 value={formData.description}
@@ -914,7 +922,7 @@ function RuleFormModal({
                 options={workflows.map((w) => ({ id: w.id, label: w.name }))}
                 value={formData.workflowId}
                 onChange={(val) => updateField("workflowId", val)}
-                placeholder="Search and select a workflow…"
+                placeholder={t("scheduleRules.workflowPlaceholder")}
                 emptyLabel="None"
                 allowClear
               />
@@ -1072,7 +1080,7 @@ function RuleFormModal({
               <label className="form-label">Title *</label>
               <input
                 className="form-input"
-                placeholder="e.g. Weekly standup — {{date}}"
+                placeholder={t("scheduleRules.titleTemplatePlaceholder")}
                 value={formData.templateTitle}
                 autoFocus
                 onChange={(e) => updateField("templateTitle", e.target.value)}
@@ -1090,7 +1098,9 @@ function RuleFormModal({
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Severity</label>
+              <label className="form-label">
+                {t("scheduleRules.severity")}
+              </label>
               <select
                 className="form-input"
                 value={formData.templateSeverity}
@@ -1098,7 +1108,7 @@ function RuleFormModal({
                   updateField("templateSeverity", e.target.value)
                 }
               >
-                <option value="">None</option>
+                <option value="">{t("scheduleRules.none")}</option>
                 {SEVERITIES.map((s) => (
                   <option key={s} value={s}>
                     {s}
@@ -1244,7 +1254,11 @@ function RuleFormModal({
                 ← Back
               </Button>
               <Button type="submit" variant="primary" disabled={saving}>
-                {saving ? "Saving…" : rule ? "Save changes" : "Create rule"}
+                {saving
+                  ? t("scheduleRules.saving")
+                  : rule
+                    ? "Save changes"
+                    : "Create rule"}
               </Button>
             </div>
           </form>

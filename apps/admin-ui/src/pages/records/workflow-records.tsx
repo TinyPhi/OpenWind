@@ -240,7 +240,7 @@ function ChildTicketCard({
   return (
     <div
       className="kb-card kb-card--child"
-      onClick={() => navigate(`/records/${typeSlug}/${ticket.id}`)}
+      onClick={() => void navigate(`/records/${typeSlug}/${ticket.id}`)}
       style={
         ticket.severity
           ? { borderLeft: `3px solid ${SEVERITY_COLOR[ticket.severity]}` }
@@ -334,7 +334,7 @@ function RecordCard({
         _activeDragId = null;
         divRef.current?.classList.remove("kb-card--ghost");
       }}
-      onClick={() => navigate(`/records/${typeSlug}/${record.id}`)}
+      onClick={() => void navigate(`/records/${typeSlug}/${record.id}`)}
       style={
         record.severity
           ? { borderLeft: `3px solid ${SEVERITY_COLOR[record.severity]}` }
@@ -1273,7 +1273,7 @@ export function WorkflowRecords(): React.ReactElement {
           <button
             type="button"
             className="kb-back-btn"
-            onClick={() => navigate(-1)}
+            onClick={() => void navigate(-1)}
             title="Go back"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
