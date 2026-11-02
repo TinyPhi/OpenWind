@@ -3,6 +3,15 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — migration 0158 fresh install (#1153)]
+
+### Fixed
+
+- Migration 0158 (`access_log_retention_role`) no longer stops a from-scratch migrate as the
+  non-superuser `migration_user`. The unconditional `ALTER ROLE` is replaced by an attribute check that
+  raises on a pre-existing role with unsafe attributes (and repairs it only for a superuser). Edited in
+  place; databases that already applied 0158 are unaffected.
+
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 
 ### Security
