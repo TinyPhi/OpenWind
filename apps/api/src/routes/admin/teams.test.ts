@@ -24,6 +24,7 @@ let rolesLookups = 0;
 let memberRows: { teamId: string; userId: string; position: number }[] = [];
 // What the locked team really held when the write ran; null means the same as memberRows
 let lockedMembers: string[] | null = null;
+let takenElsewhere: { userId: string; teamName: string }[] = [];
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listUserRolesByUserId: () =>
@@ -98,6 +99,9 @@ vi.mock("@platform/db", () => ({
       select: () => tx,
       from: () => tx,
       where: () => tx,
+      innerJoin: () => tx,
+      // awaiting select().from().innerJoin().where() is the "already on another team" lookup
+      then: (resolve: (rows: unknown) => unknown) => resolve(takenElsewhere),
       orderBy: () =>
         Object.assign(Promise.resolve(memberRows), {
           limit: () => Promise.resolve(getReturnsRow ? [mockTeamRow] : []),
@@ -144,6 +148,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   gt: (...args: unknown[]) => ({ op: "gt", args }),
+  ne: (...args: unknown[]) => ({ op: "ne", args }),
   or: (...args: unknown[]) => ({ op: "or", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
 }));
@@ -161,6 +166,7 @@ function makeApp() {
 // block in this file, and a flag flipped in one test otherwise leaks into
 // the next describe block's tests (execution order, not describe order).
 beforeEach(() => {
+  takenElsewhere = [];
   mockAuth.roles = ["admin"];
   lockedMembers = null;
   insertShouldConflict = false;
@@ -458,6 +464,32 @@ describe("team members — review follow-ups", () => {
     const res = await putMembers(["u-gone", "u-1"]);
     expect(res.status).toBe(409);
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("answers 422, not 500, when the unique index catches a person two admins added at once", async () => {
+    orgRoles = new Map([["u-1", ["agent"]]]);
+    mockReplaceMembers.mockImplementationOnce(() => {
+      throw Object.assign(new Error("insert failed"), {
+        cause: {
+          code: "23505",
+          constraint_name: "team_members_tenant_user_unique",
+        },
+      });
+    });
+    const res = await putMembers(["u-1"]);
+    expect(res.status).toBe(422);
+    expect((await res.json()).fields[0].field).toBe("memberUserIds");
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("refuses someone who is already on another team, naming the team", async () => {
+    orgRoles = new Map([["u-1", ["agent"]]]);
+    takenElsewhere = [{ userId: "u-1", teamName: "Support" }];
+    const res = await putMembers(["u-1"]);
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.fields[0].field).toBe("memberUserIds[0]");
+    expect(body.fields[0].message).toMatch(/Support/);
   });
 
   it("answers 404 for a missing team without asking Zitadel", async () => {

@@ -73,6 +73,10 @@ import {
   stopScheduleTickWorker,
 } from "./schedule-tick-worker.js";
 import {
+  startOncallRotationWorker,
+  stopOncallRotationWorker,
+} from "./oncall-rotation-worker.js";
+import {
   startOrgDirectorySyncScheduler,
   stopOrgDirectorySyncScheduler,
 } from "./org-directory-sync-scheduler.js";
@@ -92,6 +96,7 @@ startDueDateScheduler();
 startNotificationPoller();
 startConnectorPollScheduler();
 startScheduleTickWorker();
+startOncallRotationWorker();
 startOrgDirectorySyncScheduler();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
@@ -147,6 +152,7 @@ async function shutdown(): Promise<void> {
     stopRetentionArchivalWorker(),
     stopZitadelKeyExpiryWorker(),
     stopScheduleTickWorker(),
+    stopOncallRotationWorker(),
     stopOrgDirectorySyncScheduler(),
     stopSandboxProvisioningWorker(),
     stopSandboxResetWorker(),
