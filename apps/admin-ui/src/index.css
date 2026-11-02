@@ -1,4 +1,50 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600&family=Noto+Sans+Bengali:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&family=Noto+Sans+Kannada:wght@400;500;600&family=Noto+Sans+Tamil:wght@400;500;600&family=Noto+Sans+Telugu:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600&display=swap");
+
+/* Indic font subsets with unicode-range descriptors (#1092) */
+@font-face {
+  font-family: "Noto Sans Devanagari";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: local("Noto Sans Devanagari"), local("NotoSansDevanagari-Regular");
+  unicode-range: U+0900-097F, U+1CD0-1CFF, U+A8E0-A8FF;
+}
+
+@font-face {
+  font-family: "Noto Sans Bengali";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: local("Noto Sans Bengali"), local("NotoSansBengali-Regular");
+  unicode-range: U+0980-09FF;
+}
+
+@font-face {
+  font-family: "Noto Sans Tamil";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: local("Noto Sans Tamil"), local("NotoSansTamil-Regular");
+  unicode-range: U+0B80-0BFF;
+}
+
+@font-face {
+  font-family: "Noto Sans Telugu";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: local("Noto Sans Telugu"), local("NotoSansTelugu-Regular");
+  unicode-range: U+0C00-0C7F;
+}
+
+@font-face {
+  font-family: "Noto Sans Kannada";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: local("Noto Sans Kannada"), local("NotoSansKannada-Regular");
+  unicode-range: U+0C80-0CFF;
+}
 
 @keyframes dash-skeleton {
   0% { background-position: 200% 0; }

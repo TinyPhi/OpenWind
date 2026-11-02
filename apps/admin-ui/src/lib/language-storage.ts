@@ -16,10 +16,22 @@ export const SUPPORTED_LANGUAGES = [
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
+/**
+ * Languages that have completed translations.
+ * Untranslated locales remain in SUPPORTED_LANGUAGES for key completeness tests
+ * but are disabled in the UI until translations are ready (#1110).
+ */
+export const TRANSLATED_LANGUAGES: readonly SupportedLanguage[] = [
+  "en",
+] as const;
+
 export function getSavedLanguage(): string {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && (SUPPORTED_LANGUAGES as readonly string[]).includes(stored)) {
+    if (
+      stored &&
+      (TRANSLATED_LANGUAGES as readonly string[]).includes(stored)
+    ) {
       return stored;
     }
   } catch {

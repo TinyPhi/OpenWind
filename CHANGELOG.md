@@ -3,6 +3,19 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — Indic font unicode-range and language selector gate (#1092, #1110)]
+
+### Added
+
+- `TRANSLATED_LANGUAGES` constant gating the language switcher so untranslated locales (currently all non-English stubs) display a localized "Coming soon" pill badge and are disabled until full translations are ready (#1110).
+- Explicit `@font-face` blocks with `unicode-range` descriptors for Devanagari, Bengali, Tamil, Telugu, and Kannada in `index.css`, preventing Latin-only visitors from downloading ~1.5 MB of Indic font assets (#1092).
+- Unit tests for the Settings Language tab (`settings.test.tsx`) and Refine `i18nProvider` (`i18n-provider.test.ts`) (#1110).
+- Extended `locale-completeness.test.ts` to assert non-English values for enabled languages in `TRANSLATED_LANGUAGES`.
+
+### Security
+
+- Stored and requested language codes are strictly validated against `TRANSLATED_LANGUAGES` before setting `document.documentElement.lang` or saving to `localStorage`, preventing DOM attribute injection and invalid state persistence.
+
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 
 ### Security

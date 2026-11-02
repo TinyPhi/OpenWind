@@ -2,16 +2,24 @@ import { useState, useEffect } from "react";
 import { i18n } from "../i18n.js";
 import {
   SUPPORTED_LANGUAGES,
+  TRANSLATED_LANGUAGES,
   getSavedLanguage,
   setSavedLanguage,
   type SupportedLanguage,
 } from "./language-storage.js";
 
-export { SUPPORTED_LANGUAGES, getSavedLanguage, setSavedLanguage };
+export {
+  SUPPORTED_LANGUAGES,
+  TRANSLATED_LANGUAGES,
+  getSavedLanguage,
+  setSavedLanguage,
+};
 export type { SupportedLanguage };
 
 export async function changeLocale(lng: string): Promise<void> {
-  const validated = (SUPPORTED_LANGUAGES as readonly string[]).includes(lng)
+  const validated = (TRANSLATED_LANGUAGES as readonly string[]).includes(
+    lng as SupportedLanguage,
+  )
     ? lng
     : "en";
   await i18n.changeLanguage(validated);

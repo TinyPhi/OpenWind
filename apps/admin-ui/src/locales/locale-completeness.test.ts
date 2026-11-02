@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { TRANSLATED_LANGUAGES } from "../lib/language.js";
 
 const SUPPORTED_NON_ENGLISH = [
   "hi",
@@ -43,5 +44,24 @@ describe("locale completeness", () => {
       const keys = collectKeys(getLocale(lng)).sort();
       expect(keys).toEqual(englishKeys);
     });
+  }
+});
+
+describe("translated locales have non-English values", () => {
+  const nonEnglish = (TRANSLATED_LANGUAGES as readonly string[]).filter(
+    (l) => l !== "en",
+  );
+  if (nonEnglish.length === 0) {
+    it("currently only en is in TRANSLATED_LANGUAGES (#1110 gate)", () => {
+      expect(TRANSLATED_LANGUAGES).toEqual(["en"]);
+    });
+  } else {
+    for (const lng of nonEnglish) {
+      it(`${lng}/common.json has non-English values for enabled locale`, () => {
+        expect(JSON.stringify(getLocale(lng))).not.toEqual(
+          JSON.stringify(getLocale("en")),
+        );
+      });
+    }
   }
 });
