@@ -48,3 +48,7 @@ The owner decided four changes (clean setup, configurability, scale); items 1-3 
 - **Skipped (follow-up):** self-check status on the platform-admin page. It needs a new platform-admin route
   (MFA/session conventions, tests) plus admin-ui strings in every locale; more than a small read-only endpoint
   and one component.
+- **Review follow-up (PR #1152).** The API now logs `supersetConfigWarnings()` at boot
+  (`apps/api/src/lib/superset-config-warnings.ts`), as the worker already did, so the spec D8, runbook and
+  CHANGELOG wording is accurate. The unrelated prettier reformat of `index.css` and `platform-admin.css`
+  (commit 8ba5485) is reverted; both match `origin/main` again.
