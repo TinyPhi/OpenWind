@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -20,6 +21,7 @@ function toAutoPlural(name: string): string {
 }
 
 export function CreateWorkflow(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [name, setName] = useState("");
@@ -63,7 +65,11 @@ export function CreateWorkflow(): React.ReactElement {
       void navigate(`/workflows/${toWorkflowSlug(name.trim())}`);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to create workflow",
+        err instanceof Error
+          ? err.message
+          : t("workflows.failedToCreateWorkflow", {
+              defaultValue: "Failed to create workflow",
+            }),
       );
       setSaving(false);
     }
@@ -82,14 +88,16 @@ export function CreateWorkflow(): React.ReactElement {
           }}
           onClick={() => void navigate("/workflows")}
         >
-          ← Workflows
+          ← {t("workflows.title", { defaultValue: "Workflows" })}
         </button>
         <h2 className="page-title" style={{ marginTop: "8px" }}>
-          New Workflow
+          {t("workflows.newWorkflow", { defaultValue: "New Workflow" })}
         </h2>
         <p className="page-subtitle">
-          Give it a name — add states, transitions, and fields from the detail
-          page.
+          {t("workflows.createWorkflowSubtitle", {
+            defaultValue:
+              "Give it a name — add states, transitions, and fields from the detail page.",
+          })}
         </p>
       </div>
 
@@ -102,10 +110,14 @@ export function CreateWorkflow(): React.ReactElement {
 
         <form onSubmit={(e) => void handleCreate(e)}>
           <div className="form-group">
-            <label className="form-label">Workflow Name *</label>
+            <label className="form-label">
+              {t("workflows.workflowName", { defaultValue: "Workflow Name" })} *
+            </label>
             <input
               className="form-input"
-              placeholder="e.g. Support Ticket, Leave Request, Bug Report"
+              placeholder={t("workflows.workflowNamePlaceholder", {
+                defaultValue: "e.g. Support Ticket, Leave Request, Bug Report",
+              })}
               value={name}
               autoFocus
               onChange={(e) => {
@@ -124,23 +136,32 @@ export function CreateWorkflow(): React.ReactElement {
                 display: "block",
               }}
             >
-              An entity type with this name will be created automatically.
+              {t("workflows.autoEntityTypeNotice", {
+                defaultValue:
+                  "An entity type with this name will be created automatically.",
+              })}
             </span>
           </div>
 
           <div className="form-row" style={{ marginTop: "20px" }}>
             <div className="form-group">
-              <label className="form-label">Plural Label *</label>
+              <label className="form-label">
+                {t("workflows.pluralLabel", { defaultValue: "Plural Label" })} *
+              </label>
               <input
                 className="form-input"
-                placeholder="e.g. Support Tickets"
+                placeholder={t("workflows.pluralPlaceholder", {
+                  defaultValue: "e.g. Support Tickets",
+                })}
                 value={plural}
                 onChange={(e) => setPlural(e.target.value)}
                 required
               />
             </div>
             <div className="form-group" style={{ maxWidth: "120px" }}>
-              <label className="form-label">Icon (emoji)</label>
+              <label className="form-label">
+                {t("workflows.iconLabel", { defaultValue: "Icon (emoji)" })}
+              </label>
               <input
                 className="form-input"
                 placeholder="🎫"
@@ -166,14 +187,16 @@ export function CreateWorkflow(): React.ReactElement {
               variant="secondary"
               onClick={() => void navigate("/workflows")}
             >
-              Cancel
+              {t("workflows.cancel", { defaultValue: "Cancel" })}
             </Button>
             <Button
               type="submit"
               variant="primary"
               disabled={!isValid || saving}
             >
-              {saving ? "Creating…" : "Create Workflow →"}
+              {saving
+                ? t("workflows.creating", { defaultValue: "Creating…" })
+                : `${t("workflows.createWorkflowButton", { defaultValue: "Create Workflow" })} →`}
             </Button>
           </div>
         </form>
@@ -192,11 +215,15 @@ export function CreateWorkflow(): React.ReactElement {
         }}
       >
         <strong style={{ color: "var(--text-primary)" }}>
-          What happens next?
+          {t("workflows.whatHappensNext", {
+            defaultValue: "What happens next?",
+          })}
         </strong>
         <br />
-        You'll land on the workflow detail page where you can add states,
-        transitions, SLA timers, and manage the fields your records collect.
+        {t("workflows.whatHappensNextDesc", {
+          defaultValue:
+            "You'll land on the workflow detail page where you can add states, transitions, SLA timers, and manage the fields your records collect.",
+        })}
       </div>
     </div>
   );

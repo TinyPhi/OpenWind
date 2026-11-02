@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import "../../../i18n.js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   cleanup,

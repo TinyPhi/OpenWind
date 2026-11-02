@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
@@ -72,6 +73,7 @@ const INITIAL_FORM_DATA: InstanceCreateFormData = {
 };
 
 export function EntityInstanceCreate(): React.ReactElement {
+  const { t } = useTranslation();
   const { id: entityTypeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getTypeById, modules } = useEntityTypes();
@@ -202,7 +204,11 @@ export function EntityInstanceCreate(): React.ReactElement {
         setTeams(tms);
       })
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
+        setError(
+          err instanceof Error
+            ? err.message
+            : t("entityTypes.failedToLoad", { defaultValue: "Failed to load" }),
+        ),
       )
       .finally(() => setLoading(false));
   }, [entityTypeId]);
@@ -217,7 +223,11 @@ export function EntityInstanceCreate(): React.ReactElement {
     // The assignee is optional: an unassigned ticket stays on the records list under the
     // "Unassigned" filter (docs/specs/mandatory-ticket-fields.md, 2026-10-19).
     if (!dueDate || !remark.trim()) {
-      setError("Due Date and Remark are required.");
+      setError(
+        t("entityTypes.dueAndRemarkRequired", {
+          defaultValue: "Due Date and Remark are required.",
+        }),
+      );
       setActiveTab("mandate");
       return;
     }
@@ -248,7 +258,13 @@ export function EntityInstanceCreate(): React.ReactElement {
       const slug = et ? toTypeSlug(et.name) : entityTypeId;
       void navigate(`/records/${slug}/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("entityTypes.failedToCreate", {
+              defaultValue: "Failed to create",
+            }),
+      );
       setSaving(false);
     }
   }
@@ -257,13 +273,14 @@ export function EntityInstanceCreate(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading…</span>
+        <span className="loader-text">{t("entityTypes.loading")}</span>
       </div>
     );
 
   const typeName = entityType?.plural
     ? singularize(entityType.plural)
-    : (entityType?.name ?? "Record");
+    : (entityType?.name ??
+      t("entityTypes.recordFallback", { defaultValue: "Record" }));
 
   return (
     <div style={{ maxWidth: "720px" }}>
@@ -272,12 +289,17 @@ export function EntityInstanceCreate(): React.ReactElement {
           to={`/entity-types/${entityTypeId ?? ""}`}
           className="breadcrumb-link"
         >
-          ← {entityType?.plural ?? "Records"}
+          ←{" "}
+          {entityType?.plural ??
+            t("entityTypes.recordsFallback", { defaultValue: "Records" })}
         </Link>
       </div>
 
       <h2 className="page-title" style={{ marginBottom: "24px" }}>
-        New {typeName}
+        {t("entityTypes.newRecord", {
+          type: typeName,
+          defaultValue: `New ${typeName}`,
+        })}
       </h2>
 
       <form
@@ -293,13 +315,17 @@ export function EntityInstanceCreate(): React.ReactElement {
 
         {workflows.length > 0 && (
           <div className="form-group">
-            <label className="form-label">Workflow</label>
+            <label className="form-label">
+              {t("entityTypes.workflow", { defaultValue: "Workflow" })}
+            </label>
             <select
               className="form-input"
               value={workflowId}
               onChange={(e) => updateFormField("workflowId", e.target.value)}
             >
-              <option value="">No workflow</option>
+              <option value="">
+                {t("entityTypes.noWorkflow", { defaultValue: "No workflow" })}
+              </option>
               {workflows.map((wf) => (
                 <option key={wf.id} value={wf.id}>
                   {wf.name}
@@ -311,7 +337,9 @@ export function EntityInstanceCreate(): React.ReactElement {
 
         {workflowId && availableStates.length > 0 && (
           <div className="form-group">
-            <label className="form-label">Initial State</label>
+            <label className="form-label">
+              {t("entityTypes.initialState", { defaultValue: "Initial State" })}
+            </label>
             <select
               className="form-input"
               value={currentState}
@@ -358,7 +386,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                   : "var(--text-muted)",
             }}
           >
-            Mandate
+            {t("entityTypes.mandateTab", { defaultValue: "Mandate" })}
           </button>
           <button
             type="button"
@@ -383,7 +411,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                   : "var(--text-muted)",
             }}
           >
-            Other
+            {t("entityTypes.otherTab", { defaultValue: "Other" })}
           </button>
         </div>
 
@@ -396,7 +424,9 @@ export function EntityInstanceCreate(): React.ReactElement {
             }}
           >
             <div className="form-group" style={{ gridColumn: "1 / -1" }}>
-              <label className="form-label">Assign To</label>
+              <label className="form-label">
+                {t("entityTypes.assignTo", { defaultValue: "Assign To" })}
+              </label>
               <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
                 <button
                   type="button"
@@ -416,7 +446,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                       assignMode === "user" ? "#fff" : "var(--text-primary)",
                   }}
                 >
-                  User
+                  {t("entityTypes.assignModeUser", { defaultValue: "User" })}
                 </button>
                 <button
                   type="button"
@@ -436,7 +466,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                       assignMode === "team" ? "#fff" : "var(--text-primary)",
                   }}
                 >
-                  Team
+                  {t("entityTypes.assignModeTeam", { defaultValue: "Team" })}
                 </button>
               </div>
               {assignMode === "user" ? (
@@ -444,7 +474,9 @@ export function EntityInstanceCreate(): React.ReactElement {
                   users={users}
                   value={assignedTo}
                   onChange={(val) => updateFormField("assignedTo", val)}
-                  placeholder="Unassigned"
+                  placeholder={t("entityTypes.unassigned", {
+                    defaultValue: "Unassigned",
+                  })}
                 />
               ) : (
                 <select
@@ -452,10 +484,14 @@ export function EntityInstanceCreate(): React.ReactElement {
                   value={teamId}
                   onChange={(e) => updateFormField("teamId", e.target.value)}
                 >
-                  <option value="">Unassigned</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
+                  <option value="">
+                    {t("entityTypes.unassigned", {
+                      defaultValue: "Unassigned",
+                    })}
+                  </option>
+                  {teams.map((tItem) => (
+                    <option key={tItem.id} value={tItem.id}>
+                      {tItem.name}
                     </option>
                   ))}
                 </select>
@@ -463,7 +499,8 @@ export function EntityInstanceCreate(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label">
-                Due Date<span style={{ color: "var(--danger)" }}> *</span>
+                {t("entityTypes.dueDate", { defaultValue: "Due Date" })}
+                <span style={{ color: "var(--danger)" }}> *</span>
               </label>
               <input
                 type="datetime-local"
@@ -474,7 +511,8 @@ export function EntityInstanceCreate(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label">
-                Severity<span style={{ color: "var(--danger)" }}> *</span>
+                {t("entityTypes.severity", { defaultValue: "Severity" })}
+                <span style={{ color: "var(--danger)" }}> *</span>
               </label>
               <SeverityDropdown
                 value={severity}
@@ -483,7 +521,8 @@ export function EntityInstanceCreate(): React.ReactElement {
             </div>
             <div className="form-group" style={{ gridColumn: "1 / -1" }}>
               <label className="form-label">
-                Remark<span style={{ color: "var(--danger)" }}> *</span>
+                {t("entityTypes.remark", { defaultValue: "Remark" })}
+                <span style={{ color: "var(--danger)" }}> *</span>
               </label>
               <textarea
                 className="form-input"
@@ -557,7 +596,9 @@ export function EntityInstanceCreate(): React.ReactElement {
             ))}
             {otherFields.length === 0 && (
               <p style={{ color: "var(--text-muted)", margin: "8px 0" }}>
-                No other fields defined for this entity type.
+                {t("entityTypes.noOtherFields", {
+                  defaultValue: "No other fields defined for this entity type.",
+                })}
               </p>
             )}
           </div>
@@ -572,10 +613,16 @@ export function EntityInstanceCreate(): React.ReactElement {
           }}
         >
           <Button asChild variant="secondary">
-            <Link to={`/entity-types/${entityTypeId ?? ""}`}>Cancel</Link>
+            <Link to={`/entity-types/${entityTypeId ?? ""}`}>
+              {t("entityTypes.cancel", { defaultValue: "Cancel" })}
+            </Link>
           </Button>
           <Button type="submit" variant="primary" disabled={saving}>
-            {saving ? "Creating…" : "Create Ticket"}
+            {saving
+              ? t("entityTypes.creating", { defaultValue: "Creating…" })
+              : t("entityTypes.createTicket", {
+                  defaultValue: "Create Ticket",
+                })}
           </Button>
         </div>
       </form>

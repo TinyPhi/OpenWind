@@ -51,7 +51,7 @@ safe to merge — nothing can break because `fallbackLng: "en"` covers missing k
 
 | task                            | requirements | files                                                           | status |
 | ------------------------------- | ------------ | --------------------------------------------------------------- | ------ |
-| T12: Extract builder UI strings | R3           | `pages/entity-types/`, `pages/workflows/`, `pages/automations/` | todo   |
+| T12: Extract builder UI strings | R3           | `pages/entity-types/`, `pages/workflows/`, `pages/automations/` | done   |
 
 ### P2D — Users + Teams + On-call + Schedule rules
 
