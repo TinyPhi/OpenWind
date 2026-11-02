@@ -1,13 +1,16 @@
 # ADR-019: Reporting Tenant Isolation — Embedded and Standalone Superset
 
-**Status:** Proposed. Stage 2 stays disabled (`SUPERSET_OAUTH_CLIENT_ID` unset) on every
-deployment until the Stage 2 gate criteria below are signed off. The Stage 2 security review
-(OQ-6) closed on 2026-09-30; its outcome is recorded in Decisions 2 and 6.  
+**Status:** Accepted (2026-11-02, repo owner). Stage 2 stays disabled (`SUPERSET_OAUTH_CLIENT_ID`
+unset) on every deployment until the Stage 2 gate criteria below are signed off. Accepting this ADR
+does not mean the gate is met: whether each criterion is met is tracked in the issues it names and
+in the sign-off record. The Stage 2 security review (OQ-6) closed on 2026-09-30; its outcome is
+recorded in Decisions 2 and 6.  
 **Date:** 2026-09-28.  
 **Deciders:** Engineering Lead (isolation approach owned by Bikash, decided 2026-09-09).  
 **Related to:** ADR-001 (multitenancy — RLS, `analytics_user` grants), ADR-013 (rate limiting),
 ADR-015 (observability + compliance — retention, erasure), issue #106 (3G tracker), issue #695.  
-**Amended:** 2026-11-02, Stage 2 gate criteria section rewritten (#1076); status unchanged.  
+**Amended:** 2026-11-02, Stage 2 gate criteria section rewritten (#1076); owner decisions on the
+gate recorded, criterion 9 names `SUPERSET_DEPLOYMENT`, status changed from Proposed to Accepted.  
 **Supersedes:** —  
 **Superseded by:** —
 
@@ -321,11 +324,19 @@ record, not in this ADR.
 Criteria marked (H) need a named human decision or an operational action and cannot be satisfied by
 code. The others are satisfied by an artefact in the repository or in CI.
 
+**Owner decisions (confirmed by the owner (2026-11-02)).** The hard gates stand as drafted: #1139
+(criteria 11-14: redact SQL literals, pseudonymise the actor, the 90-day cap, the purge test), #1081
+(criterion 18: rate limiting on the erasure endpoints) and the reverse-proxy rule (criterion 17,
+H6). Name and email correction sync (#1075) is not required for Stage 2. The values stand as drafted:
+a 30-day erasure target with a day-7 pending alert (criterion 8), 90 days of reporting audit
+retention by default (criterion 14), 24 hours of failed-job subject retention in Redis (criterion 15) and 10 requests per minute on the erasure endpoints (criterion 18).
+
 **Prerequisite (owner action): a production-configured environment.** Criterion 21 needs an
 environment that runs the production configuration (production compose file, OpenBao-delivered
 secrets, Zitadel, Superset with Stage 2 on) but is not the production deployment. No such
-environment exists today. Creating one is an owner action, and it must exist before sign-off. If the
-owner decides not to create one, this section must be amended before sign-off to say that the real
+environment exists today. Owner decision (confirmed by the owner (2026-11-02)): the owner will
+create a production-configured environment before sign-off; owner and target date: `TBD: not
+decided`. If the owner later declines to create one, this section must be amended before sign-off to say that the real
 run happens in production immediately after enabling, with the rollback in criterion 22.
 
 ### A. Isolation and tests
@@ -372,8 +383,9 @@ run happens in production immediately after enabling, with the rollback in crite
    appears. _Evidence:_ promtool test cases in `docker/observability/alert.rules.test.yml` (run in
    CI). Builds on criterion 7 (#1141).
 9. **Enablement consistency.** Deployments that run Superset set an explicit deployment setting on
-   the API and the worker (the implementation of #1137 names it `SUPERSET_DEPLOYMENT=off|on`; it
-   replaces `SUPERSET_ERASURE_ENABLED`). A repeatable worker self-check (every 15 minutes and at
+   the API and the worker: `SUPERSET_DEPLOYMENT=off|on` (default `off`; it replaces
+   `SUPERSET_ERASURE_ENABLED`, which is now ignored). `SUPERSET_OAUTH_CLIENT_ID` then only
+   distinguishes Stage 2 from Stage 1. A repeatable worker self-check (every 15 minutes and at
    startup) compares Superset's own report of whether Stage 2 is on with the local mode, runs a no-op
    smoke erase against a synthetic tenant, and alerts on any mismatch, failed smoke erase or missing
    self-check. With Stage 2 on in Superset and local config disagreeing, the API and tenant purge treat
@@ -406,7 +418,8 @@ run happens in production immediately after enabling, with the rollback in crite
     0158); the cap is configurable with a default of 90 days. _Evidence:_ sweep test with the real
     roles; the setting in `@platform/config` (#1139).
 15. **Failed-job subject retention is bounded.** Failed Superset erasure jobs keep `{kind, tenantId,
-subject}` in Redis for at most a documented, short period (default proposed: 24 hours after the
+subject}` in Redis for at most a documented, short period (default, confirmed by the owner
+    (2026-11-02): 24 hours after the
     retry window, or the subject hashed), not the current 7 days. _Evidence:_ test on
     `apps/worker/src/superset-erasure-options.ts`; runbook line (#1140, item 1).
 16. **User-removal paths are enumerated.** Every code path that removes a user (platform admin,
@@ -421,7 +434,7 @@ subject}` in Redis for at most a documented, short period (default proposed: 24 
     recorded request from outside that is refused. (H) _Evidence:_ the rule text and the recorded
     request in the sign-off record. The repository holds no such rule.
 18. **Erasure endpoints are rate-limited.** A per-caller limit on `_erasure_blueprint()` routes
-    (proposal: 10 requests per minute). _Evidence:_ test in `test_abuse_st17.py` or
+    (10 requests per minute, confirmed by the owner (2026-11-02)). _Evidence:_ test in `test_abuse_st17.py` or
     `test_erasure_endpoint.py` (#1081, which says it should be in place before Stage 2 goes live).
 
 ### E. Decisions only a human can make (H)

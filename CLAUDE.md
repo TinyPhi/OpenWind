@@ -35,7 +35,7 @@ TypeScript in `modules/` (ADR-004). Full architecture: `docs/architecture-brief.
 | Production TLS/HSTS, storage and backup encryption, production OpenBao                               | `docs/deployment-hardening.md`, `docs/local-setup.md`                                |
 | Teams/services, on-call schedules, severity + labels, `resolve_oncall`, notification policies (3E)   | ADR-016, `docs/oncall-routing-design.md`                                             |
 | `schedule_rules` / `schedule_executions`, scheduler tick (3F)                                        | ADR-017, `docs/temporal-scheduler-design.md`                                         |
-| Reporting: `analytics_user` grants, Superset connection mutator, guest tokens, reporting audit (3G)  | ADR-019 (Proposed), ADR-001                                                          |
+| Reporting: `analytics_user` grants, Superset connection mutator, guest tokens, reporting audit (3G)  | ADR-019 (Accepted), ADR-001                                                          |
 | `packages/automation-engine`                                                                         | `.claude/context/automation-engine.md` (always `/security-review`)                   |
 | Helpdesk/reimbursements/CRM modules, platform services, admin-ui generic views, no-code builders     | `.claude/context/phase-2-primer.md`                                                  |
 | AI features, `packages/ai`, model calls (3C — not started)                                           | ADR-018 (Proposed; accepting it does not start 3C)                                   |
@@ -70,7 +70,7 @@ only when a track's headline changes (started / done / blocked).
 | 3D    | Observability + compliance — OTel, Prometheus, GDPR             | ✅ Done (#503–507, ADR-015)                                                                              |
 | 3E    | On-call routing & severity-based notification                   | 🟡 Phases 1–4 merged (ADR-016); gap: SMS/WhatsApp/voice delivery (#570)                                  |
 | 3F    | Temporal scheduler — auto-create tickets on schedule            | 🟡 Phases 1–4 merged (ADR-017); schedule alert rules shipped (#867); no open gap issues                  |
-| 3G    | MIS reporting — embedded Superset + standalone/Zitadel SSO      | 🟡 Stages 1–2 merged (#663–671); ADR-019 proposed (#707); Stage 2 stays off pending review               |
+| 3G    | MIS reporting — embedded Superset + standalone/Zitadel SSO      | 🟡 Stages 1–2 merged (#663–671); ADR-019 accepted (#707); Stage 2 stays off pending review               |
 | 3H    | Cross-functional workflow visibility                            | 🟡 Phase 1 merged — vendor-approval seed module (#680); live walk-through #691; ADR-020 in review (#702) |
 | 3-OPS | Deferred ops/infra concerns                                     | 🔴 Not started (#6)                                                                                      |
 
