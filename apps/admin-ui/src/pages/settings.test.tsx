@@ -1,6 +1,7 @@
 import "../i18n.js";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import * as languageModule from "../lib/language.js";
 import { Settings } from "./settings.js";
 
 vi.mock("../authProvider.js", () => ({
@@ -48,7 +49,8 @@ describe("Settings Language tab (#1110)", () => {
     expect(comingSoonBadges).toHaveLength(10);
   });
 
-  it("disables clicking on untranslated languages", () => {
+  it("disables clicking on untranslated languages and does not invoke changeLocale", () => {
+    const changeLocaleSpy = vi.spyOn(languageModule, "changeLocale");
     render(<Settings />);
     fireEvent.click(screen.getByRole("tab", { name: /language/i }));
 
@@ -62,6 +64,8 @@ describe("Settings Language tab (#1110)", () => {
     expect(firstDisabled).toBeDefined();
     if (!firstDisabled) throw new Error("Expected disabled option");
     fireEvent.click(firstDisabled);
+
+    expect(changeLocaleSpy).not.toHaveBeenCalled();
 
     const englishOption = screen.getByRole("option", { name: /english/i });
     expect(englishOption.getAttribute("aria-selected")).toBe("true");

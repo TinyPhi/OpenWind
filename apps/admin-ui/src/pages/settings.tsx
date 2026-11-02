@@ -14,7 +14,7 @@ import {
 import {
   useLocale,
   SUPPORTED_LANGUAGES,
-  TRANSLATED_LANGUAGES,
+  isTranslatedLanguage,
 } from "../lib/language.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
@@ -444,9 +444,7 @@ export function Settings(): React.ReactElement {
                 aria-label={t("settings.selectDisplayLanguage")}
               >
                 {SUPPORTED_LANGUAGES.map((lng) => {
-                  const isTranslated = (
-                    TRANSLATED_LANGUAGES as readonly string[]
-                  ).includes(lng);
+                  const isTranslated = isTranslatedLanguage(lng);
                   return (
                     <button
                       key={lng}

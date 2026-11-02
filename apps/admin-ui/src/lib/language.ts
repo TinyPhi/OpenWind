@@ -3,25 +3,24 @@ import { i18n } from "../i18n.js";
 import {
   SUPPORTED_LANGUAGES,
   TRANSLATED_LANGUAGES,
+  isTranslatedLanguage,
   getSavedLanguage,
   setSavedLanguage,
   type SupportedLanguage,
+  type TranslatedLanguage,
 } from "./language-storage.js";
 
 export {
   SUPPORTED_LANGUAGES,
   TRANSLATED_LANGUAGES,
+  isTranslatedLanguage,
   getSavedLanguage,
   setSavedLanguage,
 };
-export type { SupportedLanguage };
+export type { SupportedLanguage, TranslatedLanguage };
 
 export async function changeLocale(lng: string): Promise<void> {
-  const validated = (TRANSLATED_LANGUAGES as readonly string[]).includes(
-    lng as SupportedLanguage,
-  )
-    ? lng
-    : "en";
+  const validated = isTranslatedLanguage(lng) ? lng : "en";
   await i18n.changeLanguage(validated);
   setSavedLanguage(validated);
   document.documentElement.lang = validated;

@@ -1,50 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600&display=swap");
-
-/* Indic font subsets with unicode-range descriptors (#1092) */
-@font-face {
-  font-family: "Noto Sans Devanagari";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: local("Noto Sans Devanagari"), local("NotoSansDevanagari-Regular");
-  unicode-range: U+0900-097F, U+1CD0-1CFF, U+A8E0-A8FF;
-}
-
-@font-face {
-  font-family: "Noto Sans Bengali";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: local("Noto Sans Bengali"), local("NotoSansBengali-Regular");
-  unicode-range: U+0980-09FF;
-}
-
-@font-face {
-  font-family: "Noto Sans Tamil";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: local("Noto Sans Tamil"), local("NotoSansTamil-Regular");
-  unicode-range: U+0B80-0BFF;
-}
-
-@font-face {
-  font-family: "Noto Sans Telugu";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: local("Noto Sans Telugu"), local("NotoSansTelugu-Regular");
-  unicode-range: U+0C00-0C7F;
-}
-
-@font-face {
-  font-family: "Noto Sans Kannada";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: local("Noto Sans Kannada"), local("NotoSansKannada-Regular");
-  unicode-range: U+0C80-0CFF;
-}
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600&family=Noto+Sans+Bengali:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&family=Noto+Sans+Kannada:wght@400;500;600&family=Noto+Sans+Tamil:wght@400;500;600&family=Noto+Sans+Telugu:wght@400;500;600&display=swap");
 
 @keyframes dash-skeleton {
   0% { background-position: 200% 0; }
@@ -2443,6 +2397,73 @@ button.menu-item.sidebar-logout {
 .theme-option-icon svg {
   width: 16px;
   height: 16px;
+}
+
+/* ─── Language selection list (#1110) ─────────────────────────── */
+.language-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 480px;
+}
+
+.language-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-normal);
+  text-align: left;
+  width: 100%;
+}
+
+.language-option:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.language-option-active,
+.language-option.active {
+  border-color: var(--accent-primary);
+  background: linear-gradient(
+    135deg,
+    hsla(var(--accent-h, 250), var(--accent-s, 84%), var(--accent-l, 60%), 0.15) 0%,
+    hsla(var(--accent-h, 250), var(--accent-s, 84%), var(--accent-l, 60%), 0.08) 100%
+  );
+  color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.language-option-disabled,
+.language-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+.language-option-name {
+  flex: 1;
+}
+
+.language-option-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 
 /* Color palette */
