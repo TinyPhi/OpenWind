@@ -25,6 +25,7 @@ import {
   outboxEvents,
   viewConfigs,
   withTenantContext,
+  syncModuleCatalog,
 } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import { executeTransition, WorkflowError } from "@platform/workflow-engine";
@@ -57,7 +58,7 @@ beforeAll(async () => {
       })
       .onConflictDoNothing();
   }
-  await ModuleService.seedRegistry();
+  await syncModuleCatalog(db);
   await ModuleService.installModule(TENANT_A, "vendor-approval");
 
   const [et] = await db

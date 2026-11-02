@@ -7,6 +7,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import path from "path";
 import { config as loadDotenv } from "dotenv";
+import { syncModuleCatalog } from "./module-catalog.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -82,6 +83,10 @@ async function main(): Promise<void> {
     await migrate(db, { migrationsFolder });
     console.error("All migrations applied successfully.");
     await syncReportingBindingKey(client);
+    // ADR-005 Amendment 1: the catalog is written by this migration-role
+    // connection on every run, never by the API (app_user is SELECT-only).
+    const synced = await syncModuleCatalog(db);
+    console.error(`Module catalog synced (${synced} modules).`);
   } catch (err) {
     console.error("Migration failed:", err);
     process.exit(1);

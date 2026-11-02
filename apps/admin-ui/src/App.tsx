@@ -112,8 +112,9 @@ export function App(): React.ReactElement {
 
   const i18nProvider = {
     translate: (key: string, params?: object) =>
+      // Refine's i18nProvider types params as object; i18next expects Record<string, unknown>
       t(key, params as Record<string, unknown>),
-    changeLocale: (lng: string) => changeLocale(lng),
+    changeLocale,
     getLocale: () => locale,
   };
 

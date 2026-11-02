@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, {
   useCallback,
   useEffect,
@@ -64,6 +65,7 @@ function startOfWeek(d: Date): Date {
  * GET /admin/on-call-schedules?teamId&from&to.
  */
 export function RosterPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
@@ -95,7 +97,7 @@ export function RosterPage(): React.ReactElement {
         setUsers((usersRes as { data: TenantUser[] }).data);
         setSelectedTeamId((prev) => prev || (teamRows[0]?.id ?? ""));
       })
-      .catch(() => showAlert("Failed to load teams/users."));
+      .catch(() => showAlert(t("roster.failedToLoad")));
   }, []);
 
   const weekEnd = useMemo(
@@ -139,7 +141,7 @@ export function RosterPage(): React.ReactElement {
       })
       .catch(() => {
         if (requestId !== requestIdRef.current) return;
-        showAlert("Failed to load on-call schedules.");
+        showAlert(t("roster.failedToLoadSchedules"));
       })
       .finally(() => {
         if (requestId === requestIdRef.current) setLoading(false);
@@ -163,7 +165,7 @@ export function RosterPage(): React.ReactElement {
       deleteModal.close();
       refresh();
     } catch {
-      showAlert("Failed to delete on-call schedule.");
+      showAlert(t("roster.failedToDelete"));
     }
   }
 
@@ -171,10 +173,8 @@ export function RosterPage(): React.ReactElement {
     <div>
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">On-Call Roster</h2>
-          <p className="page-subtitle">
-            Weekly coverage per team — primary, backup, and escalation on-call.
-          </p>
+          <h2 className="page-title">{t("roster.title")}</h2>
+          <p className="page-subtitle">{t("roster.subtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <Button
@@ -182,15 +182,14 @@ export function RosterPage(): React.ReactElement {
             onClick={() => createModal.open()}
             disabled={!selectedTeamId}
           >
-            New Schedule
+            {t("roster.newSchedule")}
           </Button>
         </div>
       </div>
 
       {possiblyTruncated && (
         <div className="alert alert-error" style={{ marginBottom: 16 }}>
-          ⚠ This team has 100+ overlapping schedules in this week's view — some
-          may not be shown.
+          {t("roster.truncatedWarning")}
         </div>
       )}
 
@@ -208,10 +207,12 @@ export function RosterPage(): React.ReactElement {
           value={selectedTeamId}
           onChange={(e) => setSelectedTeamId(e.target.value)}
         >
-          {teams.length === 0 && <option value="">No teams</option>}
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
+          {teams.length === 0 && (
+            <option value="">{t("roster.noTeams")}</option>
+          )}
+          {teams.map((team) => (
+            <option key={team.id} value={team.id}>
+              {team.name}
             </option>
           ))}
         </select>
@@ -253,12 +254,12 @@ export function RosterPage(): React.ReactElement {
       {loading ? (
         <div className="loading-center">
           <div className="spinner" />
-          <span className="loader-text">Loading roster…</span>
+          <span className="loader-text">{t("roster.loading")}</span>
         </div>
       ) : !selectedTeamId ? (
         <div className="wfl-empty">
-          <h4>No team selected</h4>
-          <p>Create a team first to build its on-call roster.</p>
+          <h4>{t("roster.noTeamSelected")}</h4>
+          <p>{t("roster.noTeamDesc")}</p>
         </div>
       ) : (
         <div className="data-panel" style={{ padding: 16 }}>
@@ -293,7 +294,7 @@ export function RosterPage(): React.ReactElement {
               className="page-subtitle"
               style={{ textAlign: "center", padding: "24px 0" }}
             >
-              No on-call schedules this week for this team.
+              {t("roster.noSchedulesThisWeek")}
             </p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -404,20 +405,20 @@ export function RosterPage(): React.ReactElement {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete on-call schedule?</AlertDialogTitle>
+          <AlertDialogTitle>{t("roster.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {deleteModal.item
-              ? `"${deleteModal.item.label}" will be removed from the roster.`
+              ? t("roster.deleteDesc", { label: deleteModal.item.label })
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("roster.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() =>
                 deleteModal.item && void handleDelete(deleteModal.item)
               }
             >
-              Delete
+              {t("roster.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -473,6 +474,7 @@ function ScheduleFormModal({
   onSaved,
   onDelete,
 }: ScheduleFormModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<ScheduleFormData>(() =>
     initialScheduleFormData(schedule),
   );
@@ -605,11 +607,7 @@ function ScheduleFormModal({
       // avoid showing the same failure twice (PR #602 review, M2).
       const status = (err as { status?: number }).status;
       if (!status || status < 500) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save on-call schedule",
-        );
+        setError(err instanceof Error ? err.message : t("roster.failedToSave"));
       }
     } finally {
       setSaving(false);
@@ -637,7 +635,7 @@ function ScheduleFormModal({
         >
           <DialogTitle asChild>
             <h2 className="page-title">
-              {schedule ? "Edit On-Call Schedule" : "New On-Call Schedule"}
+              {schedule ? t("roster.editSchedule") : t("roster.newSchedule")}
             </h2>
           </DialogTitle>
           <DialogClose asChild>
@@ -667,10 +665,12 @@ function ScheduleFormModal({
         <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="form-group">
             <label className="form-label" htmlFor="schedule-team">
-              Team *
+              {t("roster.team")} *
             </label>
             {schedule ? (
-              <div id="schedule-team">{team?.name ?? "Unknown team"}</div>
+              <div id="schedule-team">
+                {team?.name ?? t("roster.unknownTeam")}
+              </div>
             ) : (
               <select
                 id="schedule-team"
@@ -678,25 +678,22 @@ function ScheduleFormModal({
                 value={teamId}
                 onChange={(e) => changeTeam(e.target.value)}
               >
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
+                {teams.map((tm) => (
+                  <option key={tm.id} value={tm.id}>
+                    {tm.name}
                   </option>
                 ))}
               </select>
             )}
             {memberIds.length === 0 && teamId && (
-              <p className="page-subtitle">
-                This team has no members yet, so anyone eligible can be picked.
-                Adding members to the team limits the choice to them.
-              </p>
+              <p className="page-subtitle">{t("roster.noMembersHint")}</p>
             )}
           </div>
           <div className="form-group">
-            <label className="form-label">Label *</label>
+            <label className="form-label">{t("roster.label")} *</label>
             <input
               className="form-input"
-              placeholder="e.g. Week 1"
+              placeholder={t("roster.labelPlaceholder")}
               value={label}
               autoFocus
               onChange={(e) => updateField("label", e.target.value)}
@@ -706,7 +703,7 @@ function ScheduleFormModal({
           </div>
           <div style={{ display: "flex", gap: 12 }}>
             <div className="form-group" style={{ flex: 1 }}>
-              <label className="form-label">Starts *</label>
+              <label className="form-label">{t("roster.starts")} *</label>
               <input
                 className="form-input"
                 type="datetime-local"
@@ -716,7 +713,7 @@ function ScheduleFormModal({
               />
             </div>
             <div className="form-group" style={{ flex: 1 }}>
-              <label className="form-label">Ends *</label>
+              <label className="form-label">{t("roster.ends")} *</label>
               <input
                 className="form-input"
                 type="datetime-local"
@@ -727,41 +724,42 @@ function ScheduleFormModal({
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">Primary on-call *</label>
+            <label className="form-label">{t("roster.primaryOncall")} *</label>
             <UserPicker
               users={pickerUsers}
               value={primaryUserId || null}
               onChange={(id) => updateField("primaryUserId", id ?? "")}
-              placeholder="Select a user"
+              placeholder={t("roster.selectUser")}
               portalContainer={contentNode}
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Backup on-call</label>
+            <label className="form-label">{t("roster.backupOncall")}</label>
             <UserPicker
               users={pickerUsers}
               value={backupUserId || null}
               onChange={(id) => updateField("backupUserId", id ?? "")}
-              placeholder="None"
+              placeholder={t("roster.none")}
               portalContainer={contentNode}
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Escalation manager</label>
+            <label className="form-label">
+              {t("roster.escalationManager")}
+            </label>
             <UserPicker
               users={pickerUsers}
               value={escalationManagerUserId || null}
               onChange={(id) =>
                 updateField("escalationManagerUserId", id ?? "")
               }
-              placeholder="None"
+              placeholder={t("roster.none")}
               portalContainer={contentNode}
             />
           </div>
           {hasDuplicateAssignees && (
             <div className="alert alert-error" style={{ marginTop: 8 }}>
-              Primary, backup, and escalation manager must be different people —
-              the same person can't cover their own backup.
+              {t("roster.duplicateAssigneesError")}
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -771,14 +769,14 @@ function ScheduleFormModal({
               disabled={saving || !isValid}
             >
               {saving
-                ? "Saving…"
+                ? t("roster.saving")
                 : schedule
-                  ? "Save changes"
-                  : "Create schedule"}
+                  ? t("roster.saveChanges")
+                  : t("roster.createSchedule")}
             </Button>
             {schedule && onDelete && (
               <Button type="button" variant="secondary" onClick={onDelete}>
-                Delete
+                {t("roster.delete")}
               </Button>
             )}
           </div>

@@ -10,6 +10,7 @@ import {
   Button,
   TOKENS,
 } from "@platform/ui";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 
 /**
@@ -36,6 +37,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function Plugins(): React.ReactElement {
+  const { t } = useTranslation();
   const {
     result: data,
     query: { isLoading, refetch },
@@ -59,7 +61,7 @@ export function Plugins(): React.ReactElement {
       await refetch();
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : "Failed to uninstall plugin",
+        err instanceof Error ? err.message : t("plugins.failedToUninstall"),
       );
     } finally {
       setBusySlug(null);
@@ -67,22 +69,22 @@ export function Plugins(): React.ReactElement {
   }
 
   if (isLoading) {
-    return <div style={{ padding: 24 }}>Loading plugins…</div>;
+    return <div style={{ padding: 24 }}>{t("plugins.loading")}</div>;
   }
 
   return (
     <div style={{ padding: 24 }}>
-      <h1>Plugins</h1>
+      <h1>{t("plugins.title")}</h1>
       {errorMessage && <p style={{ color: TOKENS.danger }}>⚠ {errorMessage}</p>}
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Version</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Errors</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableHead>{t("plugins.name")}</TableHead>
+            <TableHead>{t("plugins.version")}</TableHead>
+            <TableHead>{t("plugins.category")}</TableHead>
+            <TableHead>{t("plugins.statusHeader")}</TableHead>
+            <TableHead>{t("plugins.errors")}</TableHead>
+            <TableHead>{t("plugins.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -94,7 +96,7 @@ export function Plugins(): React.ReactElement {
               <TableCell>
                 {plugin.installed
                   ? (STATUS_LABEL[plugin.status ?? ""] ?? plugin.status)
-                  : "Not installed"}
+                  : t("plugins.notInstalled")}
               </TableCell>
               <TableCell>
                 {plugin.errorCount > 0 ? (
@@ -112,7 +114,9 @@ export function Plugins(): React.ReactElement {
                     disabled={busySlug === plugin.slug}
                     onClick={() => void handleUninstall(plugin.slug)}
                   >
-                    {busySlug === plugin.slug ? "Uninstalling…" : "Uninstall"}
+                    {busySlug === plugin.slug
+                      ? t("plugins.uninstalling")
+                      : t("plugins.uninstall")}
                   </Button>
                 ) : null}
               </TableCell>

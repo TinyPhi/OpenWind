@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { OtpVerification } from "./otp-verification.js";
@@ -9,6 +10,7 @@ import { signOutPlatformAdmin } from "./sign-out.js";
  * RequirePlatformAdminMfa's /platform-admin/session check then accepts.
  */
 export function PlatformAdminMfa(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = React.useState(false);
 
@@ -40,7 +42,7 @@ export function PlatformAdminMfa(): React.ReactElement {
             <path d="m9 12 2 2 4-4" />
           </svg>
         </div>
-        <h1 className="pa-auth-title">Verify it's you</h1>
+        <h1 className="pa-auth-title">{t("platformAdmin.verifyItsYou")}</h1>
         <p className="pa-auth-subtitle">
           Platform admin sign-in needs a one-time code every time you log in.
         </p>
@@ -57,7 +59,9 @@ export function PlatformAdminMfa(): React.ReactElement {
             onClick={() => void handleSignOut()}
             disabled={signingOut}
           >
-            {signingOut ? "Signing out…" : "Sign out"}
+            {signingOut
+              ? t("platformAdmin.signingOut")
+              : t("platformAdmin.signOut")}
           </button>
         </div>
       </div>

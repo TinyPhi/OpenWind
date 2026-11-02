@@ -23,6 +23,7 @@ export {
   withTenantAndUserContext,
   setOutboxSweeperRole,
   setScheduleSweeperRole,
+  setAccessLogRetentionRole,
   withPlatformAdminContext,
   withTenantLifecycleContext,
   withTenantPurgeContext,
@@ -35,6 +36,14 @@ export {
   connectorInstallationFilter,
   connectorDefinitionExists,
 } from "./connector-credentials.js";
+export {
+  MODULE_CATALOG,
+  ModuleCatalogEntrySchema,
+  syncModuleCatalog,
+  syncModuleCatalogAsUrl,
+  type ModuleCatalogEntry,
+  type ModuleCatalogExecutor,
+} from "./module-catalog.js";
 export { isUniqueViolation, isCheckViolation } from "./errors.js";
 export {
   toPlatformAdminSandboxView,

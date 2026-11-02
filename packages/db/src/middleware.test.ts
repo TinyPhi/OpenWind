@@ -30,6 +30,7 @@ vi.mock("./schema/index.js", () => ({}));
 
 const {
   withTenantPurgeContext,
+  setAccessLogRetentionRole,
   withTenantLifecycleContext,
   withPlatformAdminContext,
   withTenantContext,
@@ -40,6 +41,17 @@ describe("db middleware context functions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executedStatements.length = 0;
+  });
+
+  describe("setAccessLogRetentionRole (migration 0158 / #1131)", () => {
+    it("issues SET LOCAL ROLE access_log_retention_role", async () => {
+      await setAccessLogRetentionRole(mockTx as never);
+
+      expect(executedStatements).toHaveLength(1);
+      expect(executedStatements[0].sql).toContain(
+        "SET LOCAL ROLE access_log_retention_role",
+      );
+    });
   });
 
   describe("withTenantPurgeContext (migration 0144 / #903)", () => {

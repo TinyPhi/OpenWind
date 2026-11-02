@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Button,
@@ -40,6 +41,7 @@ export interface Service {
  * ownership at write time, see services.ts's own header comment).
  */
 export function ServicesPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [services, setServices] = useState<Service[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +58,7 @@ export function ServicesPage(): React.ReactElement {
         setServices((servicesRes as { data: Service[] }).data);
         setTeams((teamsRes as { data: Team[] }).data);
       })
-      .catch(() => showAlert("Failed to load services."))
+      .catch(() => showAlert(t("services.failedToLoad")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -75,7 +77,7 @@ export function ServicesPage(): React.ReactElement {
       deleteModal.close();
       refresh();
     } catch {
-      showAlert("Failed to delete service.");
+      showAlert(t("services.failedToDelete"));
     }
   }
 
@@ -83,7 +85,7 @@ export function ServicesPage(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading services…</span>
+        <span className="loader-text">{t("services.loading")}</span>
       </div>
     );
   }
@@ -92,10 +94,8 @@ export function ServicesPage(): React.ReactElement {
     <div>
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">Services</h2>
-          <p className="page-subtitle">
-            Optionally grouped under a team for on-call routing purposes.
-          </p>
+          <h2 className="page-title">{t("services.title")}</h2>
+          <p className="page-subtitle">{t("services.subtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <Button variant="primary" onClick={serviceModal.openCreate}>
@@ -106,17 +106,19 @@ export function ServicesPage(): React.ReactElement {
 
       {services.length === 0 ? (
         <div className="wfl-empty">
-          <h4>No services yet</h4>
-          <p>Create one to organize tickets by the system they affect.</p>
+          <h4>{t("services.noServices")}</h4>
+          <p>{t("services.noServicesDesc")}</p>
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Team</TableHead>
-              <TableHead style={{ width: 120 }}>Actions</TableHead>
+              <TableHead>{t("services.name")}</TableHead>
+              <TableHead>{t("services.description")}</TableHead>
+              <TableHead>{t("services.team")}</TableHead>
+              <TableHead style={{ width: 120 }}>
+                {t("services.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -128,13 +130,13 @@ export function ServicesPage(): React.ReactElement {
                 <TableCell>
                   <div style={{ display: "flex", gap: 6 }}>
                     <IconButton
-                      aria-label="Edit service"
+                      aria-label={t("services.editService")}
                       onClick={() => serviceModal.openEdit(service)}
                     >
                       ✎
                     </IconButton>
                     <IconButton
-                      aria-label="Delete service"
+                      aria-label={t("services.deleteService")}
                       onClick={() => deleteModal.open(service)}
                     >
                       🗑
@@ -165,20 +167,20 @@ export function ServicesPage(): React.ReactElement {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete service?</AlertDialogTitle>
+          <AlertDialogTitle>{t("services.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {deleteModal.item
-              ? `"${deleteModal.item.name}" will be archived.`
+              ? t("services.deleteDesc", { name: deleteModal.item.name })
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("services.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (deleteModal.item) void handleDelete(deleteModal.item);
               }}
             >
-              Delete
+              {t("services.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -202,6 +204,7 @@ function ServiceFormModal({
   onClose,
   onSaved,
 }: ServiceFormModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [name, setName] = useState(service?.name ?? "");
   const [description, setDescription] = useState(service?.description ?? "");
   const [teamId, setTeamId] = useState(service?.teamId ?? "");
@@ -240,7 +243,9 @@ function ServiceFormModal({
       // avoid showing the same failure twice (PR #602 review, M2).
       const status = (err as { status?: number }).status;
       if (!status || status < 500) {
-        setError(err instanceof Error ? err.message : "Failed to save service");
+        setError(
+          err instanceof Error ? err.message : t("services.failedToSave"),
+        );
       }
     } finally {
       setSaving(false);
@@ -264,7 +269,7 @@ function ServiceFormModal({
         >
           <DialogTitle asChild>
             <h2 className="page-title">
-              {service ? "Edit Service" : "New Service"}
+              {service ? t("services.editService") : t("services.newService")}
             </h2>
           </DialogTitle>
           <DialogClose asChild>
@@ -293,10 +298,10 @@ function ServiceFormModal({
 
         <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="form-group">
-            <label className="form-label">Name *</label>
+            <label className="form-label">{t("services.name")} *</label>
             <input
               className="form-input"
-              placeholder="e.g. Payments API"
+              placeholder={t("services.namePlaceholder")}
               value={name}
               autoFocus
               onChange={(e) => setName(e.target.value)}
@@ -305,23 +310,23 @@ function ServiceFormModal({
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="form-label">{t("services.description")}</label>
             <input
               className="form-input"
-              placeholder="What this service does"
+              placeholder={t("services.descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={2000}
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Team</label>
+            <label className="form-label">{t("services.team")}</label>
             <select
               className="form-input"
               value={teamId}
               onChange={(e) => setTeamId(e.target.value)}
             >
-              <option value="">No team</option>
+              <option value="">{t("services.noTeam")}</option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -335,7 +340,11 @@ function ServiceFormModal({
             disabled={saving || !name.trim()}
             style={{ marginTop: 8 }}
           >
-            {saving ? "Saving…" : service ? "Save changes" : "Create service"}
+            {saving
+              ? t("services.saving")
+              : service
+                ? t("services.saveChanges")
+                : t("services.createService")}
           </Button>
         </form>
       </DialogContent>

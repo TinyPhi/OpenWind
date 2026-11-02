@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@platform/ui";
@@ -22,10 +23,10 @@ import {
 import { groupKeysByApplication } from "./application-grouping.js";
 
 const STATUS_LABEL: Record<string, string> = {
-  active: "Active",
-  rotating: "Rotating",
-  expired: "Expired",
-  revoked: "Revoked",
+  active: "apiKeys.active",
+  rotating: "apiKeys.rotating",
+  expired: "apiKeys.expired",
+  revoked: "apiKeys.revoked",
 };
 
 // Date-only formatting hid exactly the detail that matters most on this
@@ -64,6 +65,7 @@ function RowActionsMenu({
   onRequestClose: () => void;
   children: React.ReactNode;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(
     null,
@@ -84,7 +86,7 @@ function RowActionsMenu({
         ref={btnRef}
         type="button"
         className="rcd-kebab-btn"
-        aria-label="More actions"
+        aria-label={t("apiKeys.moreActions")}
         aria-expanded={open}
         disabled={disabled}
         onClick={onToggle}
@@ -124,6 +126,7 @@ function RowActionsMenu({
 }
 
 export function ApiKeyApplicationDetail(): React.ReactElement {
+  const { t } = useTranslation();
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
@@ -149,7 +152,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
         setKeys((res as { data: ApiKeyRow[] }).data);
       })
       .catch(() => {
-        showAlert("Failed to load API keys.");
+        showAlert(t("apiKeys.failedToLoad"));
       })
       .finally(() => setIsLoading(false));
   }, []);
@@ -186,22 +189,25 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
     if (kind === "revoke") {
       const ok = await revoke(id);
       if (ok) refresh();
-      else showAlert("Failed to revoke the key.");
+      else showAlert(t("apiKeys.failedToRevoke"));
     } else if (kind === "rotate") {
       const result = await rotate(id);
       if (result) {
         refresh();
-        setRevealKey({ title: "Key rotated", rawKey: result.key });
+        setRevealKey({ title: t("apiKeys.keyRotated"), rawKey: result.key });
       } else {
-        showAlert("Failed to rotate the key.");
+        showAlert(t("apiKeys.failedToRotate"));
       }
     } else {
       const result = await emergencyRotate(id);
       if (result) {
         refresh();
-        setRevealKey({ title: "Key emergency-rotated", rawKey: result.key });
+        setRevealKey({
+          title: t("apiKeys.keyEmergencyRotated"),
+          rawKey: result.key,
+        });
       } else {
-        showAlert("Failed to emergency-rotate the key.");
+        showAlert(t("apiKeys.failedToEmergencyRotate"));
       }
     }
     setConfirmState(null);
@@ -289,7 +295,9 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                   </td>
                   <td>{formatDateTime(key.createdAt)}</td>
                   <td>
-                    {key.expiresAt ? formatDateTime(key.expiresAt) : "Never"}
+                    {key.expiresAt
+                      ? formatDateTime(key.expiresAt)
+                      : t("apiKeys.never")}
                     {badge.level !== "none" && (
                       <span
                         className="stat-pill"
@@ -311,7 +319,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                       className={`wfl-status-badge ${status === "active" ? "wfl-status-active" : "wfl-status-inactive"}`}
                     >
                       <span className="wfl-status-dot" />
-                      {STATUS_LABEL[status]}
+                      {t(STATUS_LABEL[status] ?? "")}
                     </span>
                   </td>
                   <td>
@@ -398,12 +406,12 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
         confirmLabel={
           confirmState
             ? API_KEY_ACTION_CONFIRM_COPY[confirmState.kind].confirmLabel
-            : "Confirm"
+            : t("apiKeys.confirm")
         }
         busyLabel={
           confirmState
             ? API_KEY_ACTION_CONFIRM_COPY[confirmState.kind].busyLabel
-            : "Working…"
+            : t("apiKeys.working")
         }
         busy={confirmState !== null && busyKeyId === confirmState.id}
         onConfirm={() => void handleConfirm()}

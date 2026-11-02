@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useList } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@platform/ui";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { resolveCardIcon } from "../../lib/icon.js";
@@ -79,10 +80,12 @@ function MiniFlow({
 }
 
 export function Workflows(): React.ReactElement {
+  const { t } = useTranslation();
   const {
     result: data,
     query: { isLoading },
   } = useList<Workflow>({ resource: "workflows" });
+
   const { getTypeById } = useEntityTypes();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -179,7 +182,7 @@ export function Workflows(): React.ReactElement {
               className={`wfl-status-badge ${isActive ? "wfl-status-active" : "wfl-status-inactive"}`}
             >
               <span className="wfl-status-dot" />
-              {isActive ? "Active" : "Inactive"}
+              {isActive ? t("workflows.active") : t("workflows.inactive")}
             </span>
             {recordCount > 0 && (
               <span className="wfl-record-count-badge">
@@ -189,7 +192,7 @@ export function Workflows(): React.ReactElement {
             {needsSetup && (
               <span className="wfl-status-badge wfl-status-setup">
                 <span className="wfl-status-dot" />
-                Needs setup
+                {t("workflows.needsSetup")}
               </span>
             )}
           </div>
@@ -243,7 +246,7 @@ export function Workflows(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading workflows…</span>
+        <span className="loader-text">{t("workflows.loading")}</span>
       </div>
     );
   }
@@ -253,11 +256,8 @@ export function Workflows(): React.ReactElement {
       {/* ── Page header ── */}
       <div className="wfl-page-header">
         <div>
-          <h2 className="page-title">Workflows</h2>
-          <p className="page-subtitle">
-            Design how tickets move from step to step — the steps, the actions
-            between them, and who's allowed to do what.
-          </p>
+          <h2 className="page-title">{t("workflows.title")}</h2>
+          <p className="page-subtitle">{t("workflows.subtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <span className="stat-pill">{activeCount} active</span>
@@ -283,7 +283,7 @@ export function Workflows(): React.ReactElement {
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              New Workflow
+              {t("workflows.newWorkflow")}
             </Button>
           )}
         </div>
@@ -294,19 +294,21 @@ export function Workflows(): React.ReactElement {
         <div className="wfl-overview-strip">
           <div className="wfl-overview-stat">
             <span className="wfl-overview-num">{allWorkflows.length}</span>
-            <span className="wfl-overview-label">Workflows</span>
+            <span className="wfl-overview-label">{t("workflows.title")}</span>
           </div>
           <div className="wfl-overview-stat">
             <span className="wfl-overview-num">{totalSteps}</span>
-            <span className="wfl-overview-label">Steps</span>
+            <span className="wfl-overview-label">{t("workflows.steps")}</span>
           </div>
           <div className="wfl-overview-stat">
             <span className="wfl-overview-num">{totalActions}</span>
-            <span className="wfl-overview-label">Actions</span>
+            <span className="wfl-overview-label">{t("workflows.actions")}</span>
           </div>
           <div className="wfl-overview-stat">
             <span className="wfl-overview-num">{totalRecords}</span>
-            <span className="wfl-overview-label">Records</span>
+            <span className="wfl-overview-label">
+              {t("entityTypes.records")}
+            </span>
           </div>
         </div>
       )}
@@ -331,7 +333,7 @@ export function Workflows(): React.ReactElement {
           </svg>
           <input
             className="wfl-search-input"
-            placeholder="Search workflows…"
+            placeholder={t("workflows.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -365,16 +367,14 @@ export function Workflows(): React.ReactElement {
               <path d="M12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061a1.125 1.125 0 01-1.683-.977V8.69z" />
             </svg>
           </div>
-          <h4>No workflows yet</h4>
-          <p>
-            Copy a template from the Templates page or create a blank workflow.
-          </p>
+          <h4>{t("workflows.noWorkflows")}</h4>
+          <p>{t("workflows.noWorkflowsDesc")}</p>
           <Button
             variant="primary"
             style={{ marginTop: "16px" }}
             onClick={() => void navigate("/workflows/new")}
           >
-            Create your first workflow
+            {t("workflows.createWorkflow")}
           </Button>
         </div>
       )}
@@ -382,7 +382,7 @@ export function Workflows(): React.ReactElement {
       {allWorkflows.length > 0 && workflows.length === 0 && (
         <div className="wfl-empty">
           <div className="wfl-empty-icon">🔍</div>
-          <h4>No results for "{search}"</h4>
+          <h4>{t("workflows.noMatches")}</h4>
           <p>Try a different keyword.</p>
         </div>
       )}
@@ -392,7 +392,7 @@ export function Workflows(): React.ReactElement {
         <>
           {inactiveWorkflows.length > 0 && (
             <div className="wfl-group-label">
-              Active ({activeWorkflows.length})
+              {t("workflows.active")} ({activeWorkflows.length})
             </div>
           )}
           <div className="wfl-list">
@@ -404,7 +404,7 @@ export function Workflows(): React.ReactElement {
       {inactiveWorkflows.length > 0 && (
         <>
           <div className="wfl-group-label wfl-group-label-inactive">
-            Inactive ({inactiveWorkflows.length})
+            {t("workflows.inactive")} ({inactiveWorkflows.length})
           </div>
           <div className="wfl-list">
             {inactiveWorkflows.map((wf) => renderRow(wf))}

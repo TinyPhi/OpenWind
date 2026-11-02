@@ -19,12 +19,13 @@
  */
 
 import { sql } from "drizzle-orm";
-import { db } from "@platform/db";
+import { db, setAccessLogRetentionRole } from "@platform/db";
 import { logger } from "@platform/logger";
 import { Worker, Queue } from "@platform/telemetry";
 import { connection } from "./queues.js";
 
 const QUEUE_NAME = "access-log-retention";
+// Also hard-coded in migration 0158's admin_audit_log retention policies -- change both together.
 const RETENTION_DAYS = 90;
 /** Max rows aggregated+deleted per batch -- bounds one run's lock/memory footprint. */
 const BATCH_LIMIT = 5000;
@@ -36,19 +37,20 @@ const BATCH_LIMIT = 5000;
  */
 const MAX_BATCHES_PER_RUN = 20;
 
-// No withTenantContext/explicit tenant_id filter here -- same accepted
-// pattern as attachment-cleanup.ts's own cross-tenant sweep. This worker
-// runs under the privileged DB connection (not the app_user RLS role), so
-// admin_audit_log's RLS policies do not restrict these reads or deletes;
-// every write targets only rows older than the retention window, not
-// per-tenant row contents, so there is no cross-tenant data exposure.
+// No withTenantContext/explicit tenant_id filter: the sweep is cross-tenant by design and only
+// targets rows older than the retention window. The worker connects as app_user, which cannot
+// DELETE admin_audit_log (append-only, 0061), so the batch switches to access_log_retention_role
+// (migration 0158) for its transaction. That role is not BYPASSRLS; it has role-only policies and
+// column-scoped grants on admin_audit_log and admin_audit_log_daily_rollup, nothing else.
 async function runOneBatch(): Promise<number> {
   // MATERIALIZED forces Postgres to compute `batch` once and reuse that
   // exact row set for both the aggregate and the delete -- without it, a
   // multiply-referenced CTE can be inlined differently per reference on
   // some plans, which would risk aggregating one row set and deleting a
   // slightly different one.
-  const rows = await db.execute<{ deleted_count: number }>(sql`
+  return db.transaction(async (tx) => {
+    await setAccessLogRetentionRole(tx);
+    const rows = await tx.execute<{ deleted_count: number }>(sql`
     WITH batch AS MATERIALIZED (
       SELECT id, tenant_id, resource_type, action, date_trunc('day', created_at)::date AS day
       FROM admin_audit_log
@@ -75,7 +77,8 @@ async function runOneBatch(): Promise<number> {
     SELECT count(*)::int AS deleted_count FROM deleted
   `);
 
-  return rows[0]?.deleted_count ?? 0;
+    return rows[0]?.deleted_count ?? 0;
+  });
 }
 
 export async function runAccessLogRetentionSweep(): Promise<void> {
