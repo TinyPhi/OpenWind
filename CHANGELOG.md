@@ -45,6 +45,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
   new privileges.
 
+## [Unreleased — Sentry free-text scrubbing (#1149)]
+
+### Security
+
+- Sentry events and `@platform/logger` now share one scrubbing module (`packages/logger/src/redact.ts`).
+  Besides key-based redaction, string values (message, exception values, breadcrumbs, `extra`,
+  `contexts`, `tags`) are scrubbed for email addresses, bearer/JWT tokens and `key=value` secrets.
+- Sentry events no longer carry `user.ip_address`, `server_name`, `request.data`, the request query
+  string or stack-frame source context lines.
+  Free-text IP addresses inside messages are not scrubbed.
+- The logger now also redacts one level of nested sensitive keys, and scrubs the log message and
+  top-level string fields. Its redaction marker is `[REDACTED]` (was pino's `[Redacted]`).
+
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 
 ### Added
