@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - `TRANSLATED_LANGUAGES` constant gating the language switcher so untranslated locales (currently all non-English stubs) display a localized "Coming soon" pill badge and are disabled until full translations are ready (#1110).
-- Restored Google Fonts Indic `@import` font delivery with full glyph coverage and verified download-on-demand behavior (#1092).
+- Restored Google Fonts Indic `@import` font delivery with full glyph coverage (#1092). Google Fonts CSS API natively partitions font files into unicode-range subsets, ensuring on-demand download only when Indic glyphs are present.
 - Unit tests for the Settings Language tab (`settings.test.tsx`) and Refine `i18nProvider` (`i18n-provider.test.ts`) (#1110).
 - Extended `locale-completeness.test.ts` to assert translation coverage thresholds for enabled languages.
 

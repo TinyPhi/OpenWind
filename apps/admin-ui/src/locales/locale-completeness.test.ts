@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TRANSLATED_LANGUAGES } from "../lib/language.js";
+import { TRANSLATED_LANGUAGES, isTranslatedLanguage } from "../lib/language.js";
 
 const SUPPORTED_NON_ENGLISH = [
   "hi",
@@ -85,7 +85,10 @@ describe("locale completeness", () => {
 });
 
 describe("untranslated stub locales have negligible differing keys from English", () => {
-  for (const lng of SUPPORTED_NON_ENGLISH) {
+  const untranslatedStubs = SUPPORTED_NON_ENGLISH.filter(
+    (lng) => !isTranslatedLanguage(lng),
+  );
+  for (const lng of untranslatedStubs) {
     it(`${lng}/common.json is a stub (less than 5% differing values from English)`, () => {
       const { total, ratio } = getTranslatedRatio(
         getLocale(lng),

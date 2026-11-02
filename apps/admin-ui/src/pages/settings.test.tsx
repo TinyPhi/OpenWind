@@ -18,6 +18,7 @@ vi.mock("../lib/api.js", () => ({
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.restoreAllMocks();
 });
 
 describe("Settings Language tab (#1110)", () => {
@@ -50,7 +51,12 @@ describe("Settings Language tab (#1110)", () => {
   });
 
   it("disables clicking on untranslated languages and does not invoke changeLocale", () => {
-    const changeLocaleSpy = vi.spyOn(languageModule, "changeLocale");
+    const changeLocaleMock = vi.fn();
+    vi.spyOn(languageModule, "useLocale").mockReturnValue({
+      locale: "en",
+      changeLocale: changeLocaleMock,
+    });
+
     render(<Settings />);
     fireEvent.click(screen.getByRole("tab", { name: /language/i }));
 
@@ -65,9 +71,13 @@ describe("Settings Language tab (#1110)", () => {
     if (!firstDisabled) throw new Error("Expected disabled option");
     fireEvent.click(firstDisabled);
 
-    expect(changeLocaleSpy).not.toHaveBeenCalled();
+    expect(changeLocaleMock).not.toHaveBeenCalled();
 
     const englishOption = screen.getByRole("option", { name: /english/i });
     expect(englishOption.getAttribute("aria-selected")).toBe("true");
+
+    // Clicking an enabled option does invoke changeLocale
+    fireEvent.click(englishOption);
+    expect(changeLocaleMock).toHaveBeenCalledWith("en");
   });
 });

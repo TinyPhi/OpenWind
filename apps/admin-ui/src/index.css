@@ -2429,14 +2429,9 @@ button.menu-item.sidebar-logout {
   color: var(--text-primary);
 }
 
-.language-option-active,
-.language-option.active {
+.language-option-active {
   border-color: var(--accent-primary);
-  background: linear-gradient(
-    135deg,
-    hsla(var(--accent-h, 250), var(--accent-s, 84%), var(--accent-l, 60%), 0.15) 0%,
-    hsla(var(--accent-h, 250), var(--accent-s, 84%), var(--accent-l, 60%), 0.08) 100%
-  );
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--accent-primary);
   box-shadow: 0 0 0 1px var(--accent-primary);
 }

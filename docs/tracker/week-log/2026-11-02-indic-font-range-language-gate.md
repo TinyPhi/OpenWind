@@ -11,7 +11,7 @@ Follow-up to multi-lingual support Phase 1 (#200) addressing language gating and
 
 - `apps/admin-ui/src/index.css`:
   - Restored Google Fonts `@import` including Noto Sans Indic font families (`Devanagari`, `Bengali`, `Kannada`, `Tamil`, `Telugu`) which natively emit per-script `@font-face` blocks with `unicode-range` descriptors for on-demand downloads.
-  - Added dedicated CSS styles for `.language-list`, `.language-option`, `.language-option-active`, `.language-option-disabled`, `.language-option-name`, and `.language-option-badge`.
+  - Added dedicated CSS styles for `.language-list`, `.language-option`, `.language-option-active`, `.language-option-disabled`, `.language-option-name`, and `.language-option-badge` (using theme-reactive `color-mix` on `--accent-primary`).
 - `apps/admin-ui/src/lib/language-storage.ts` & `language.ts`:
   - Added `TRANSLATED_LANGUAGES = ["en"] as const satisfies readonly SupportedLanguage[]`.
   - Added `isTranslatedLanguage(lng)` type guard helper to eliminate repeated type assertions.
@@ -23,7 +23,7 @@ Follow-up to multi-lingual support Phase 1 (#200) addressing language gating and
   - Added `settings.comingSoon: "Coming soon"` across all 11 locale files.
 - `apps/admin-ui/src/locales/locale-completeness.test.ts`:
   - Added key-by-key comparison ensuring enabled locales in `TRANSLATED_LANGUAGES` provide at least 80% translated values.
-  - Added tests asserting untranslated stub locales currently have < 5% differing values from English.
+  - Added tests asserting untranslated stub locales (`SUPPORTED_NON_ENGLISH.filter((l) => !isTranslatedLanguage(l))`) have < 5% differing values from English, enabling newly translated locales to transition without test modifications.
 - Tests & Infra:
   - Added `apps/admin-ui/src/lib/i18n-provider.ts` and `apps/admin-ui/src/lib/i18n-provider.test.ts` (4 unit tests).
   - Added `apps/admin-ui/src/pages/settings.test.tsx` (3 unit tests, including asserting `changeLocale` is not invoked on disabled options).
