@@ -1,6 +1,6 @@
 import { metrics } from "@opentelemetry/api";
 import { Queue } from "./bullmq.js";
-import { getRedis } from "@platform/redis";
+import { getRedis, readSupersetSelfcheck } from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
 import { PrometheusSerializer } from "@opentelemetry/exporter-prometheus";
@@ -425,6 +425,36 @@ export const supersetErasureTotal = meter.createCounter(
       "Superset erasure jobs by outcome (completed, or failed after the last retry)",
   },
 );
+
+// #1137: the worker's Superset erasure self-check (apps/worker/src/superset-erasure-selfcheck.ts), one
+// count per run. "mismatch": Superset and this platform disagree on whether Stage 2 is on;
+// "smoke_failed": the status route or the no-op smoke erase failed; "unreachable": Superset could not
+// be asked; "skipped": SUPERSET_DEPLOYMENT=off and Superset not reporting Stage 2 on, so nothing is expected.
+export const supersetErasureSelfcheckTotal = meter.createCounter(
+  "openwind_superset_erasure_selfcheck_total",
+  { description: "Superset erasure self-check runs by outcome" },
+);
+
+// 1 while the last self-check found Superset and the platform disagreeing on Stage 2, else 0. Read from
+// the result the worker keeps in Redis, so every process reports the same value and it is absent once
+// the worker has stopped checking, after which the API and purge answer "unverified" (counted by
+// outcome="unverified" when an erase or purge actually happens).
+const supersetErasureConfigMismatchGauge = meter.createObservableGauge(
+  "openwind_superset_erasure_config_mismatch",
+  {
+    description:
+      "1 when Superset and the platform disagree on whether Stage 2 is on (last self-check), else 0",
+  },
+);
+
+supersetErasureConfigMismatchGauge.addCallback(async (observableResult) => {
+  try {
+    const check = await readSupersetSelfcheck();
+    if (check) observableResult.observe(check.mismatch ? 1 : 0);
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
 
 // docs/specs/retention-classes.md — rows removed by the retention sweep, so a
 // sweep that deletes nothing (the pre-fix silent no-op) is visible on a dashboard.

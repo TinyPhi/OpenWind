@@ -83,6 +83,7 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "SUPERSET_DASHBOARD_TENANT_SLUG",
     "SUPERSET_DASHBOARD_USER_SLUG",
     "SUPERSET_SERVICE_ACCOUNT_USER",
+    "SUPERSET_DEPLOYMENT",
     "FILES_STORAGE_PATH",
   ],
   "ow-worker": [
@@ -96,6 +97,7 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "ZITADEL_INTROSPECTION_URL",
     "SUPERSET_INTERNAL_URL",
     "SUPERSET_SERVICE_ACCOUNT_USER",
+    "SUPERSET_DEPLOYMENT",
     "FILES_STORAGE_PATH",
     "CLAMAV_HOST",
     "CLAMAV_PORT",

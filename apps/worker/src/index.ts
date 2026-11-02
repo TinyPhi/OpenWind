@@ -1,7 +1,7 @@
 import "@platform/telemetry/instrumentation.js";
 import { startErrorTracking } from "@platform/telemetry";
 startErrorTracking();
-import { env } from "@platform/config";
+import { env, supersetConfigWarnings } from "@platform/config";
 import { setMandatoryFieldsMode } from "@platform/entity-engine";
 // docs/specs/mandatory-ticket-fields.md: log or reject workflow records missing a mandatory
 // value. The engine reads no config itself.
@@ -30,6 +30,10 @@ import { stopTenantPurgeWorker } from "./tenant-purge.js";
 import { stopExportWorker } from "./export-worker.js";
 import { stopSupersetCacheFlushWorker } from "./superset-cache-flush.js";
 import { stopSupersetErasureWorker } from "./superset-erasure.js";
+import {
+  scheduleSupersetErasureSelfcheck,
+  stopSupersetErasureSelfcheck,
+} from "./superset-erasure-selfcheck.js";
 import { startHealthServer, stopHealthServer } from "./health-server.js";
 import {
   startNotificationPoller,
@@ -81,6 +85,7 @@ import { stopSandboxResetWorker } from "./sandbox-reset-worker.js";
 import { stopSandboxDeleteWorker } from "./sandbox-delete-worker.js";
 
 logger.info({}, "Worker process starting");
+for (const warning of supersetConfigWarnings(env)) logger.warn({}, warning);
 
 // Pollers (interval-based, must be explicitly started and stopped)
 startOutboxPoller();
@@ -101,6 +106,12 @@ void scheduleAccessLogRetention();
 void scheduleUsageMetering();
 void scheduleRetentionArchival();
 void scheduleZitadelKeyExpiryCheck();
+scheduleSupersetErasureSelfcheck().catch((err: unknown) => {
+  logger.error(
+    { err: String(err) },
+    "superset self-check: could not be scheduled; erasure will read as unverified",
+  );
+});
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
@@ -127,6 +138,7 @@ async function shutdown(): Promise<void> {
     stopExportWorker(),
     stopSupersetCacheFlushWorker(),
     stopSupersetErasureWorker(),
+    stopSupersetErasureSelfcheck(),
     stopHealthServer(),
     stopNotificationWorker(),
     stopNotificationOutboundWorker(),

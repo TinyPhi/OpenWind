@@ -95,16 +95,48 @@ groups:
       # #728 (docs/specs/superset-gdpr-erasure.md): a user's or tenant's data may still be in
       # Superset. outcome="failed": the erasure job spent every retry (about 26 hours) without
       # finishing; its superset_erasure.failed audit row was written. outcome="not_queued": the job
-      # could not even be queued (Redis down), so nothing will retry it from the API. Runbook:
+      # could not even be queued (Redis down), so nothing will retry it from the API. outcome="unverified"
+      # (#1137): a user erase or tenant purge ran while this service said Stage 2 is off and Superset
+      # had not confirmed that, so it is not known whether Superset still holds the data. Runbook:
       # docs/runbooks/superset-erasure.md.
       - alert: SupersetErasureFailed
-        expr: increase(openwind_superset_erasure_total{outcome=~"failed|not_queued"}[1h]) > 0
+        expr: increase(openwind_superset_erasure_total{outcome=~"failed|not_queued|unverified"}[1h]) > 0
         labels:
           severity: critical
           team: platform
         annotations:
           summary: "A Superset erasure did not complete ({{ $labels.outcome }})"
-          description: '{{ $value | printf "%.0f" }} Superset erasure(s) with outcome {{ $labels.outcome }} in the last hour (failed: ran out of retries; not_queued: could not be queued). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
+          description: '{{ $value | printf "%.0f" }} Superset erasure(s) with outcome {{ $labels.outcome }} in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
+
+      # #1137: the worker's self-check (a repeatable job, 15 minutes by default) found Superset and the platform disagreeing on
+      # whether Stage 2 is on. Superset on with the id missing here is the dangerous direction: erasure
+      # would only flush the cache (the API and purge override it while the check is fresh). max(): the
+      # API and the worker each report the same value from Redis.
+      - alert: SupersetErasureConfigMismatch
+        expr: max(openwind_superset_erasure_config_mismatch) == 1
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Superset and the platform disagree on whether Stage 2 is on"
+          description: "The Superset erasure self-check found Superset and the API or worker disagreeing on whether Stage 2 is on for over 10 minutes. Set SUPERSET_DEPLOYMENT=on and SUPERSET_OAUTH_CLIENT_ID on backend and worker (and the id on superset and superset-init); see docs/runbooks/superset-erasure.md."
+
+      # #1137: checks ran in the last hour (so a Superset is expected) but none passed: Superset is
+      # unreachable, its status route or the no-op smoke erase fails, or the platform disagrees with it.
+      # Erasure then cannot be verified and a user erase answers "unverified". A deployment with no
+      # Superset and SUPERSET_DEPLOYMENT=off records "skipped" and never raises this.
+      - alert: SupersetErasureSelfcheckFailing
+        expr: |
+          sum(increase(openwind_superset_erasure_selfcheck_total{outcome="ok"}[1h])) == 0
+          and
+          sum(increase(openwind_superset_erasure_selfcheck_total{outcome=~"mismatch|smoke_failed|unreachable"}[1h])) > 0
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "No Superset erasure self-check has passed in the last hour"
+          description: "The worker's Superset erasure self-check has not passed for an hour, so erasure cannot be verified. Follow docs/runbooks/superset-erasure.md (a deployment without Superset: leave SUPERSET_DEPLOYMENT=off)."
 
       # Backstop for the alert above: a failed superset-erasure job stays in the queue for 7 days, so this
       # also catches one the counter cannot see (a job BullMQ failed after it stalled twice, or a counter

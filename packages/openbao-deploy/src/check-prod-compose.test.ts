@@ -411,4 +411,16 @@ describe("Superset keys in docker-compose.prod.yml BAO_REQUIRED_KEYS (#1142)", (
       expect(await requiredKeys(s)).not.toContain("SUPERSET_OAUTH_CLIENT_ID");
     }
   });
+
+  it("sets SUPERSET_DEPLOYMENT (default on) on backend and worker, and never requires it as a secret (#1137)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const text = readFileSync(prodFile, "utf8");
+    const matches = text.match(
+      /^ {6}SUPERSET_DEPLOYMENT: \$\{SUPERSET_DEPLOYMENT:-on\}$/gm,
+    );
+    expect(matches).toHaveLength(2);
+    for (const s of ["ow-backend", "ow-worker"]) {
+      expect(await requiredKeys(s)).not.toContain("SUPERSET_DEPLOYMENT");
+    }
+  });
 });

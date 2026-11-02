@@ -76,21 +76,39 @@ const EnvSchema = z
     // erasure or tenant purge flushes the `superset_` and `superset_data_` key prefixes there
     // (#728, docs/specs/superset-gdpr-erasure.md). Unset, nothing is flushed.
     SUPERSET_REDIS_URL: z.string().url().optional(),
+    // Whether this install runs Superset at all (#1137). "off" (default): no Superset is expected, so
+    // the erasure self-check records "skipped", a user erasure reports Superset as disabled, a tenant
+    // purge does not wait on Superset and nothing alerts; no other Superset variable is needed.
+    // "on": Superset is expected, the self-check is mandatory and erasure fails closed ("unverified"
+    // until the worker has confirmed Superset's state, a failing tenant purge). Set it to "on" on
+    // the API and the worker of every deployment that runs Superset. Strict, so a typo fails startup.
+    SUPERSET_DEPLOYMENT: z.enum(["off", "on"]).default("off"),
     // Superset Stage 2 (standalone SSO) is on when this is set. Superset reads it itself; the API
-    // and worker read it only to know whether Superset holds user accounts to erase (#728, D8).
+    // and worker read it to know whether Superset holds user accounts to erase (#728, D8), only
+    // when SUPERSET_DEPLOYMENT is "on". It is OAuth wiring, not the switch for erasure.
     // Empty counts as unset, since compose passes unset variables through as empty strings.
     SUPERSET_OAUTH_CLIENT_ID: z
       .string()
       .optional()
       .transform((v) => (v?.trim() ? v.trim() : undefined)),
-    // Whether a user erasure or tenant purge also reaches Superset when Stage 2 is off (then it
-    // only flushes the result cache). With Stage 2 on this cannot turn the erasure off, because
-    // Superset then holds accounts that must be erased; a warning is logged if it is set to false.
-    // Strict "true"/"false" so a typo fails startup.
-    SUPERSET_ERASURE_ENABLED: z
-      .enum(["true", "false"])
-      .default("true")
-      .transform((v) => v === "true"),
+    // Deprecated and ignored since #1137: replaced by SUPERSET_DEPLOYMENT. Kept in the schema only so
+    // the API and worker can log a startup warning when it is still set (see supersetErasureEnabledIsSet).
+    SUPERSET_ERASURE_ENABLED: z.string().optional(),
+    // The worker's Superset erasure self-check (#1137) runs as one BullMQ repeatable job every
+    // interval, however many workers there are, and keeps its answer in Redis for the TTL. The TTL
+    // must be at least twice the interval, so one slow or missed run does not leave the answer stale.
+    SUPERSET_SELFCHECK_INTERVAL_MINUTES: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1440)
+      .default(15),
+    SUPERSET_SELFCHECK_TTL_MINUTES: z.coerce
+      .number()
+      .int()
+      .min(2)
+      .max(2880)
+      .default(30),
     // Disposable cache instance (LRU, no persistence). REDIS_URL is the queue/state instance and
     // must be noeviction (BullMQ jobs and locks, rate limits, MFA markers). Unset, the cache shares
     // REDIS_URL, which is fine for dev and tiny installs but warns in production (#1013).
@@ -746,6 +764,15 @@ const EnvSchema = z
         "SUPERSET_ADMIN_PASSWORD must not be its development default in production",
     },
   )
+  .refine(
+    (v) =>
+      v.SUPERSET_SELFCHECK_TTL_MINUTES >=
+      2 * v.SUPERSET_SELFCHECK_INTERVAL_MINUTES,
+    {
+      message:
+        "SUPERSET_SELFCHECK_TTL_MINUTES must be at least twice SUPERSET_SELFCHECK_INTERVAL_MINUTES",
+    },
+  )
   // R14: the two URLs address different networks — the browser cannot resolve a
   // docker service name, and inside a container `localhost` is that container.
   // Equal values in production mean one of the two is wrong, and the failure is
@@ -791,15 +818,42 @@ export { EnvSchema };
  * What an erasure or tenant purge does in Superset (docs/specs/superset-gdpr-erasure.md, D8).
  * "full": Stage 2 is on, so Superset holds user accounts; erase them and flush the cache.
  * "cache-only": Stage 2 is off; guests are not stored as Superset users, so only the cache is flushed.
- * "off": Stage 2 is off and the setting turns Superset erasure off.
+ * "off": SUPERSET_DEPLOYMENT is "off": no Superset is expected, so nothing is done there (the
+ *   worker's self-check can still override this when Superset reports Stage 2 on).
  */
 export type SupersetErasureMode = "full" | "cache-only" | "off";
 
 export function supersetErasureMode(
-  v: Pick<Env, "SUPERSET_OAUTH_CLIENT_ID" | "SUPERSET_ERASURE_ENABLED">,
+  v: Pick<Env, "SUPERSET_DEPLOYMENT" | "SUPERSET_OAUTH_CLIENT_ID">,
 ): SupersetErasureMode {
-  if (v.SUPERSET_OAUTH_CLIENT_ID) return "full";
-  return v.SUPERSET_ERASURE_ENABLED ? "cache-only" : "off";
+  if (v.SUPERSET_DEPLOYMENT === "off") return "off";
+  return v.SUPERSET_OAUTH_CLIENT_ID ? "full" : "cache-only";
+}
+
+/**
+ * Startup warnings about Superset settings that are ignored or contradict each other. The API and
+ * the worker log each one once at startup (config cannot log: the logger depends on it).
+ */
+export function supersetConfigWarnings(
+  v: Pick<
+    Env,
+    | "SUPERSET_DEPLOYMENT"
+    | "SUPERSET_OAUTH_CLIENT_ID"
+    | "SUPERSET_ERASURE_ENABLED"
+  >,
+): string[] {
+  const warnings: string[] = [];
+  if (v.SUPERSET_ERASURE_ENABLED !== undefined) {
+    warnings.push(
+      "SUPERSET_ERASURE_ENABLED is deprecated and ignored: set SUPERSET_DEPLOYMENT=on (Superset runs here) or leave it off (docs/runbooks/superset-erasure.md)",
+    );
+  }
+  if (v.SUPERSET_DEPLOYMENT === "off" && v.SUPERSET_OAUTH_CLIENT_ID) {
+    warnings.push(
+      "SUPERSET_OAUTH_CLIENT_ID is set but SUPERSET_DEPLOYMENT is off: this service treats Superset as absent. Set SUPERSET_DEPLOYMENT=on if Superset runs (docs/runbooks/superset-erasure.md)",
+    );
+  }
+  return warnings;
 }
 
 export interface PlanLimits {
