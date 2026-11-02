@@ -1,4 +1,9 @@
-export { env, PLAN_LIMITS, supersetErasureMode } from "./env.js";
+export {
+  env,
+  PLAN_LIMITS,
+  supersetErasureMode,
+  supersetConfigWarnings,
+} from "./env.js";
 export type { Env, PlanLimits, SupersetErasureMode } from "./env.js";
 export {
   RETENTION_BOUNDS,

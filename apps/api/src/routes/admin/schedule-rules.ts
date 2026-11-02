@@ -79,12 +79,9 @@ const CreateRuleSchema = z.object({
   // type its own workflowId belongs to -- same as manual creation via
   // record-create.tsx, which is not restricted to "ticket" either
   // (docs/specs/schedule-rules-mandate-fields.md R7, 2026-09-22 direction
-  // change: team-assignment via the on-call cascade still only resolves for
-  // the "ticket" entity type specifically -- that's the existing
-  // resolve_oncall automation rule's own trigger_config scoping
-  // (modules/helpdesk/seed/003_automation_rules.sql), a pre-existing
-  // platform-wide limitation this change does not touch, not a restriction
-  // this route enforces).
+  // change). Team assignment works for every entity type: the resolve_oncall
+  // automation rules are unscoped (migration 0153, owner decision 2026-10-19)
+  // and ship with the core helpdesk module, so every tenant has them.
   entityTypeId: z.guid().optional(),
   workflowId: z.guid().optional(),
   catchUp: z.boolean().default(false),

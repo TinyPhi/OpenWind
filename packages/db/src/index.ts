@@ -24,6 +24,7 @@ export {
   setOutboxSweeperRole,
   setScheduleSweeperRole,
   setAccessLogRetentionRole,
+  setOncallRotationSweeperRole,
   withPlatformAdminContext,
   withTenantLifecycleContext,
   withTenantPurgeContext,

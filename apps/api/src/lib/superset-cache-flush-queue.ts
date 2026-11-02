@@ -1,6 +1,10 @@
 import { Queue } from "@platform/telemetry";
 import { env, supersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
+import {
+  readSupersetSelfcheck,
+  resolveSupersetErasureMode,
+} from "@platform/redis";
 import { connection } from "./redis.js";
 
 export type SupersetCacheFlushReason = "user_erased" | "tenant_purged";
@@ -28,13 +32,18 @@ export async function enqueueSupersetCacheFlush(
   reason: SupersetCacheFlushReason,
 ): Promise<boolean> {
   if (!env.SUPERSET_REDIS_URL) return false;
-  // D8 (docs/specs/superset-gdpr-erasure.md): with Stage 2 off, SUPERSET_ERASURE_ENABLED=false
-  // turns the Superset side of an erasure off entirely, the cache flush included. With Stage 2 on
-  // the setting cannot turn it off (supersetErasureMode returns "full").
-  if (supersetErasureMode(env) === "off") {
-    logger.warn(
+  // D8 (docs/specs/superset-gdpr-erasure.md): with SUPERSET_DEPLOYMENT=off no Superset is expected,
+  // so there is no cache to flush, unless Superset itself reports Stage 2 on (the worker self-check,
+  // #1137): then the local setting is wrong and the flush runs (fail closed).
+  const localMode = supersetErasureMode(env);
+  const resolved = resolveSupersetErasureMode(
+    localMode,
+    localMode === "off" ? await readSupersetSelfcheck() : null,
+  );
+  if (resolved.mode === "off") {
+    logger.info(
       { tenantId, reason },
-      "Superset erasure is turned off (SUPERSET_ERASURE_ENABLED=false): Superset's cached results were not flushed",
+      "SUPERSET_DEPLOYMENT is off: Superset's cached results were not flushed",
     );
     return false;
   }

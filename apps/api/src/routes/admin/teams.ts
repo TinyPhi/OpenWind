@@ -12,7 +12,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { and, asc, eq, gt, inArray, or, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, ne, or, isNull } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
 import type { DbOrTx } from "@platform/db";
@@ -42,6 +42,38 @@ const ListTeamsQuerySchema = z.object({
 const MAX_TEAM_MEMBERS = 100;
 
 class TeamChangedError extends Error {}
+
+// The refuseBadMembers check and the write are separate transactions, so two admins adding the same
+// person to two teams at once both pass it; the unique index is what stops the second.
+function isOneTeamViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object" || !("cause" in err)) return false;
+  const cause = err.cause;
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    "code" in cause &&
+    cause.code === "23505" &&
+    "constraint_name" in cause &&
+    cause.constraint_name === "team_members_tenant_user_unique"
+  );
+}
+
+function oneTeamViolationResponse(c: Context<Vars>): Response {
+  return c.json(
+    {
+      error: "VALIDATION_ERROR",
+      message: "Validation failed",
+      fields: [
+        {
+          field: "memberUserIds",
+          message:
+            "Someone in this list was just added to another team. Reload and try again.",
+        },
+      ],
+    },
+    422,
+  );
+}
 
 const MemberUserIdsSchema = z
   .array(z.string().trim().min(1).max(255))
@@ -102,6 +134,7 @@ async function refuseBadMembers(
   auth: AuthContext,
   memberUserIds: string[],
   alreadyMembers: ReadonlySet<string> = new Set(),
+  thisTeamId?: string,
 ): Promise<Response | null> {
   const seen = new Set<string>();
   const duplicates: { field: string; message: string }[] = [];
@@ -123,6 +156,45 @@ async function refuseBadMembers(
       },
       422,
     );
+  }
+  // A person belongs to one team at a time: someone being added who is on another team is refused.
+  const adding = memberUserIds.filter((userId) => !alreadyMembers.has(userId));
+  if (adding.length > 0) {
+    const taken = await withTenantContext(auth.tenantId, (tx) =>
+      tx
+        .select({ userId: teamMembers.userId, teamName: teams.name })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+        .where(
+          and(
+            eq(teamMembers.tenantId, auth.tenantId),
+            eq(teams.tenantId, auth.tenantId),
+            isNull(teams.deletedAt),
+            inArray(teamMembers.userId, adding),
+            ...(thisTeamId ? [ne(teams.id, thisTeamId)] : []),
+          ),
+        ),
+    );
+    if (taken.length > 0) {
+      const byUser = new Map(taken.map((t) => [t.userId, t.teamName]));
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          message: "Validation failed",
+          fields: memberUserIds.flatMap((userId, i) =>
+            byUser.has(userId)
+              ? [
+                  {
+                    field: `memberUserIds[${i}]`,
+                    message: `Already a member of the team "${byUser.get(userId)}". Remove them there first.`,
+                  },
+                ]
+              : [],
+          ),
+        },
+        422,
+      );
+    }
   }
   // Only people being added need an on-call role today: someone already on the
   // team who has since lost theirs must not block every later edit.
@@ -325,6 +397,7 @@ router.post(
       }
       return c.json({ data: row }, 201);
     } catch (err: unknown) {
+      if (isOneTeamViolation(err)) return oneTeamViolationResponse(c);
       // Postgres unique_violation on teams_tenant_name_unique (R3: duplicate
       // name within a tenant returns 409).
       if (
@@ -543,6 +616,7 @@ router.put(
         auth,
         memberUserIds,
         alreadyChecked,
+        id,
       );
       if (refused) return refused;
       const row = await withTenantContext(auth.tenantId, async (tx) => {
@@ -597,6 +671,7 @@ router.put(
       }
       return c.json({ data: row });
     } catch (err: unknown) {
+      if (isOneTeamViolation(err)) return oneTeamViolationResponse(c);
       if (err instanceof TeamChangedError) {
         return c.json(
           {
