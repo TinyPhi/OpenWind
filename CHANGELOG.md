@@ -3,18 +3,14 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased — Sentry free-text scrubbing (#1149)]
+## [Unreleased — migration 0158 fresh install (#1153)]
 
-### Security
+### Fixed
 
-- Sentry events and `@platform/logger` now share one scrubbing module (`packages/logger/src/redact.ts`).
-  Besides key-based redaction, string values (message, exception values, breadcrumbs, `extra`,
-  `contexts`, `tags`) are scrubbed for email addresses, bearer/JWT tokens and `key=value` secrets.
-- Sentry events no longer carry `user.ip_address`, `server_name`, `request.data`, the request query
-  string or stack-frame source context lines.
-  Free-text IP addresses inside messages are not scrubbed.
-- The logger now also redacts one level of nested sensitive keys, and scrubs the log message and
-  top-level string fields. Its redaction marker is `[REDACTED]` (was pino's `[Redacted]`).
+- Migration 0158 (`access_log_retention_role`) no longer stops a from-scratch migrate as the
+  non-superuser `migration_user`. The unconditional `ALTER ROLE` is replaced by an attribute check that
+  raises on a pre-existing role with unsafe attributes (and repairs it only for a superuser). Edited in
+  place; databases that already applied 0158 are unaffected.
 
 ## [Unreleased — OTel/Sentry upgrade (#793)]
 
@@ -48,6 +44,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   stack (the worker runs as `app_user`, which is append-only there). Added a narrow
   `access_log_retention_role` (migration 0158) that the sweep switches into; `app_user` gains no
   new privileges.
+
+## [Unreleased — Sentry free-text scrubbing (#1149)]
+
+### Security
+
+- Sentry events and `@platform/logger` now share one scrubbing module (`packages/logger/src/redact.ts`).
+  Besides key-based redaction, string values (message, exception values, breadcrumbs, `extra`,
+  `contexts`, `tags`) are scrubbed for email addresses, bearer/JWT tokens and `key=value` secrets.
+- Sentry events no longer carry `user.ip_address`, `server_name`, `request.data`, the request query
+  string or stack-frame source context lines.
+  Free-text IP addresses inside messages are not scrubbed.
+- The logger now also redacts one level of nested sensitive keys, and scrubs the log message and
+  top-level string fields. Its redaction marker is `[REDACTED]` (was pino's `[Redacted]`).
 
 ## [Unreleased — multi-lingual support Phase 1 (#200)]
 

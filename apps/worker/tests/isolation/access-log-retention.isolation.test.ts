@@ -8,6 +8,8 @@
  * travel with every new table").
  */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq, and, sql } from "drizzle-orm";
 import {
@@ -296,5 +298,108 @@ describe("access_log_retention_role (migration 0158, #1131)", () => {
             AND member = 'app_user'::regrole`,
     );
     expect(m?.inherit_option).toBe(false);
+  });
+});
+
+// #1153: 0158 used an unconditional ALTER ROLE ... NOSUPERUSER, which only a superuser may run, so a
+// from-scratch migrate as the real (CREATEROLE, non-superuser) migration_user stopped there. CI
+// connects as a superuser and cannot reproduce that directly, so this runs the migration's real
+// attribute-guard block while SET LOCAL ROLE-ing to a throwaway non-superuser. Everything happens
+// in one transaction that is rolled back (ALTER ROLE and CREATE ROLE are transactional).
+describe("0158 attribute guard works for a non-superuser migration runner (#1153)", () => {
+  const migrationSql = readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../../../packages/db/migrations/0158_access_log_retention_role.sql",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  );
+  const guardBlock = /^DO \$\$[\s\S]*?^\$\$;/m.exec(migrationSql)?.[0];
+  const ROLLBACK = new Error("rollback");
+
+  async function inRolledBackTx(
+    fn: (
+      tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    ) => Promise<void>,
+  ): Promise<void> {
+    await expect(
+      db.transaction(async (tx) => {
+        await fn(tx);
+        throw ROLLBACK;
+      }),
+    ).rejects.toBe(ROLLBACK);
+  }
+
+  async function connectionIsSuperuser(): Promise<boolean> {
+    const [r] = await db.execute<{ rolsuper: boolean }>(
+      sql`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`,
+    );
+    return r?.rolsuper === true;
+  }
+
+  const asNonSuperuser = async (
+    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  ): Promise<void> => {
+    await tx.execute(
+      sql`CREATE ROLE m1153_runner NOLOGIN CREATEROLE NOSUPERUSER`,
+    );
+    await tx.execute(sql`SET LOCAL ROLE m1153_runner`);
+  };
+
+  it("finds the guard block in the migration file", () => {
+    expect(guardBlock).toBeDefined();
+    expect(guardBlock).not.toMatch(/^ALTER ROLE/m);
+  });
+
+  it("is a no-op for a non-superuser when the existing role has the expected attributes", async ({
+    skip,
+  }) => {
+    if (!guardBlock || !(await connectionIsSuperuser())) skip();
+    await inRolledBackTx(async (tx) => {
+      await asNonSuperuser(tx);
+      await tx.execute(sql.raw(guardBlock));
+    });
+  });
+
+  it("raises loudly for a non-superuser when the existing role has BYPASSRLS", async ({
+    skip,
+  }) => {
+    if (!guardBlock || !(await connectionIsSuperuser())) skip();
+    // Always rolled back, even if the guard wrongly lets the statement through.
+    let raised: unknown;
+    await inRolledBackTx(async (tx) => {
+      await tx.execute(sql`ALTER ROLE access_log_retention_role BYPASSRLS`);
+      await asNonSuperuser(tx);
+      await tx.execute(sql`SAVEPOINT guard`);
+      try {
+        await tx.execute(sql.raw(guardBlock));
+      } catch (err) {
+        raised = err;
+      }
+    });
+    expect(String(raised)).toMatch(/unsafe attributes|Failed query/);
+    expect(
+      JSON.stringify(raised, Object.getOwnPropertyNames(raised ?? {})),
+    ).toMatch(/unsafe attributes/);
+  });
+
+  it("repairs the role when the caller is a superuser", async ({ skip }) => {
+    if (!guardBlock || !(await connectionIsSuperuser())) skip();
+    await inRolledBackTx(async (tx) => {
+      await tx.execute(
+        sql`ALTER ROLE access_log_retention_role BYPASSRLS LOGIN`,
+      );
+      await tx.execute(sql.raw(guardBlock));
+      const [r] = await tx.execute<{
+        rolbypassrls: boolean;
+        rolcanlogin: boolean;
+      }>(
+        sql`SELECT rolbypassrls, rolcanlogin FROM pg_roles
+            WHERE rolname = 'access_log_retention_role'`,
+      );
+      expect(r).toEqual({ rolbypassrls: false, rolcanlogin: false });
+    });
   });
 });

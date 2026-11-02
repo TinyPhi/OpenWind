@@ -7,6 +7,7 @@ deployment until the Stage 2 gate criteria below are signed off. The Stage 2 sec
 **Deciders:** Engineering Lead (isolation approach owned by Bikash, decided 2026-09-09).  
 **Related to:** ADR-001 (multitenancy — RLS, `analytics_user` grants), ADR-013 (rate limiting),
 ADR-015 (observability + compliance — retention, erasure), issue #106 (3G tracker), issue #695.  
+**Amended:** 2026-11-02, Stage 2 gate criteria section rewritten (#1076); status unchanged.  
 **Supersedes:** —  
 **Superseded by:** —
 
@@ -302,25 +303,181 @@ options`), and adding the parameter to `ignore_startup_parameters` would drop it
 
 ---
 
-## Stage 2 gate criteria
+## Stage 2 gate criteria (2026-11)
 
-Stage 2 (Superset OAuth SSO, enabled by setting `SUPERSET_OAUTH_CLIENT_ID`) must not be enabled
-until every item below is met and a human has signed off. This section records the gate; it does
-not enable anything.
+Stage 2 (Superset OAuth SSO, per-user Superset accounts) must not be enabled in a deployment until
+every criterion below is met, the evidence for each is linked in the sign-off record, and the gate
+owner has signed. This section records the gate; it does not enable anything. Stage 1 (embedded
+dashboards, no per-user accounts) is not gated by it. It replaces the shorter three-item list that
+stood here before 2026-11 (#1076).
 
-**Gate owner: PrabhuVijit** (named 2026-10-19). The owner tracks the three items below, confirms
-each is met, and decides when Stage 2 is enabled.
+**Gate owner: PrabhuVijit** (named 2026-10-19). The owner confirms each criterion and decides when
+Stage 2 is enabled. **Deadline:** _set by the owner_.
+**Sign-off record:** one comment on #728 (or a file under `docs/tracker/`; owner's choice) with one
+line per criterion: its evidence link, who checked it, and the date. A criterion without a link is
+not met. Whether a criterion is met today is tracked in the issues it names and in the sign-off
+record, not in this ADR.
 
-- **Security review (OQ-6).** Done: closed 2026-09-30 (GHSA-28jx-36cp-g34h, fix `1047f03`),
-  recorded in Decisions 2 and 6. The gate owner confirms it at sign-off.
-- **Erasure (OQ-3).** The Redis result-cache flush and the Superset metadata-database erasure are
-  implemented and tested (`docs/specs/superset-gdpr-erasure.md`, #728).
-- **Connection guard.** The `NullPool` startup assertion and its CI check are in place (done;
-  follow-ups #795–#797).
-- **Enablement.** Once the three items above are signed off, store `SUPERSET_OAUTH_CLIENT_ID` and
-  `SUPERSET_OAUTH_CLIENT_SECRET` in OpenBao at the `superset` and `superset-init` paths
-  (`secret/openwind/<env>/…`, loaded at startup, ADR-023), then restart both. Locally, set them in
-  `.env.local`. No ADR amendment is needed: this ADR already covers the Stage 2 design.
+Criteria marked (H) need a named human decision or an operational action and cannot be satisfied by
+code. The others are satisfied by an artefact in the repository or in CI.
+
+**Prerequisite (owner action): a production-configured environment.** Criterion 21 needs an
+environment that runs the production configuration (production compose file, OpenBao-delivered
+secrets, Zitadel, Superset with Stage 2 on) but is not the production deployment. No such
+environment exists today. Creating one is an owner action, and it must exist before sign-off. If the
+owner decides not to create one, this section must be amended before sign-off to say that the real
+run happens in production immediately after enabling, with the rollback in criterion 22.
+
+### A. Isolation and tests
+
+1. **Security review (OQ-6).** Closed 2026-09-30 (GHSA-28jx-36cp-g34h, fix `1047f03`), recorded in
+   Decisions 2 and 6. _Evidence:_ this ADR.
+2. **Connection guard.** The `NullPool` startup assertion and its CI check pass (#729, #795-#797).
+   _Evidence:_ CI job `superset-guard` green.
+3. **Cross-tenant abuse tests (ST17) run in CI.** All cases of `docker/superset/test_abuse_st17.py`,
+   including the real-database cases (T6, T7), run on every change under `docker/superset/**` and on
+   every Superset image bump, and **a skipped test fails the job**. A signed-in user cannot reach
+   another tenant's rows; a forged login is refused; tenant-filter-dodging SQL returns nothing; an
+   export is audited against the right tenant; neither a username nor a guest pass changes the stamped
+   tenant. _Evidence:_ the CI job (#1143) green on the commit that enables Stage 2, plus a run with the
+   database variables removed that fails (shows skip-is-failure). The tests exist (#1074); running
+   them in CI is #1143.
+4. **Erasure, audit and SQL Lab tests run in CI.** `test_erasure_endpoint.py`,
+   `test_erasure_realdb.py` (including the foreign-key coverage guard that fails the build when a new
+   `ab_user` reference appears), `test_audit_mapping.py`, `test_audit_scope.py`, `test_audit_realdb.py`,
+   `test_sqllab_identity.py`, `test_sqllab_count_realdb.py` and `test_secret_checks.py` run in the same
+   way, with the same skip rule. _Evidence:_ same CI job(s) (#1143).
+5. **Audit rows exist.** SQL Lab queries and exports write `reporting.*` rows to `admin_audit_log`
+   under Superset 6.1.0's action names (#709, #799) and SQL Lab returns the tenant's rows (#716, #798).
+   _Evidence:_ criterion 4's CI run covers both.
+
+### B. Erasure runs, completes and can be shown to have completed
+
+6. **Erasure is queued automatically.** After a user erase and after a tenant purge, the Superset
+   metadata-database erasure and the result-cache flush are queued without an operator, retried for at
+   least 24 hours, and end in a `superset_erasure.completed` or `.failed` audit row. _Evidence:_
+   `apps/worker/src/superset-erasure.test.ts`, `apps/worker/src/tenant-purge.test.ts`; metric
+   `openwind_superset_erasure_total{outcome}` (#1031, #1071, #1100, #1101).
+7. **Durable queueing.** A committed user erase that was not queued (queue down, API restart between
+   commit and enqueue) is re-queued by a reconciler within 15 minutes. The reconciler reads across
+   tenants only through a narrow database role (not `app_user`, not BYPASSRLS), is idempotent through
+   the deterministic job id, and does not sweep erases made before Stage 2 was enabled.
+   _Evidence:_ a test that fails the enqueue after commit and asserts the job appears; an isolation
+   test (one tenant's rows never cause an action for another); a fresh-database test that migrates as
+   the real `migration_user` and runs the reconciler as the real roles (#1138).
+8. **Erasure completion target and alert.** The target is 30 days from the request to a
+   `superset_erasure.completed` row, written in `docs/runbooks/superset-erasure.md`. A requested
+   erasure (user erase or tenant purge row) with no `completed` row after 7 days raises a warning
+   alert that names the tenant and a subject hash, never the raw subject, and clears when the row
+   appears. _Evidence:_ promtool test cases in `docker/observability/alert.rules.test.yml` (run in
+   CI). Builds on criterion 7 (#1141).
+9. **Enablement consistency.** Deployments that run Superset set an explicit deployment setting on
+   the API and the worker (the implementation of #1137 names it `SUPERSET_DEPLOYMENT=off|on`; it
+   replaces `SUPERSET_ERASURE_ENABLED`). A repeatable worker self-check (every 15 minutes and at
+   startup) compares Superset's own report of whether Stage 2 is on with the local mode, runs a no-op
+   smoke erase against a synthetic tenant, and alerts on any mismatch, failed smoke erase or missing
+   self-check. With Stage 2 on in Superset and local config disagreeing, the API and tenant purge treat
+   the mode as "full", or return an `unverified` status (warning tone in the admin UI, an audit row)
+   and never say "Superset holds no account for this user". _Evidence:_ worker self-check tests, API
+   erasure-queue tests, promtool cases, and a Superset-side test of the status route (#1137).
+10. **Production wiring is complete.** The production compose file and runbook list every secret and
+    setting Stage 2 needs on every service that needs it (client id and secret on `superset` and
+    `superset-init`; client id on `backend` and `worker`; `SUPERSET_SERVICE_ACCOUNT_PASSWORD` on
+    `worker`, required at startup; the deployment setting of criterion 9), and
+    `scripts/setup-superset-oauth.ts` prints that checklist. _Evidence:_ the production compose check
+    in `packages/openbao-deploy` (`check-prod-compose.test.ts`) in CI; the runbook section (#1142,
+    #1137).
+
+### C. Personal data in the audit trail
+
+11. **Typed SQL is redacted before it is written.** String and numeric literals are removed from SQL
+    text before a `reporting.*` audit row is written (structure, table names and a statement hash
+    stay). Applied in Superset's audit mapping. _Evidence:_ unit tests on representative statements
+    (literals, comments, quoted identifiers); `test_audit_mapping.py` and `test_audit_realdb.py` still
+    green (#1139).
+12. **The actor is pseudonymised on erase.** After a user erase, no `reporting.*` row carries that
+    user's readable id. The platform does not rely on GDPR Art. 17(3)(b) for these rows: security
+    logging under legitimate interest is not a legal obligation. _Evidence:_ test after a user erase
+    asserting no readable id in `admin_audit_log` `reporting.*` rows for that tenant (#1139).
+13. **Tenant purge removes or anonymises audit SQL.** _Evidence:_ test asserting that after a tenant
+    purge no audit row of that tenant keeps SQL text (#1139).
+14. **Reporting audit rows have a retention cap, as a setting.** A sweep removes `reporting.*` rows
+    older than the cap, through a narrow role (same pattern as `access_log_retention_role`, migration
+    0158); the cap is configurable with a default of 90 days. _Evidence:_ sweep test with the real
+    roles; the setting in `@platform/config` (#1139).
+15. **Failed-job subject retention is bounded.** Failed Superset erasure jobs keep `{kind, tenantId,
+subject}` in Redis for at most a documented, short period (default proposed: 24 hours after the
+    retry window, or the subject hashed), not the current 7 days. _Evidence:_ test on
+    `apps/worker/src/superset-erasure-options.ts`; runbook line (#1140, item 1).
+16. **User-removal paths are enumerated.** Every code path that removes a user (platform admin,
+    sandbox delete or handover, org-directory sync, per-user erase, tenant purge) either calls the
+    Superset erasure or has a recorded reason it cannot leave an account behind. _Evidence:_ the list
+    in the runbook (#1140, item 4).
+
+### D. Exposure
+
+17. **Erasure endpoints are not reachable from outside the Docker network.** The reverse-proxy rule
+    blocking `/openwind/erasure/*` exists in the deployment's own configuration and is proven by a
+    recorded request from outside that is refused. (H) _Evidence:_ the rule text and the recorded
+    request in the sign-off record. The repository holds no such rule.
+18. **Erasure endpoints are rate-limited.** A per-caller limit on `_erasure_blueprint()` routes
+    (proposal: 10 requests per minute). _Evidence:_ test in `test_abuse_st17.py` or
+    `test_erasure_endpoint.py` (#1081, which says it should be in place before Stage 2 goes live).
+
+### E. Decisions only a human can make (H)
+
+19. **Legal basis and retention are recorded.** A named person (acting DPO or counsel) has recorded:
+    the legal basis for logging typed SQL and access (legitimate interest assessment, not Art.
+    17(3)(b)), the retention value for criterion 14, whether the DPDP security-log floor applies
+    (spec D4), and who is data fiduciary and who is processor for this deployment (D7). Engineering
+    does not choose the number. If the owner accepts an interim state instead, that acceptance, with
+    its date and an expiry, is the record. (`docs/specs/superset-gdpr-erasure.md` D4, D6, D7.)
+20. **Breach owner is named.** `docs/runbooks/breach-notification.md` names the incident commander,
+    the security intake contact and the legal reviewer for this deployment, with no `TBD` in those three
+    rows, because Stage 2 adds a store of personal data (Superset accounts, typed SQL) and a
+    72-hour clock (#639).
+
+### F. Recorded real run, then enablement
+
+21. **Recorded real run.** In an environment with the production configuration (see the prerequisite
+    above), with Stage 2 on: the self-check is green; a test user signs in through SSO and runs one
+    SQL Lab query whose audit row has no literal; an admin erases that user from the users page; a
+    `superset_erasure.completed` row appears; the user's `ab_user` row is anonymised; and the user's
+    readable id is absent from the audit rows. Then a test tenant is purged and its audit rows keep no
+    SQL text. A production stack with Stage 2 still off does not count. (H) _Evidence:_ the run log
+    attached to the sign-off record.
+22. **Enablement, in this order.** (1) Deploy with the deployment setting of criterion 9 set to `on`
+    on the API and worker and Stage 2 still off; the self-check is `ok` with Stage 1 confirmed. (2)
+    Apply the proxy rule (criterion 17). (3) Store `SUPERSET_OAUTH_CLIENT_ID` and
+    `SUPERSET_OAUTH_CLIENT_SECRET` in OpenBao at the `superset` and `superset-init` paths and
+    `SUPERSET_OAUTH_CLIENT_ID` at the `backend` and `worker` paths (ADR-023);
+    `SUPERSET_SERVICE_ACCOUNT_PASSWORD` is already required at the `worker` path. Locally,
+    `.env.local`. (4) Restart all four services. (5) Wait one self-check interval and confirm the
+    config-mismatch gauge is 0 and no alert is firing. (6) Repeat the erase of criterion 21 with one
+    test user in production (the post-enable verification). (7) Announce. **Rollback:** remove the id
+    from the four paths and restart; accounts created meanwhile stay in Superset's database and must
+    be erased by hand (runbook) because the platform then reports Stage 1. (H)
+
+### Not required for Stage 2
+
+These are known, owned and recorded in the sign-off record as accepted. They do not block the gate:
+name and email correction sync (#1075); cache-flush coalescing race (bounded by the 300 s TTL; with
+Stage 2 on the data cache is a NullCache); accounts held for a person who is also a member of another
+tenant (reported, decided by a human, by design); tenantless accounts, which only per-user erase
+reaches; Superset process-log retention and the absence of persistent export files, which are
+confirmed on a running instance and recorded in the runbook (#1140 items 2-3) but are not code gates;
+Superset metadata-database backups, deliberately not taken (spec D5); single logout and MFA for
+Stage 2 sessions (OQ-5); re-checking roles when a pass is minted (OQ-4); Zitadel instance-wide
+deletion; test renames (#1082); a nightly compose-based smoke job; a real Zitadel login end-to-end
+test (covered by criterion 21); Stage 3.
+
+### Related ADR edits when the gate is signed
+
+Mark OQ-3 resolved: "user erase and tenant purge remove the user's data from Superset's metadata DB
+and flush its result cache, automatically, retried until done, reconciled if not queued, and audited
+(#728). Superset's metadata DB is deliberately not backed up (spec D5)." Correct the "Tenant data also lives
+outside the database" bullet in Negative and mitigations, which lists "export files", if #1140 item 3 confirms none persist. Remove "Stage 2 stays
+off pending review" in the client-onboarding table when enabled.
 
 ---
 
