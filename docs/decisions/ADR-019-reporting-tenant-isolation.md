@@ -335,8 +335,8 @@ retention by default (criterion 14), 24 hours of failed-job subject retention in
 environment that runs the production configuration (production compose file, OpenBao-delivered
 secrets, Zitadel, Superset with Stage 2 on) but is not the production deployment. No such
 environment exists today. Owner decision (confirmed by the owner (2026-11-02)): the owner will
-create a production-configured environment before sign-off; owner and target date: `TBD: not
-decided`. If the owner later declines to create one, this section must be amended before sign-off to say that the real
+create a production-configured environment before sign-off; owner and target date: TBD (not
+yet decided). If the owner later declines to create one, this section must be amended before sign-off to say that the real
 run happens in production immediately after enabling, with the rollback in criterion 22.
 
 ### A. Isolation and tests
@@ -418,9 +418,8 @@ run happens in production immediately after enabling, with the rollback in crite
     0158); the cap is configurable with a default of 90 days. _Evidence:_ sweep test with the real
     roles; the setting in `@platform/config` (#1139).
 15. **Failed-job subject retention is bounded.** Failed Superset erasure jobs keep `{kind, tenantId,
-subject}` in Redis for at most a documented, short period (default, confirmed by the owner
-    (2026-11-02): 24 hours after the
-    retry window, or the subject hashed), not the current 7 days. _Evidence:_ test on
+subject}` in Redis for at most a documented, short period (default: 24 hours after the retry
+    window, or the subject hashed, confirmed by the owner 2026-11-02), not the current 7 days. _Evidence:_ test on
     `apps/worker/src/superset-erasure-options.ts`; runbook line (#1140, item 1).
 16. **User-removal paths are enumerated.** Every code path that removes a user (platform admin,
     sandbox delete or handover, org-directory sync, per-user erase, tenant purge) either calls the
