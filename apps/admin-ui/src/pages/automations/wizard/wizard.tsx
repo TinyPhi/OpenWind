@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../../lib/api.js";
@@ -60,6 +61,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function AutomationWizard(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { id: rawId } = useParams<{ id: string }>();
   // Validate the URL param before using it in fetch URLs — rawId is user-controlled
@@ -106,7 +108,11 @@ export function AutomationWizard(): React.ReactElement {
         });
       })
       .catch(() => {
-        setSaveError("Failed to load rule");
+        setSaveError(
+          t("automations.failedToLoadRule", {
+            defaultValue: "Failed to load rule",
+          }),
+        );
       })
       .finally(() => setLoading(false));
   }, [id, isEdit]);
@@ -149,7 +155,11 @@ export function AutomationWizard(): React.ReactElement {
 
       void navigate("/automations");
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : t("automations.saveFailed", { defaultValue: "Save failed" }),
+      );
       setSaving(false);
     }
   }
@@ -158,11 +168,26 @@ export function AutomationWizard(): React.ReactElement {
   const isLast = currentIndex === STEPS.length - 1;
   const advanceOk = canAdvance(step, data, transitions);
 
+  const getStepLabel = (key: StepKey): string => {
+    switch (key) {
+      case "trigger":
+        return t("automations.trigger", { defaultValue: "Trigger" });
+      case "conditions":
+        return t("automations.conditions", { defaultValue: "Conditions" });
+      case "actions":
+        return t("automations.actions", { defaultValue: "Actions" });
+      case "save":
+        return t("automations.saveStep", { defaultValue: "Save" });
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <p className="loader-text">Loading rule…</p>
+        <p className="loader-text">
+          {t("automations.loadingRule", { defaultValue: "Loading rule…" })}
+        </p>
       </div>
     );
   }
@@ -177,12 +202,23 @@ export function AutomationWizard(): React.ReactElement {
       {/* Header */}
       <div style={{ marginBottom: "28px" }}>
         <h2 className="page-title">
-          {isEdit ? "Edit Automation Rule" : "New Automation Rule"}
+          {isEdit
+            ? t("automations.editAutomationRule", {
+                defaultValue: "Edit Automation Rule",
+              })
+            : t("automations.newAutomationRule", {
+                defaultValue: "New Automation Rule",
+              })}
         </h2>
         <p className="page-subtitle">
           {isEdit
-            ? "Update the trigger, conditions, and actions for this rule."
-            : "Configure when and how this rule fires."}
+            ? t("automations.editRuleSubtitle", {
+                defaultValue:
+                  "Update the trigger, conditions, and actions for this rule.",
+              })
+            : t("automations.newRuleSubtitle", {
+                defaultValue: "Configure when and how this rule fires.",
+              })}
         </p>
       </div>
 
@@ -263,7 +299,7 @@ export function AutomationWizard(): React.ReactElement {
                       : "var(--text-muted)",
                 }}
               >
-                {s.label}
+                {getStepLabel(s.key)}
               </span>
             </div>
           );
@@ -287,7 +323,7 @@ export function AutomationWizard(): React.ReactElement {
             fontWeight: 700,
           }}
         >
-          {STEPS[currentIndex]?.label}
+          {STEPS[currentIndex] ? getStepLabel(STEPS[currentIndex].key) : ""}
         </h3>
 
         {step === "trigger" && <StepTrigger data={data} onChange={patch} />}
@@ -316,7 +352,9 @@ export function AutomationWizard(): React.ReactElement {
           }
           disabled={saving}
         >
-          {currentIndex === 0 ? "Cancel" : "← Back"}
+          {currentIndex === 0
+            ? t("automations.cancel", { defaultValue: "Cancel" })
+            : `← ${t("automations.back", { defaultValue: "Back" })}`}
         </Button>
 
         {isLast ? (
@@ -326,11 +364,15 @@ export function AutomationWizard(): React.ReactElement {
             disabled={saving || !advanceOk}
             style={{ minWidth: "120px" }}
           >
-            {saving ? "Saving…" : isEdit ? "Save changes" : "Create rule"}
+            {saving
+              ? t("automations.saving", { defaultValue: "Saving…" })
+              : isEdit
+                ? t("automations.saveChanges", { defaultValue: "Save changes" })
+                : t("automations.createRule", { defaultValue: "Create rule" })}
           </Button>
         ) : (
           <Button variant="primary" onClick={goNext} disabled={!advanceOk}>
-            Next →
+            {t("automations.next", { defaultValue: "Next" })} →
           </Button>
         )}
       </div>

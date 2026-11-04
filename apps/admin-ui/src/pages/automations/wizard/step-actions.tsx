@@ -1,4 +1,6 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { Button, IconButton } from "@platform/ui";
 import type { WizardData, ActionItem, ActionType } from "./types.js";
 import { genId } from "./types.js";
@@ -17,23 +19,56 @@ type Props = {
   transitions: TransitionsState;
 };
 
-const ACTION_TYPE_LABELS: Record<ActionType, string> = {
-  notify: "Send notification",
-  set_field: "Set field value",
-  transition: "Trigger transition",
-  webhook: "Call webhook",
-  create_entity: "Create ticket",
-  create_child: "Create sub-task",
-};
+export const ALL_ACTION_TYPES: ActionType[] = [
+  "notify",
+  "set_field",
+  "transition",
+  "webhook",
+  "create_entity",
+  "create_child",
+];
 
-const ACTION_TYPE_DESCRIPTIONS: Record<ActionType, string> = {
-  notify: "Send an in-app or email notification to recipients",
-  set_field: "Update a field on the triggering record",
-  transition: "Move the record to another state",
-  webhook: "HTTP POST to an external URL",
-  create_entity: "Create a ticket in a workflow",
-  create_child: "Create a sub-task under the triggering ticket",
-};
+const getActionTypeLabels = (): Record<ActionType, string> => ({
+  notify: i18next.t("automations.actionLabelNotify", {
+    defaultValue: "Send notification",
+  }),
+  set_field: i18next.t("automations.actionLabelSetField", {
+    defaultValue: "Set field value",
+  }),
+  transition: i18next.t("automations.actionLabelTransition", {
+    defaultValue: "Trigger transition",
+  }),
+  webhook: i18next.t("automations.actionLabelWebhook", {
+    defaultValue: "Call webhook",
+  }),
+  create_entity: i18next.t("automations.actionLabelCreateTicket", {
+    defaultValue: "Create ticket",
+  }),
+  create_child: i18next.t("automations.actionLabelCreateSubTask", {
+    defaultValue: "Create sub-task",
+  }),
+});
+
+const getActionTypeDescriptions = (): Record<ActionType, string> => ({
+  notify: i18next.t("automations.actionDescNotify", {
+    defaultValue: "Send an in-app or email notification to recipients",
+  }),
+  set_field: i18next.t("automations.actionDescSetField", {
+    defaultValue: "Update a field on the triggering record",
+  }),
+  transition: i18next.t("automations.actionDescTransition", {
+    defaultValue: "Move the record to another state",
+  }),
+  webhook: i18next.t("automations.actionDescWebhook", {
+    defaultValue: "HTTP POST to an external URL",
+  }),
+  create_entity: i18next.t("automations.actionDescCreateTicket", {
+    defaultValue: "Create a ticket in a workflow",
+  }),
+  create_child: i18next.t("automations.actionDescCreateSubTask", {
+    defaultValue: "Create a sub-task under the triggering ticket",
+  }),
+});
 
 function NotifyConfig({
   config,
@@ -42,10 +77,13 @@ function NotifyConfig({
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div className="form-group">
-        <label className="form-label">Recipients</label>
+        <label className="form-label">
+          {t("automations.recipients", { defaultValue: "Recipients" })}
+        </label>
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {(["assignee", "creator", "all_agents"] as const).map((r) => {
             const selected = (
@@ -75,17 +113,25 @@ function NotifyConfig({
                   }}
                 />
                 {r === "assignee"
-                  ? "Assignee"
+                  ? t("automations.recipientAssignee", {
+                      defaultValue: "Assignee",
+                    })
                   : r === "creator"
-                    ? "Creator"
-                    : "All agents"}
+                    ? t("automations.recipientCreator", {
+                        defaultValue: "Creator",
+                      })
+                    : t("automations.recipientAllAgents", {
+                        defaultValue: "All agents",
+                      })}
               </label>
             );
           })}
         </div>
       </div>
       <div className="form-group">
-        <label className="form-label">Channels</label>
+        <label className="form-label">
+          {t("automations.channels", { defaultValue: "Channels" })}
+        </label>
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {(["in_app", "email"] as const).map((ch) => {
             const selected = (
@@ -114,19 +160,27 @@ function NotifyConfig({
                     onChange({ channels: next });
                   }}
                 />
-                {ch === "in_app" ? "In-app" : "Email"}
+                {ch === "in_app"
+                  ? t("automations.channelInApp", { defaultValue: "In-app" })
+                  : t("automations.channelEmail", { defaultValue: "Email" })}
               </label>
             );
           })}
         </div>
       </div>
       <div className="form-group">
-        <label className="form-label">Message (optional)</label>
+        <label className="form-label">
+          {t("automations.messageOptional", {
+            defaultValue: "Message (optional)",
+          })}
+        </label>
         <textarea
           className="form-input"
           rows={2}
           style={{ resize: "vertical" }}
-          placeholder="Custom notification message…"
+          placeholder={t("automations.messagePlaceholder", {
+            defaultValue: "Custom notification message…",
+          })}
           value={(config.message as string | undefined) ?? ""}
           onChange={(e) => onChange({ message: e.target.value })}
         />
@@ -142,22 +196,31 @@ function SetFieldConfig({
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
       <div className="form-group" style={{ flex: 1, minWidth: "160px" }}>
-        <label className="form-label">Field name</label>
+        <label className="form-label">
+          {t("automations.fieldName", { defaultValue: "Field name" })}
+        </label>
         <input
           className="form-input"
-          placeholder="field_name"
+          placeholder={t("automations.fieldNamePlaceholder", {
+            defaultValue: "field_name",
+          })}
           value={(config.field as string | undefined) ?? ""}
           onChange={(e) => onChange({ field: e.target.value })}
         />
       </div>
       <div className="form-group" style={{ flex: 2, minWidth: "160px" }}>
-        <label className="form-label">Value</label>
+        <label className="form-label">
+          {t("automations.value", { defaultValue: "Value" })}
+        </label>
         <input
           className="form-input"
-          placeholder="new value"
+          placeholder={t("automations.valuePlaceholder", {
+            defaultValue: "new value",
+          })}
           value={(config.value as string | undefined) ?? ""}
           onChange={(e) => onChange({ value: e.target.value })}
         />
@@ -175,11 +238,12 @@ function TransitionConfig({
   onChange: (patch: Record<string, unknown>) => void;
   transitions: TransitionsState;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const problem = transitionActionProblem(config, transitions);
   const options = transitions.status === "ready" ? transitions.transitions : [];
   const transitionId =
     typeof config.transitionId === "string" ? config.transitionId : "";
-  const selected = options.find((t) => t.id === transitionId);
+  const selected = options.find((tr) => tr.id === transitionId);
   const comment = typeof config.comment === "string" ? config.comment : "";
 
   return (
@@ -187,7 +251,7 @@ function TransitionConfig({
       {transitions.status === "ready" && (
         <div className="form-group">
           <label className="form-label" htmlFor="transition-action-select">
-            Transition
+            {t("automations.transition", { defaultValue: "Transition" })}
           </label>
           <select
             id="transition-action-select"
@@ -197,14 +261,22 @@ function TransitionConfig({
           >
             <option value="">
               {options.length === 0
-                ? "This workflow has no transitions"
-                : "Select a transition…"}
+                ? t("automations.noTransitionsInWorkflow", {
+                    defaultValue: "This workflow has no transitions",
+                  })
+                : t("automations.selectTransition", {
+                    defaultValue: "Select a transition…",
+                  })}
             </option>
-            {options.map((t) => {
-              const restricted = restrictionReason(t);
+            {options.map((tr) => {
+              const restricted = restrictionReason(tr);
               return (
-                <option key={t.id} value={t.id} disabled={restricted !== null}>
-                  {transitionOptionLabel(t)}
+                <option
+                  key={tr.id}
+                  value={tr.id}
+                  disabled={restricted !== null}
+                >
+                  {transitionOptionLabel(tr)}
                   {restricted ? ` — ${restricted}` : ""}
                 </option>
               );
@@ -215,7 +287,9 @@ function TransitionConfig({
       {selected?.requiresComment && (
         <div className="form-group">
           <label className="form-label" htmlFor="transition-action-comment">
-            Comment (required by this transition)
+            {t("automations.commentRequired", {
+              defaultValue: "Comment (required by this transition)",
+            })}
           </label>
           <input
             id="transition-action-comment"
@@ -244,6 +318,7 @@ function WebhookConfig({
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const headers =
     (config.headers as Array<{ key: string; value: string }> | undefined) ?? [];
 
@@ -251,7 +326,9 @@ function WebhookConfig({
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
         <div className="form-group" style={{ flex: 1, minWidth: "200px" }}>
-          <label className="form-label">URL (https://)</label>
+          <label className="form-label">
+            {t("automations.webhookUrl", { defaultValue: "URL (https://)" })}
+          </label>
           <input
             className="form-input"
             type="url"
@@ -261,7 +338,9 @@ function WebhookConfig({
           />
         </div>
         <div className="form-group" style={{ minWidth: "100px" }}>
-          <label className="form-label">Method</label>
+          <label className="form-label">
+            {t("automations.webhookMethod", { defaultValue: "Method" })}
+          </label>
           <select
             className="form-input"
             value={(config.method as string | undefined) ?? "POST"}
@@ -275,7 +354,9 @@ function WebhookConfig({
       </div>
 
       <div className="form-group">
-        <label className="form-label">Headers</label>
+        <label className="form-label">
+          {t("automations.webhookHeaders", { defaultValue: "Headers" })}
+        </label>
         {headers.map((h, i) => (
           <div
             key={i}
@@ -284,7 +365,7 @@ function WebhookConfig({
             <input
               className="form-input"
               style={{ flex: 1 }}
-              placeholder="Key"
+              placeholder={t("automations.headerKey", { defaultValue: "Key" })}
               value={h.key}
               onChange={(e) => {
                 const next = headers.map((x, j) =>
@@ -296,7 +377,9 @@ function WebhookConfig({
             <input
               className="form-input"
               style={{ flex: 2 }}
-              placeholder="Value"
+              placeholder={t("automations.headerValue", {
+                defaultValue: "Value",
+              })}
               value={h.value}
               onChange={(e) => {
                 const next = headers.map((x, j) =>
@@ -310,8 +393,12 @@ function WebhookConfig({
               onClick={() =>
                 onChange({ headers: headers.filter((_, j) => j !== i) })
               }
-              title="Remove header"
-              aria-label="Remove header"
+              title={t("automations.removeHeader", {
+                defaultValue: "Remove header",
+              })}
+              aria-label={t("automations.removeHeader", {
+                defaultValue: "Remove header",
+              })}
             >
               ×
             </IconButton>
@@ -324,7 +411,7 @@ function WebhookConfig({
             onChange({ headers: [...headers, { key: "", value: "" }] })
           }
         >
-          + Add header
+          + {t("automations.addHeader", { defaultValue: "Add header" })}
         </Button>
       </div>
 
@@ -342,7 +429,9 @@ function WebhookConfig({
           checked={(config.includePayload as boolean | undefined) ?? true}
           onChange={(e) => onChange({ includePayload: e.target.checked })}
         />
-        Include record payload in request body
+        {t("automations.includeRecordPayload", {
+          defaultValue: "Include record payload in request body",
+        })}
       </label>
 
       <p
@@ -356,9 +445,13 @@ function WebhookConfig({
           lineHeight: 1.5,
         }}
       >
-        <strong>Note:</strong> The automation engine validates webhook URLs
-        server-side before each call (DNS resolution + private IP blocklist).
-        Calls to private/internal addresses are blocked automatically.
+        <strong>
+          {t("automations.notePrefix", { defaultValue: "Note:" })}
+        </strong>{" "}
+        {t("automations.webhookValidationNote", {
+          defaultValue:
+            "The automation engine validates webhook URLs server-side before each call (DNS resolution + private IP blocklist). Calls to private/internal addresses are blocked automatically.",
+        })}
       </p>
     </div>
   );
@@ -377,6 +470,10 @@ function ActionCard({
   onRemove: (id: string) => void;
   transitions: TransitionsState;
 }): React.ReactElement {
+  const { t } = useTranslation();
+  const actionLabels = getActionTypeLabels();
+  const actionDescriptions = getActionTypeDescriptions();
+
   function patchConfig(patch: Record<string, unknown>): void {
     onUpdate(action.id, { config: { ...action.config, ...patch } });
   }
@@ -427,21 +524,25 @@ function ActionCard({
               });
             }}
           >
-            {(Object.keys(ACTION_TYPE_LABELS) as ActionType[]).map((t) => (
-              <option key={t} value={t}>
-                {ACTION_TYPE_LABELS[t]}
+            {ALL_ACTION_TYPES.map((actionType) => (
+              <option key={actionType} value={actionType}>
+                {actionLabels[actionType]}
               </option>
             ))}
           </select>
           <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-            {ACTION_TYPE_DESCRIPTIONS[action.type]}
+            {actionDescriptions[action.type]}
           </span>
         </div>
         <IconButton
           variant="delete"
           onClick={() => onRemove(action.id)}
-          title="Remove action"
-          aria-label="Remove action"
+          title={t("automations.removeAction", {
+            defaultValue: "Remove action",
+          })}
+          aria-label={t("automations.removeAction", {
+            defaultValue: "Remove action",
+          })}
         >
           🗑
         </IconButton>
@@ -479,6 +580,8 @@ export function StepActions({
   onChange,
   transitions,
 }: Props): React.ReactElement {
+  const { t } = useTranslation();
+
   function addAction(): void {
     onChange({
       actions: [...data.actions, { id: genId(), type: "notify", config: {} }],
@@ -504,8 +607,10 @@ export function StepActions({
           marginBottom: "16px",
         }}
       >
-        Define what happens when this rule fires. At least one action is
-        required.
+        {t("automations.defineActionsHelp", {
+          defaultValue:
+            "Define what happens when this rule fires. At least one action is required.",
+        })}
       </p>
 
       {data.actions.length === 0 && (
@@ -519,7 +624,9 @@ export function StepActions({
           }}
         >
           <p style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-            No actions yet — add at least one.
+            {t("automations.noActionsYet", {
+              defaultValue: "No actions yet — add at least one.",
+            })}
           </p>
         </div>
       )}
@@ -536,7 +643,7 @@ export function StepActions({
       ))}
 
       <Button variant="secondary" onClick={addAction}>
-        + Add Action
+        + {t("automations.addAction", { defaultValue: "Add Action" })}
       </Button>
     </div>
   );

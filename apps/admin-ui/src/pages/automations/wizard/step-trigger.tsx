@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { fetchWithAuth, API_URL } from "../../../lib/api.js";
 import type { TriggerType, WizardData } from "./types.js";
 import { stateKeyFor, withConfigValues } from "./payload.js";
@@ -16,44 +18,70 @@ type WorkflowOption = {
 type EntityTypeOption = { id: string; name: string; plural: string };
 type FieldOption = { id: string; name: string; label: string };
 
-const TRIGGER_OPTIONS: Array<{
+const getTriggerOptions = (): Array<{
   type: TriggerType;
   label: string;
   description: string;
-}> = [
+}> => [
   {
     type: "workflow.entered_state",
-    label: "State entered",
-    description: "When a record enters a specific workflow state",
+    label: i18next.t("automations.triggerEnteredState", {
+      defaultValue: "State entered",
+    }),
+    description: i18next.t("automations.triggerEnteredStateDesc", {
+      defaultValue: "When a record enters a specific workflow state",
+    }),
   },
   {
     type: "workflow.transitioned",
-    label: "Transition taken",
-    description: "When a record moves between states via a named transition",
+    label: i18next.t("automations.triggerTransitioned", {
+      defaultValue: "Transition taken",
+    }),
+    description: i18next.t("automations.triggerTransitionedDesc", {
+      defaultValue: "When a record moves between states via a named transition",
+    }),
   },
   {
     type: "workflow.sla_breached",
-    label: "SLA breached",
-    description: "When a record exceeds the SLA time limit for a state",
+    label: i18next.t("automations.triggerSlaBreached", {
+      defaultValue: "SLA breached",
+    }),
+    description: i18next.t("automations.triggerSlaBreachedDesc", {
+      defaultValue: "When a record exceeds the SLA time limit for a state",
+    }),
   },
   {
     type: "field.changed",
-    label: "Field changed",
-    description: "When a specific field value is updated on a record",
+    label: i18next.t("automations.triggerFieldChanged", {
+      defaultValue: "Field changed",
+    }),
+    description: i18next.t("automations.triggerFieldChangedDesc", {
+      defaultValue: "When a specific field value is updated on a record",
+    }),
   },
   {
     type: "entity.created",
-    label: "Record created",
-    description: "When a new record of a given type is created",
+    label: i18next.t("automations.triggerRecordCreated", {
+      defaultValue: "Record created",
+    }),
+    description: i18next.t("automations.triggerRecordCreatedDesc", {
+      defaultValue: "When a new record of a given type is created",
+    }),
   },
   {
     type: "entity.assigned",
-    label: "Record assigned",
-    description: "When a record is assigned to a user",
+    label: i18next.t("automations.triggerRecordAssigned", {
+      defaultValue: "Record assigned",
+    }),
+    description: i18next.t("automations.triggerRecordAssignedDesc", {
+      defaultValue: "When a record is assigned to a user",
+    }),
   },
 ];
 
 export function StepTrigger({ data, onChange }: Props): React.ReactElement {
+  const { t } = useTranslation();
+  const triggerOptions = useMemo(() => getTriggerOptions(), [t]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [entityTypes, setEntityTypes] = useState<EntityTypeOption[]>([]);
   const [fields, setFields] = useState<FieldOption[]>([]);
@@ -63,12 +91,12 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
 
   useEffect(() => {
     let cancelled = false;
-    const t = data.triggerType;
+    const trigType = data.triggerType;
 
     if (
-      t === "workflow.entered_state" ||
-      t === "workflow.transitioned" ||
-      t === "workflow.sla_breached"
+      trigType === "workflow.entered_state" ||
+      trigType === "workflow.transitioned" ||
+      trigType === "workflow.sla_breached"
     ) {
       setLoadingWorkflows(true);
       // N+1: fetches each workflow individually for states — a future /workflows?includeStates=true
@@ -97,9 +125,9 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
     }
 
     if (
-      t === "field.changed" ||
-      t === "entity.created" ||
-      t === "entity.assigned"
+      trigType === "field.changed" ||
+      trigType === "entity.created" ||
+      trigType === "entity.assigned"
     ) {
       setLoadingEntityTypes(true);
       fetchWithAuth(`${API_URL}/entity-types`)
@@ -170,7 +198,9 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
           marginBottom: "20px",
         }}
       >
-        Choose what event triggers this automation rule.
+        {t("automations.chooseTriggerHelp", {
+          defaultValue: "Choose what event triggers this automation rule.",
+        })}
       </p>
 
       {/* Trigger type grid */}
@@ -182,7 +212,7 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
           marginBottom: "24px",
         }}
       >
-        {TRIGGER_OPTIONS.map((opt) => {
+        {triggerOptions.map((opt) => {
           const selected = data.triggerType === opt.type;
           return (
             <button
@@ -232,10 +262,14 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
         data.triggerType === "workflow.sla_breached") && (
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           <div className="form-group" style={{ flex: 1, minWidth: "200px" }}>
-            <label className="form-label">Workflow</label>
+            <label className="form-label">
+              {t("automations.workflow", { defaultValue: "Workflow" })}
+            </label>
             {loadingWorkflows ? (
               <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Loading…
+                {t("automations.loadingWorkflows", {
+                  defaultValue: "Loading workflows…",
+                })}
               </p>
             ) : (
               <select
@@ -247,7 +281,11 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   patchConfig({ workflowId: e.target.value, [stateKey]: "" })
                 }
               >
-                <option value="">— select workflow —</option>
+                <option value="">
+                  {t("automations.selectWorkflowPlaceholder", {
+                    defaultValue: "— select workflow —",
+                  })}
+                </option>
                 {workflows.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
@@ -264,7 +302,9 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                 className="form-group"
                 style={{ flex: 1, minWidth: "200px" }}
               >
-                <label className="form-label">State</label>
+                <label className="form-label">
+                  {t("automations.state", { defaultValue: "State" })}
+                </label>
                 <select
                   className="form-input"
                   value={
@@ -272,7 +312,11 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   }
                   onChange={(e) => patchConfig({ [stateKey]: e.target.value })}
                 >
-                  <option value="">— any state —</option>
+                  <option value="">
+                    {t("automations.anyStatePlaceholder", {
+                      defaultValue: "— any state —",
+                    })}
+                  </option>
                   {selectedWorkflow.states.map((s) => (
                     <option key={s.name} value={s.name}>
                       {s.label}
@@ -289,10 +333,14 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
         data.triggerType === "entity.assigned") && (
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           <div className="form-group" style={{ flex: 1, minWidth: "200px" }}>
-            <label className="form-label">Entity Type</label>
+            <label className="form-label">
+              {t("automations.entityType", { defaultValue: "Entity Type" })}
+            </label>
             {loadingEntityTypes ? (
               <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Loading…
+                {t("automations.loadingEntityTypes", {
+                  defaultValue: "Loading entity types…",
+                })}
               </p>
             ) : (
               <select
@@ -304,7 +352,11 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   patchConfig({ entityTypeId: e.target.value, field: "" })
                 }
               >
-                <option value="">— select entity type —</option>
+                <option value="">
+                  {t("automations.selectEntityTypePlaceholder", {
+                    defaultValue: "— select entity type —",
+                  })}
+                </option>
                 {entityTypes.map((et) => (
                   <option key={et.id} value={et.id}>
                     {et.plural}
@@ -316,10 +368,14 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
 
           {data.triggerType === "field.changed" && selectedEntityTypeId && (
             <div className="form-group" style={{ flex: 1, minWidth: "200px" }}>
-              <label className="form-label">Field</label>
+              <label className="form-label">
+                {t("automations.field", { defaultValue: "Field" })}
+              </label>
               {loadingFields ? (
                 <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                  Loading…
+                  {t("automations.loadingFields", {
+                    defaultValue: "Loading fields…",
+                  })}
                 </p>
               ) : (
                 <select
@@ -327,7 +383,11 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   value={(data.triggerConfig.field as string | undefined) ?? ""}
                   onChange={(e) => patchConfig({ field: e.target.value })}
                 >
-                  <option value="">— any field —</option>
+                  <option value="">
+                    {t("automations.anyFieldPlaceholder", {
+                      defaultValue: "— any field —",
+                    })}
+                  </option>
                   {fields.map((f) => (
                     <option key={f.id} value={f.name}>
                       {f.label}
@@ -344,9 +404,10 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                     marginTop: "6px",
                   }}
                 >
-                  This rule will fire on every update to every{" "}
-                  {selectedEntityType?.name ?? "record"} record. Pick a field to
-                  narrow it.
+                  {t("automations.narrowFieldWarning", {
+                    entity: selectedEntityType?.name ?? "record",
+                    defaultValue: `This rule will fire on every update to every ${selectedEntityType?.name ?? "record"} record. Pick a field to narrow it.`,
+                  })}
                 </p>
               )}
             </div>

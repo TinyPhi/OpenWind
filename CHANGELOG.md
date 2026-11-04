@@ -21,6 +21,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   idle logout or an expired session, not to the generic `/login`. The key is remembered in the browser only,
   checked as 16 lowercase hex characters on every read and write, and ignored if storage fails.
 
+## [Unreleased — i18n Phase 2C builder and wizard string extraction (#1096)]
+
+### Added
+
+- Extracted all remaining hardcoded UI strings from Entity Types (`detail.tsx`, `instance-create.tsx`, `instance-detail.tsx`), Automations Wizard (`wizard.tsx`, `step-actions.tsx`, `step-conditions.tsx`, `step-trigger.tsx`, `step-save.tsx`, `step-ticket-template.tsx`), and Workflows (`create.tsx`, `detail.tsx`) into `common` i18n namespace keys (#1096).
+- Mirrored all newly added keys across all 10 non-English stub locales (`hi`, `mr`, `bn`, `ta`, `te`, `kn`, `fr`, `de`, `it`, `es`) with 100% key parity enforced by `locale-completeness.test.ts`.
+- Added missing `i18n.js` test imports to test files rendering translated components.
+- Configured Vite `manualChunks` for `/locales/` to keep the main entry chunk size under the strict 215 kB gzip limit.
+
 ## [Unreleased — font range & language gate (#1092, #1110)]
 
 ### Added

@@ -1,4 +1,6 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { Button, IconButton } from "@platform/ui";
 import type {
   WizardData,
@@ -13,21 +15,67 @@ type Props = {
   onChange: (patch: Partial<WizardData>) => void;
 };
 
-const OPERATORS: Array<{
+const getOperators = (): Array<{
   op: ConditionLeaf["op"];
   label: string;
   hasValue: boolean;
-}> = [
-  { op: "eq", label: "is equal to", hasValue: true },
-  { op: "neq", label: "is not equal to", hasValue: true },
-  { op: "gt", label: "greater than", hasValue: true },
-  { op: "gte", label: "greater than or equal", hasValue: true },
-  { op: "lt", label: "less than", hasValue: true },
-  { op: "lte", label: "less than or equal", hasValue: true },
-  { op: "contains", label: "contains", hasValue: true },
-  { op: "in", label: "is one of", hasValue: true },
-  { op: "empty", label: "is empty", hasValue: false },
-  { op: "not_empty", label: "is not empty", hasValue: false },
+}> => [
+  {
+    op: "eq",
+    label: i18next.t("automations.opEq", { defaultValue: "is equal to" }),
+    hasValue: true,
+  },
+  {
+    op: "neq",
+    label: i18next.t("automations.opNeq", { defaultValue: "is not equal to" }),
+    hasValue: true,
+  },
+  {
+    op: "gt",
+    label: i18next.t("automations.opGt", { defaultValue: "greater than" }),
+    hasValue: true,
+  },
+  {
+    op: "gte",
+    label: i18next.t("automations.opGte", {
+      defaultValue: "greater than or equal",
+    }),
+    hasValue: true,
+  },
+  {
+    op: "lt",
+    label: i18next.t("automations.opLt", { defaultValue: "less than" }),
+    hasValue: true,
+  },
+  {
+    op: "lte",
+    label: i18next.t("automations.opLte", {
+      defaultValue: "less than or equal",
+    }),
+    hasValue: true,
+  },
+  {
+    op: "contains",
+    label: i18next.t("automations.opContains", { defaultValue: "contains" }),
+    hasValue: true,
+  },
+  {
+    op: "in",
+    label: i18next.t("automations.opIn", { defaultValue: "is one of" }),
+    hasValue: true,
+  },
+  {
+    op: "empty",
+    label: i18next.t("automations.opEmpty", { defaultValue: "is empty" }),
+    hasValue: false,
+  },
+  {
+    op: "not_empty",
+    label: i18next.t("automations.opNotEmpty", {
+      defaultValue: "is not empty",
+    }),
+    hasValue: false,
+  },
 ];
 
 export function isGroup(node: ConditionNode): node is ConditionGroup {
@@ -141,6 +189,9 @@ function ConditionNodeEditor({
   onAddLeaf: (path: number[]) => void;
   onAddGroup: (path: number[]) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
+  const operators = getOperators();
+
   if (isGroup(node)) {
     return (
       <div
@@ -173,21 +224,35 @@ function ConditionNodeEditor({
               }))
             }
           >
-            <option value="and">AND</option>
-            <option value="or">OR</option>
+            <option value="and">
+              {t("automations.and", { defaultValue: "AND" })}
+            </option>
+            <option value="or">
+              {t("automations.or", { defaultValue: "OR" })}
+            </option>
           </select>
           <span
             style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}
           >
-            Match {node.op === "and" ? "all" : "any"} of:
+            {t("automations.matchOf", {
+              mode:
+                node.op === "and"
+                  ? t("automations.all", { defaultValue: "all" })
+                  : t("automations.any", { defaultValue: "any" }),
+              defaultValue: `Match ${node.op === "and" ? "all" : "any"} of:`,
+            })}
           </span>
           {path.length > 0 && (
             <IconButton
               variant="delete"
               style={{ fontSize: "10px" }}
               onClick={() => onRemove(path)}
-              title="Remove group"
-              aria-label="Remove group"
+              title={t("automations.removeGroup", {
+                defaultValue: "Remove group",
+              })}
+              aria-label={t("automations.removeGroup", {
+                defaultValue: "Remove group",
+              })}
             >
               ×
             </IconButton>
@@ -215,7 +280,7 @@ function ConditionNodeEditor({
             style={{ fontSize: "11px", padding: "4px 10px" }}
             onClick={() => onAddLeaf(path)}
           >
-            + Add condition
+            + {t("automations.addCondition", { defaultValue: "Add condition" })}
           </Button>
           {depth < 3 && (
             <Button
@@ -223,7 +288,7 @@ function ConditionNodeEditor({
               style={{ fontSize: "11px", padding: "4px 10px" }}
               onClick={() => onAddGroup(path)}
             >
-              + Add group
+              + {t("automations.addGroup", { defaultValue: "Add group" })}
             </Button>
           )}
         </div>
@@ -233,7 +298,7 @@ function ConditionNodeEditor({
 
   // Leaf condition
   const leaf = node as ConditionLeaf;
-  const opDef = OPERATORS.find((o) => o.op === leaf.op);
+  const opDef = operators.find((o) => o.op === leaf.op);
 
   return (
     <div
@@ -248,7 +313,9 @@ function ConditionNodeEditor({
       <input
         className="form-input"
         style={{ width: "140px", fontSize: "12px", padding: "4px 8px" }}
-        placeholder="field.name"
+        placeholder={t("automations.conditionFieldPlaceholder", {
+          defaultValue: "field.name",
+        })}
         value={leaf.field}
         onChange={(e) =>
           onUpdate(path, (n) => ({
@@ -269,7 +336,7 @@ function ConditionNodeEditor({
           }))
         }
       >
-        {OPERATORS.map((o) => (
+        {operators.map((o) => (
           <option key={o.op} value={o.op}>
             {o.label}
           </option>
@@ -279,7 +346,9 @@ function ConditionNodeEditor({
         <input
           className="form-input"
           style={{ width: "140px", fontSize: "12px", padding: "4px 8px" }}
-          placeholder="value"
+          placeholder={t("automations.conditionValuePlaceholder", {
+            defaultValue: "value",
+          })}
           value={leaf.value !== undefined ? String(leaf.value) : ""}
           onChange={(e) =>
             onUpdate(path, (n) => ({
@@ -293,8 +362,12 @@ function ConditionNodeEditor({
         variant="delete"
         style={{ fontSize: "11px", padding: "2px 6px" }}
         onClick={() => onRemove(path)}
-        title="Remove condition"
-        aria-label="Remove condition"
+        title={t("automations.removeCondition", {
+          defaultValue: "Remove condition",
+        })}
+        aria-label={t("automations.removeCondition", {
+          defaultValue: "Remove condition",
+        })}
       >
         ×
       </IconButton>
@@ -303,6 +376,7 @@ function ConditionNodeEditor({
 }
 
 export function StepConditions({ data, onChange }: Props): React.ReactElement {
+  const { t } = useTranslation();
   const conditions = data.conditions;
 
   function init(): void {
@@ -353,8 +427,10 @@ export function StepConditions({ data, onChange }: Props): React.ReactElement {
           marginBottom: "16px",
         }}
       >
-        Optionally add conditions to filter when this rule fires. Leave empty to
-        always run on trigger.
+        {t("automations.conditionsHelp", {
+          defaultValue:
+            "Optionally add conditions to filter when this rule fires. Leave empty to always run on trigger.",
+        })}
       </p>
 
       {!conditions ? (
@@ -373,10 +449,14 @@ export function StepConditions({ data, onChange }: Props): React.ReactElement {
               marginBottom: "12px",
             }}
           >
-            No conditions — rule fires on every trigger event.
+            {t("automations.noConditionsHelp", {
+              defaultValue:
+                "No conditions — rule fires on every trigger event.",
+            })}
           </p>
           <Button variant="secondary" onClick={init}>
-            + Add conditions
+            +{" "}
+            {t("automations.addConditions", { defaultValue: "Add conditions" })}
           </Button>
         </div>
       ) : (
@@ -399,7 +479,9 @@ export function StepConditions({ data, onChange }: Props): React.ReactElement {
             }}
             onClick={clear}
           >
-            Remove all conditions
+            {t("automations.removeAllConditions", {
+              defaultValue: "Remove all conditions",
+            })}
           </Button>
         </div>
       )}

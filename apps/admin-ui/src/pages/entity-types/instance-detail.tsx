@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
 import {
   Dialog,
@@ -57,6 +58,7 @@ type WorkflowState = {
 };
 
 export function EntityInstanceDetail(): React.ReactElement {
+  const { t } = useTranslation();
   const { id: entityTypeId, instanceId } = useParams<{
     id: string;
     instanceId: string;
@@ -83,15 +85,19 @@ export function EntityInstanceDetail(): React.ReactElement {
   >([]);
 
   const getFieldLabel = (fieldName: string): string => {
-    if (fieldName === "state" || fieldName === "currentState") return "State";
-    if (fieldName === "assignedTo") return "Assigned To";
-    if (fieldName === "dueDate") return "Due Date";
+    if (fieldName === "state" || fieldName === "currentState")
+      return t("entityTypes.stateField", { defaultValue: "State" });
+    if (fieldName === "assignedTo")
+      return t("entityTypes.assignTo", { defaultValue: "Assigned To" });
+    if (fieldName === "dueDate")
+      return t("entityTypes.dueDate", { defaultValue: "Due Date" });
     const found = fields.find((f) => f.name === fieldName);
     return found ? found.label : fieldName;
   };
 
   const getActorName = (actorId: string | null): string => {
-    if (!actorId) return "System";
+    if (!actorId)
+      return t("entityTypes.systemActor", { defaultValue: "System" });
     const u = users.find((user) => user.userId === actorId);
     return u?.displayName ?? u?.email ?? actorId;
   };
@@ -305,12 +311,15 @@ export function EntityInstanceDetail(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading…</span>
+        <span className="loader-text">{t("entityTypes.loading")}</span>
       </div>
     );
   if (error || !record)
     return (
-      <div className="alert alert-error">{error ?? "Record not found"}</div>
+      <div className="alert alert-error">
+        {error ??
+          t("entityTypes.recordNotFound", { defaultValue: "Record not found" })}
+      </div>
     );
 
   return (
@@ -321,7 +330,7 @@ export function EntityInstanceDetail(): React.ReactElement {
           to={`/entity-types/${entityTypeId ?? ""}/records`}
           className="breadcrumb-link"
         >
-          ← Records
+          ← {t("entityTypes.records", { defaultValue: "Records" })}
         </Link>
       </div>
 
@@ -339,19 +348,21 @@ export function EntityInstanceDetail(): React.ReactElement {
             className="page-title"
             style={{ display: "flex", alignItems: "center", gap: "12px" }}
           >
-            Record detail
+            {t("entityTypes.recordDetail", { defaultValue: "Record detail" })}
             {stateBadge(record.currentState)}
           </h2>
           <p className="page-subtitle" style={{ fontSize: "12px" }}>
-            ID:{" "}
+            {t("entityTypes.recordId", { defaultValue: "ID:" })}{" "}
             <code style={{ fontSize: "11px", opacity: 0.7 }}>{record.id}</code>{" "}
-            · Created {new Date(record.createdAt).toLocaleString()} · Updated{" "}
+            · {t("entityTypes.created", { defaultValue: "Created" })}{" "}
+            {new Date(record.createdAt).toLocaleString()} ·{" "}
+            {t("entityTypes.recordUpdated", { defaultValue: "Updated" })}{" "}
             {new Date(record.updatedAt).toLocaleString()}
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
           <Button variant="secondary" onClick={() => setStateModal(true)}>
-            Change State
+            {t("entityTypes.changeState", { defaultValue: "Change State" })}
           </Button>
           {!editing && (
             <Button
@@ -363,7 +374,7 @@ export function EntityInstanceDetail(): React.ReactElement {
                 setSaveError(null);
               }}
             >
-              Edit Fields
+              {t("entityTypes.editFields", { defaultValue: "Edit Fields" })}
             </Button>
           )}
         </div>
@@ -407,7 +418,7 @@ export function EntityInstanceDetail(): React.ReactElement {
               color: "var(--text-secondary)",
             }}
           >
-            Assigned To
+            {t("entityTypes.assignTo", { defaultValue: "Assigned To" })}
           </span>
         </div>
         <UserPicker
@@ -418,17 +429,21 @@ export function EntityInstanceDetail(): React.ReactElement {
           }))}
           value={record.assignedTo}
           onChange={(uid) => void handleAssign(uid)}
-          placeholder="Assign to a user…"
+          placeholder={t("entityTypes.assignToUserPlaceholder", {
+            defaultValue: "Assign to a user…",
+          })}
           disabled={savingAssign}
         />
         {savingAssign && (
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            Saving…
+            {t("entityTypes.saving", { defaultValue: "Saving…" })}
           </span>
         )}
         {!savingAssign && record.assignedTo && (
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            Assigned user has edit access to this record.
+            {t("entityTypes.assignedUserEditAccess", {
+              defaultValue: "Assigned user has edit access to this record.",
+            })}
           </span>
         )}
       </div>
@@ -453,7 +468,7 @@ export function EntityInstanceDetail(): React.ReactElement {
               color: "var(--text-secondary)",
             }}
           >
-            Due Date
+            {t("entityTypes.dueDate", { defaultValue: "Due Date" })}
           </span>
         </div>
         <input
@@ -470,7 +485,7 @@ export function EntityInstanceDetail(): React.ReactElement {
         {savingDueDate && (
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
             {" "}
-            Saving…
+            {t("entityTypes.saving", { defaultValue: "Saving…" })}
           </span>
         )}
       </div>
@@ -486,7 +501,9 @@ export function EntityInstanceDetail(): React.ReactElement {
             alignItems: "center",
           }}
         >
-          <span style={{ fontWeight: 600 }}>Fields</span>
+          <span style={{ fontWeight: 600 }}>
+            {t("entityTypes.fieldsTitle", { defaultValue: "Fields" })}
+          </span>
           {editing && (
             <div style={{ display: "flex", gap: "8px" }}>
               <Button
@@ -494,14 +511,16 @@ export function EntityInstanceDetail(): React.ReactElement {
                 onClick={() => setEditing(false)}
                 disabled={saving}
               >
-                Cancel
+                {t("entityTypes.cancel", { defaultValue: "Cancel" })}
               </Button>
               <Button
                 variant="primary"
                 onClick={() => void saveEdit()}
                 disabled={saving}
               >
-                {saving ? "Saving…" : "Save"}
+                {saving
+                  ? t("entityTypes.saving", { defaultValue: "Saving…" })
+                  : t("entityTypes.save", { defaultValue: "Save" })}
               </Button>
             </div>
           )}
@@ -513,7 +532,11 @@ export function EntityInstanceDetail(): React.ReactElement {
         )}
         <div style={{ padding: "20px" }}>
           {fields.length === 0 ? (
-            <p style={{ color: "var(--text-muted)" }}>No fields defined.</p>
+            <p style={{ color: "var(--text-muted)" }}>
+              {t("entityTypes.noFieldsDefined", {
+                defaultValue: "No fields defined.",
+              })}
+            </p>
           ) : editing ? (
             <div
               style={{
@@ -524,7 +547,9 @@ export function EntityInstanceDetail(): React.ReactElement {
             >
               {allStates.length > 0 && (
                 <div style={{ gridColumn: "1 / -1" }}>
-                  <label className="form-label">State</label>
+                  <label className="form-label">
+                    {t("entityTypes.stateField", { defaultValue: "State" })}
+                  </label>
                   <select
                     className="form-input"
                     value={currentState}
@@ -616,7 +641,7 @@ export function EntityInstanceDetail(): React.ReactElement {
               fontWeight: 600,
             }}
           >
-            State History
+            {t("entityTypes.stateHistory", { defaultValue: "State History" })}
           </div>
           <div style={{ padding: "16px 20px" }}>
             {history.map((ev) => {
@@ -647,16 +672,11 @@ export function EntityInstanceDetail(): React.ReactElement {
                   <div>
                     {isCreate ? (
                       <div style={{ fontWeight: 600, color: "var(--text)" }}>
-                        🆕 Record created{" "}
-                        <span
-                          style={{
-                            fontWeight: 400,
-                            color: "var(--text-muted)",
-                            marginLeft: "4px",
-                          }}
-                        >
-                          by {getActorName(ev.actorId)}
-                        </span>
+                        🆕{" "}
+                        {t("entityTypes.recordCreatedBy", {
+                          name: getActorName(ev.actorId),
+                          defaultValue: `Record created by ${getActorName(ev.actorId)}`,
+                        })}
                       </div>
                     ) : isUpdate ? (
                       <div>
@@ -667,16 +687,11 @@ export function EntityInstanceDetail(): React.ReactElement {
                             marginBottom: "4px",
                           }}
                         >
-                          ✏️ Record updated{" "}
-                          <span
-                            style={{
-                              fontWeight: 400,
-                              color: "var(--text-muted)",
-                              marginLeft: "4px",
-                            }}
-                          >
-                            by {getActorName(ev.actorId)}
-                          </span>
+                          ✏️{" "}
+                          {t("entityTypes.recordUpdatedBy", {
+                            name: getActorName(ev.actorId),
+                            defaultValue: `Record updated by ${getActorName(ev.actorId)}`,
+                          })}
                         </div>
                         {"changed" in meta &&
                         typeof meta["changed"] === "object" &&
@@ -700,10 +715,12 @@ export function EntityInstanceDetail(): React.ReactElement {
                                 key={fieldName}
                                 style={{ listStyleType: "disc" }}
                               >
-                                <strong>{getFieldLabel(fieldName)}</strong>:
-                                changed from{" "}
-                                <em>{formatFieldValue(change["old"])}</em> to{" "}
-                                <em>{formatFieldValue(change["new"])}</em>
+                                <strong>{getFieldLabel(fieldName)}</strong>:{" "}
+                                {t("entityTypes.changedFromTo", {
+                                  old: formatFieldValue(change["old"]),
+                                  new: formatFieldValue(change["new"]),
+                                  defaultValue: `changed from ${formatFieldValue(change["old"])} to ${formatFieldValue(change["new"])}`,
+                                })}
                               </li>
                             ))}
                           </ul>
@@ -734,7 +751,10 @@ export function EntityInstanceDetail(): React.ReactElement {
                             color: "var(--text-muted)",
                           }}
                         >
-                          by {getActorName(ev.actorId)}
+                          {t("entityTypes.byActor", {
+                            name: getActorName(ev.actorId),
+                            defaultValue: `by ${getActorName(ev.actorId)}`,
+                          })}
                         </span>
                       </div>
                     )}
@@ -783,10 +803,16 @@ export function EntityInstanceDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Change State</h3>
+              <h3 className="modal-title">
+                {t("entityTypes.changeState", { defaultValue: "Change State" })}
+              </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("entityTypes.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -802,18 +828,25 @@ export function EntityInstanceDetail(): React.ReactElement {
             )}
             <div className="form-group">
               <label className="form-label">
-                Current: {stateBadge(record.currentState)}
+                {t("entityTypes.currentLabel", { defaultValue: "Current:" })}{" "}
+                {stateBadge(record.currentState)}
               </label>
             </div>
             <div className="form-group">
-              <label className="form-label">Move to *</label>
+              <label className="form-label">
+                {t("entityTypes.moveTo", { defaultValue: "Move to" })} *
+              </label>
               {allStates.length > 0 ? (
                 <select
                   className="form-input"
                   value={selectedState}
                   onChange={(e) => setSelectedState(e.target.value)}
                 >
-                  <option value="">Select a state…</option>
+                  <option value="">
+                    {t("entityTypes.selectAState", {
+                      defaultValue: "Select a state…",
+                    })}
+                  </option>
                   {allStates
                     .filter((s) => s.name !== record.currentState)
                     .map((s) => (
@@ -825,19 +858,27 @@ export function EntityInstanceDetail(): React.ReactElement {
               ) : (
                 <input
                   className="form-input"
-                  placeholder="e.g. in_progress"
+                  placeholder={t("entityTypes.statePlaceholder", {
+                    defaultValue: "e.g. in_progress",
+                  })}
                   value={selectedState}
                   onChange={(e) => setSelectedState(e.target.value)}
                 />
               )}
             </div>
             <div className="form-group">
-              <label className="form-label">Note (optional)</label>
+              <label className="form-label">
+                {t("entityTypes.noteOptional", {
+                  defaultValue: "Note (optional)",
+                })}
+              </label>
               <textarea
                 className="form-input"
                 rows={3}
                 style={{ resize: "vertical" }}
-                placeholder="Reason for state change…"
+                placeholder={t("entityTypes.reasonPlaceholder", {
+                  defaultValue: "Reason for state change…",
+                })}
                 value={stateComment}
                 onChange={(e) => setStateComment(e.target.value)}
               />
@@ -851,14 +892,18 @@ export function EntityInstanceDetail(): React.ReactElement {
                 setStateError(null);
               }}
             >
-              Cancel
+              {t("entityTypes.cancel", { defaultValue: "Cancel" })}
             </Button>
             <Button
               variant="primary"
               disabled={!selectedState || settingState}
               onClick={() => void handleSetState()}
             >
-              {settingState ? "Updating…" : "Update State"}
+              {settingState
+                ? t("entityTypes.updating", { defaultValue: "Updating…" })
+                : t("entityTypes.updateState", {
+                    defaultValue: "Update State",
+                  })}
             </Button>
           </div>
         </DialogContent>
