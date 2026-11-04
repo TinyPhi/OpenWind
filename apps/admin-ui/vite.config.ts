@@ -38,7 +38,8 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes("/locales/") || id.includes("\\locales\\")) {
+            // Vite/Rollup normalises module IDs to forward slashes across all platforms
+            if (id.includes("/locales/")) {
               return "locales";
             }
           },

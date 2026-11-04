@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "../../i18n.js";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 // docs/specs/mandatory-ticket-fields.md R1: a system field (every workflow's title) is
@@ -14,6 +14,7 @@ vi.mock("@refinedev/core", () => ({
       plural: "Tickets",
       icon: null,
       moduleId: null,
+      allowCustomFields: true,
     },
     query: { isLoading: false },
   }),
@@ -73,5 +74,28 @@ describe("EntityTypeDetail — protected fields", () => {
     expect(screen.getByText("Title")).toBeDefined();
     expect(screen.getAllByTitle("Edit field")).toHaveLength(1);
     expect(screen.getAllByTitle("Delete field")).toHaveLength(1);
+  });
+
+  it("renders enum option placeholders with index (e.g. Option 1, Option 2)", async () => {
+    render(
+      <MemoryRouter initialEntries={["/entity-types/et-1"]}>
+        <Routes>
+          <Route path="/entity-types/:id" element={<EntityTypeDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Notes")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /\+.*Add Field/i }));
+
+    const fieldTypeSelect = screen.getByRole("combobox");
+    fireEvent.change(fieldTypeSelect, { target: { value: "enum" } });
+
+    expect(screen.getByPlaceholderText("Option 1")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /\+.*Add option/i }));
+
+    expect(screen.getByPlaceholderText("Option 2")).toBeDefined();
   });
 });

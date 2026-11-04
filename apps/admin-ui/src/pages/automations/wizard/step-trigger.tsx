@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { fetchWithAuth, API_URL } from "../../../lib/api.js";
@@ -81,7 +81,7 @@ const getTriggerOptions = (): Array<{
 
 export function StepTrigger({ data, onChange }: Props): React.ReactElement {
   const { t } = useTranslation();
-  const triggerOptions = getTriggerOptions();
+  const triggerOptions = useMemo(() => getTriggerOptions(), [t]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [entityTypes, setEntityTypes] = useState<EntityTypeOption[]>([]);
   const [fields, setFields] = useState<FieldOption[]>([]);

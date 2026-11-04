@@ -493,7 +493,7 @@
     "labelPlaceholder": "e.g. Priority",
     "noOptionsConfigured": "No options configured. Add options below.",
     "notFound": "Entity type not found",
-    "optionPlaceholder": "Option label",
+    "optionPlaceholder": "Option {{index}}",
     "options": "options",
     "pluralLabel": "Plural Label",
     "removeOption": "Remove",
