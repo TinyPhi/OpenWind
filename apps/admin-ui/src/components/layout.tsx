@@ -6,11 +6,8 @@ import { TOKENS } from "@platform/ui";
 import { userManager } from "../authProvider.js";
 import { initials } from "../lib/format.js";
 import { NotificationBell } from "./notification-bell.js";
-import { OrgBrandMark } from "./org-brand-mark.js";
-import {
-  useOrgBranding,
-  type OrgBrandingState,
-} from "../hooks/use-org-branding.js";
+import { HeaderBrand } from "./header-brand.js";
+import { useOrgBranding } from "../hooks/use-org-branding.js";
 
 // ── Admin nav items ──────────────────────────────────────────────────────────
 
@@ -415,57 +412,6 @@ function InitialsAvatar({
     >
       {userInitials}
     </div>
-  );
-}
-
-// A sandbox shows its own logo (or initials) and name here; every other tenant keeps OpenWind.
-// While the lookup is in flight the OpenWind brand holds the space invisibly, so a sandbox user
-// never sees it flash before their org's.
-function HeaderBrand({
-  branding,
-}: {
-  branding: OrgBrandingState;
-}): React.ReactElement {
-  if (branding.status === "org") {
-    return (
-      <>
-        <OrgBrandMark name={branding.name} logo={branding.logo} size={24} />
-        <div className="logo-text" title={branding.name}>
-          <span
-            style={{
-              display: "block",
-              minWidth: 0,
-              maxWidth: "240px",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {branding.name}
-          </span>
-        </div>
-      </>
-    );
-  }
-  return (
-    <>
-      <img
-        src="/favicon.svg"
-        alt="OpenWind"
-        className="logo-icon"
-        style={
-          branding.status === "loading" ? { visibility: "hidden" } : undefined
-        }
-      />
-      <div
-        className="logo-text"
-        style={
-          branding.status === "loading" ? { visibility: "hidden" } : undefined
-        }
-      >
-        OpenWind
-      </div>
-    </>
   );
 }
 

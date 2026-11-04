@@ -326,6 +326,8 @@ export async function processSandboxProvisioningJob(
           id: tenantId,
           name: orgName,
           slug: slugify(orgName),
+          // Random and unrelated to the name, so the login link cannot be guessed (R13).
+          loginKey: randomBytes(8).toString("hex"),
           status: "active",
           zitadelOrgId: org.orgId,
           isSandbox: true,

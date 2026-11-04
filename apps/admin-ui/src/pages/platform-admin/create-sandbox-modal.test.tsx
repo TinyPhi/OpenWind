@@ -48,7 +48,7 @@ const HANDOVER_ACCOUNTS = [
   },
 ];
 
-async function showHandover(): Promise<void> {
+async function showHandover(loginKey?: string): Promise<void> {
   mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
   mockFetchWithAuth.mockResolvedValueOnce({
     data: {
@@ -60,7 +60,11 @@ async function showHandover(): Promise<void> {
     },
   });
   mockFetchWithAuth.mockResolvedValueOnce({
-    data: { tenantId: "t1", seededAccounts: HANDOVER_ACCOUNTS },
+    data: {
+      tenantId: "t1",
+      ...(loginKey ? { loginKey } : {}),
+      seededAccounts: HANDOVER_ACCOUNTS,
+    },
   });
   renderModal();
   fireEvent.change(screen.getByLabelText("Organization name"), {
@@ -220,11 +224,41 @@ describe("CreateSandboxModal", () => {
     expect(mockDownloadHandoverCsv).toHaveBeenCalledWith(
       "Acme Sandbox",
       HANDOVER_ACCOUNTS,
+      null,
     );
     // Built from what's on screen: the handover is still fetched only once.
     const urls = mockFetchWithAuth.mock.calls.map(([url]) => url);
     expect(urls.filter((u) => u.endsWith("/handover"))).toHaveLength(1);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows the sandbox's login link on the reveal, and puts it in the CSV and clipboard text (R13)", async () => {
+    await showHandover("3f9a1c7e2b4d8a60");
+    const link = `${window.location.origin}/login?org=3f9a1c7e2b4d8a60`;
+
+    expect(screen.getByText(link)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Download CSV"));
+    expect(mockDownloadHandoverCsv).toHaveBeenCalledWith(
+      "Acme Sandbox",
+      HANDOVER_ACCOUNTS,
+      link,
+    );
+
+    fireEvent.click(screen.getByText("Copy credentials"));
+    await waitFor(() => expect(mockWriteText).toHaveBeenCalled());
+    const text = mockWriteText.mock.calls[0]?.[0] as string;
+    expect(text.split("\n")[0]).toBe(
+      "Username\tEmail\tRole\tPassword\tLogin link",
+    );
+    expect(text).toContain(link);
+  });
+
+  it("shows no login link when the server could not read the login key back", async () => {
+    await showHandover();
+
+    expect(screen.queryByText("Login link")).toBeNull();
+    expect(screen.queryByText(/\/login\?org=/)).toBeNull();
   });
 
   it("shows an inline error when the CSV can't be created", async () => {

@@ -340,6 +340,22 @@ describe("Layout header brand (R12)", () => {
     expect(header().textContent).not.toContain("OpenWind");
   });
 
+  it("never puts a logo that is not a raster data URL into the header", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: { name: "Acme Demo", logo: "https://evil.example/pixel.png" },
+    });
+    mockUserWithRoles(["admin"]);
+    renderLayout();
+
+    await waitFor(() =>
+      expect(
+        (header().querySelector(".logo-text") as HTMLElement).style.visibility,
+      ).toBe(""),
+    );
+    expect(header().querySelector('img[src^="https://evil"]')).toBeNull();
+    expect(header().textContent).toContain("OpenWind");
+  });
+
   it("ignores a malformed response and keeps the OpenWind brand", async () => {
     mockFetchWithAuth.mockResolvedValue({ data: { name: 42, logo: "x" } });
     mockUserWithRoles(["admin"]);

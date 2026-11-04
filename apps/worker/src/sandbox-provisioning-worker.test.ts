@@ -337,6 +337,34 @@ describe("processSandboxProvisioningJob", () => {
     );
   });
 
+  it("gives each new sandbox its own random 16-hex login key, unrelated to its name (R13)", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "user-x" });
+
+    await processSandboxProvisioningJob({
+      id: "job-1",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+    await processSandboxProvisioningJob({
+      id: "job-2",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    const inserted = mockValues.mock.calls.map(
+      (c) => (c as unknown as [{ loginKey?: string; slug?: string }])[0],
+    );
+    const keys = inserted.map((row) => row.loginKey);
+    expect(keys).toHaveLength(2);
+    for (const key of keys) expect(key).toMatch(/^[0-9a-f]{16}$/);
+    expect(keys[0]).not.toBe(keys[1]);
+    // Nothing about the name or the slug leads to it.
+    for (const row of inserted) {
+      expect(row.slug).toBeDefined();
+      expect(row.loginKey).not.toContain("acme");
+      expect(row.slug).not.toContain(row.loginKey as string);
+    }
+  });
+
   it("still completes the job when storeSandboxHandoverCredentials fails (review finding, PR #805) -- a Redis blip on the last step must not fail an otherwise-successful run", async () => {
     mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
     mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "admin-user" });

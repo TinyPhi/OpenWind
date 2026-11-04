@@ -3,6 +3,24 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — organisation login link and branding]
+
+### Added
+
+- A sandbox organisation has its own login link, `/login?org=<key>`, where the key is 16 random hex characters
+  (never the organisation's name). The login page shows that organisation's name and logo before anyone signs
+  in, through a public, rate-limited lookup that returns only the name and logo. A platform admin sees and
+  can copy the link from the sandbox list and detail panel. A key that matches no sandbox shows a plain login
+  page with no brand.
+- Migrations 0161 and 0162: `tenants.login_key` (unique, format-checked, filled in for existing sandboxes) and
+  the column-level grants that go with it.
+
+### Changed
+
+- A person who signed in through their organisation's own link is sent back to that link after signing out, an
+  idle logout or an expired session, not to the generic `/login`. The key is remembered in the browser only,
+  checked as 16 lowercase hex characters on every read and write, and ignored if storage fails.
+
 ## [Unreleased — i18n Phase 2C builder and wizard string extraction (#1096)]
 
 ### Added
