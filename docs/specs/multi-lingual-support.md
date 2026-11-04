@@ -124,7 +124,7 @@ R8: localStorage language code validation
 | T9  | Replace hardcoded `"en-IN"` in `analytics.tsx` + `dashboard.tsx` with `useLocale().locale`                 | 1     | todo   | T3      |
 | T10 | Extract Settings + Layout strings (P2A)                                                                    | 2     | todo   | T1–T9   |
 | T11 | Extract Dashboard + Records strings (P2B)                                                                  | 2     | todo   | T10     |
-| T12 | Extract Entity types + Workflows + Automations strings (P2C)                                               | 2     | todo   | T10     |
+| T12 | Extract Entity types + Workflows + Automations strings (P2C)                                               | 2     | done   | T10     |
 | T13 | Extract Users + Teams + On-call + Schedule rules strings (P2D)                                             | 2     | todo   | T10     |
 | T14 | Extract API keys + Plugins + Logs + Reporting strings (P2E)                                                | 2     | todo   | T10     |
 | T15 | Extract Platform admin incl. `format.ts` relative-time strings (P2F)                                       | 2     | todo   | T10     |

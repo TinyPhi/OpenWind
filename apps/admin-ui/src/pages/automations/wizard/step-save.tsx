@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import type { WizardData, ConditionNode } from "./types.js";
 
 type Props = {
@@ -14,23 +15,29 @@ export function StepSave({
   saving,
   error,
 }: Props): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <p
         style={{ color: "var(--text-secondary)", fontSize: "13px", margin: 0 }}
       >
-        Give this rule a name, set its priority, and choose whether it starts
-        enabled.
+        {t("automations.saveHelp", {
+          defaultValue:
+            "Give this rule a name, set its priority, and choose whether it starts enabled.",
+        })}
       </p>
 
       <div className="form-group">
         <label className="form-label" htmlFor="rule-name">
-          Rule name <span style={{ color: "var(--danger)" }}>*</span>
+          {t("automations.ruleNameLabel", { defaultValue: "Rule name" })}{" "}
+          <span style={{ color: "var(--danger)" }}>*</span>
         </label>
         <input
           id="rule-name"
           className="form-input"
-          placeholder="e.g. Notify assignee on SLA breach"
+          placeholder={t("automations.ruleNamePlaceholder", {
+            defaultValue: "e.g. Notify assignee on SLA breach",
+          })}
           value={data.name}
           onChange={(e) => onChange({ name: e.target.value })}
           disabled={saving}
@@ -40,7 +47,7 @@ export function StepSave({
 
       <div className="form-group">
         <label className="form-label" htmlFor="rule-priority">
-          Priority
+          {t("automations.priority", { defaultValue: "Priority" })}
         </label>
         <input
           id="rule-priority"
@@ -64,7 +71,10 @@ export function StepSave({
             marginTop: "4px",
           }}
         >
-          Lower numbers run first when multiple rules fire on the same event.
+          {t("automations.priorityHelp", {
+            defaultValue:
+              "Lower numbers run first when multiple rules fire on the same event.",
+          })}
         </p>
       </div>
 
@@ -107,12 +117,18 @@ export function StepSave({
           />
         </span>
         <span style={{ fontWeight: 600 }}>
-          {data.isEnabled ? "Enabled" : "Disabled"}
+          {data.isEnabled
+            ? t("automations.enabled", { defaultValue: "Enabled" })
+            : t("automations.disabled", { defaultValue: "Disabled" })}
         </span>
         <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>
           {data.isEnabled
-            ? "Rule will fire immediately after saving."
-            : "Rule is saved but will not fire until enabled."}
+            ? t("automations.enabledHelp", {
+                defaultValue: "Rule will fire immediately after saving.",
+              })
+            : t("automations.disabledHelp", {
+                defaultValue: "Rule is saved but will not fire until enabled.",
+              })}
         </span>
       </label>
 
@@ -135,26 +151,48 @@ export function StepSave({
             color: "var(--text-primary)",
           }}
         >
-          Summary
+          {t("automations.summary", { defaultValue: "Summary" })}
         </p>
         <p style={{ margin: "0 0 4px" }}>
-          <strong>Trigger:</strong>{" "}
+          <strong>
+            {t("automations.summaryTrigger", { defaultValue: "Trigger:" })}
+          </strong>{" "}
           {data.triggerType || (
-            <em style={{ color: "var(--danger)" }}>not set</em>
+            <em style={{ color: "var(--danger)" }}>
+              {t("automations.notSet", { defaultValue: "not set" })}
+            </em>
           )}
         </p>
         <p style={{ margin: "0 0 4px" }}>
-          <strong>Conditions:</strong>{" "}
+          <strong>
+            {t("automations.summaryConditions", {
+              defaultValue: "Conditions:",
+            })}
+          </strong>{" "}
           {data.conditions
-            ? `${countLeaves(data.conditions)} condition(s)`
-            : "none (always fires)"}
+            ? t("automations.conditionsCount", {
+                count: countLeaves(data.conditions),
+                defaultValue: `${countLeaves(data.conditions)} condition(s)`,
+              })
+            : t("automations.noneAlwaysFires", {
+                defaultValue: "none (always fires)",
+              })}
         </p>
         <p style={{ margin: 0 }}>
-          <strong>Actions:</strong>{" "}
+          <strong>
+            {t("automations.summaryActions", { defaultValue: "Actions:" })}
+          </strong>{" "}
           {data.actions.length === 0 ? (
-            <em style={{ color: "var(--danger)" }}>at least 1 required</em>
+            <em style={{ color: "var(--danger)" }}>
+              {t("automations.atLeastOneRequired", {
+                defaultValue: "at least 1 required",
+              })}
+            </em>
           ) : (
-            `${data.actions.length} action(s)`
+            t("automations.actionsCount", {
+              count: data.actions.length,
+              defaultValue: `${data.actions.length} action(s)`,
+            })
           )}
         </p>
       </div>

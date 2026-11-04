@@ -35,6 +35,16 @@ export default defineConfig(({ mode }) => {
       target: "es2022",
       // Warning only (raw kB); the gate is the gzip budget in scripts/check-entry-size.mjs, run by `build`.
       chunkSizeWarningLimit: 680,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            // Vite/Rollup normalises module IDs to forward slashes across all platforms
+            if (id.includes("/locales/")) {
+              return "locales";
+            }
+          },
+        },
+      },
     },
     optimizeDeps: { esbuildOptions: { target: "es2022" } },
     server: {

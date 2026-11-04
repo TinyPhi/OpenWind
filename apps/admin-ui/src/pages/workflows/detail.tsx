@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, {
   useCallback,
   useEffect,
@@ -179,13 +180,29 @@ const EMPTY_FIELD: AddFieldForm = {
 };
 
 const FIELD_TYPES = [
-  { value: "text", label: "Text" },
-  { value: "longtext", label: "Long Text" },
-  { value: "number", label: "Number" },
-  { value: "currency", label: "Currency" },
-  { value: "date", label: "Date" },
-  { value: "boolean", label: "Boolean" },
-  { value: "enum", label: "Enum (select)" },
+  { value: "text", label: "Text", labelKey: "entityTypes.fieldTypeText" },
+  {
+    value: "longtext",
+    label: "Long Text",
+    labelKey: "entityTypes.fieldTypeLongText",
+  },
+  { value: "number", label: "Number", labelKey: "entityTypes.fieldTypeNumber" },
+  {
+    value: "currency",
+    label: "Currency",
+    labelKey: "entityTypes.fieldTypeCurrency",
+  },
+  { value: "date", label: "Date", labelKey: "entityTypes.fieldTypeDate" },
+  {
+    value: "boolean",
+    label: "Boolean",
+    labelKey: "entityTypes.fieldTypeBoolean",
+  },
+  {
+    value: "enum",
+    label: "Enum (select)",
+    labelKey: "entityTypes.fieldTypeEnum",
+  },
 ];
 
 type AddStateForm = {
@@ -274,6 +291,7 @@ function SortableFieldRow({
   children: React.ReactNode;
   dragDisabled: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const {
     attributes,
     listeners,
@@ -304,7 +322,7 @@ function SortableFieldRow({
               color: "var(--text-tertiary)",
               touchAction: "none",
             }}
-            title="Drag to reorder"
+            title={t("workflows.dragToReorder")}
           >
             <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
               <circle cx="3" cy="2.5" r="1.2" fill="currentColor" />
@@ -336,6 +354,7 @@ function StateEditPopover({
   onSave: () => void;
   onClose: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     label: state.label,
     color: state.color ?? "#6366f1",
@@ -374,7 +393,9 @@ function StateEditPopover({
       );
       onSave();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(
+        err instanceof Error ? err.message : t("workflows.failedToSave"),
+      );
     } finally {
       setSaving(false);
     }
@@ -405,7 +426,8 @@ function StateEditPopover({
         }}
       >
         <span style={{ fontWeight: 600, fontSize: "13px" }}>
-          Edit: <code style={{ fontSize: "11px" }}>{state.name}</code>
+          {t("workflows.edit")}:{" "}
+          <code style={{ fontSize: "11px" }}>{state.name}</code>
         </span>
         <button
           onClick={onClose}
@@ -424,7 +446,7 @@ function StateEditPopover({
       </div>
 
       <div className="form-group" style={{ marginBottom: "10px" }}>
-        <label className="form-label">Label</label>
+        <label className="form-label">{t("workflows.label")}</label>
         <input
           className="form-input"
           value={form.label}
@@ -434,7 +456,7 @@ function StateEditPopover({
       </div>
 
       <div className="form-group" style={{ marginBottom: "10px" }}>
-        <label className="form-label">Color</label>
+        <label className="form-label">{t("workflows.color")}</label>
         <div style={{ display: "flex", gap: "8px" }}>
           <input
             type="color"
@@ -458,12 +480,14 @@ function StateEditPopover({
       </div>
 
       <div className="form-group" style={{ marginBottom: "10px" }}>
-        <label className="form-label">Deadline reminder (hours)</label>
+        <label className="form-label">
+          {t("workflows.deadlineReminderHours")}
+        </label>
         <input
           type="number"
           className="form-input"
           min={1}
-          placeholder="e.g. 24"
+          placeholder={t("workflows.slaHoursPlaceholder")}
           value={form.slaHours}
           onChange={(e) => setForm((f) => ({ ...f, slaHours: e.target.value }))}
         />
@@ -487,10 +511,10 @@ function StateEditPopover({
           }
         />
         <span>
-          This is a final step
+          {t("workflows.isFinalStep")}
           <br />
           <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
-            Tickets won&apos;t move further once they reach this step
+            {t("workflows.isFinalStepHelp")}
           </span>
         </span>
       </label>
@@ -540,6 +564,7 @@ function SortableStateNode({
   onEdit: () => void;
   setRef: (el: HTMLDivElement | null) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const {
     attributes,
     listeners,
@@ -594,7 +619,7 @@ function SortableStateNode({
             e.stopPropagation();
             onEdit();
           }}
-          title="Click to edit step"
+          title={t("workflows.clickToEditStep")}
         >
           <span
             style={{
@@ -660,7 +685,7 @@ function SortableStateNode({
                 marginTop: "2px",
               }}
             >
-              Deadline: {state.slaHours}h
+              {t("workflows.deadline")}: {state.slaHours}h
             </div>
           )}
         </div>
@@ -1051,6 +1076,7 @@ function AssignedUserChip({
   savingAssign: boolean;
   onRemove: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   // `displayName`/`userId` are expected to be strings, but user data can be
   // malformed upstream (missing profile fields) — coerce so a bad row can't
   // blank the whole page.
@@ -1117,7 +1143,7 @@ function AssignedUserChip({
           flexShrink: 0,
         }}
       >
-        {isCreator ? "Creator" : "Admin"}
+        {isCreator ? t("workflows.roleCreator") : t("workflows.roleAdmin")}
       </span>
       {canRemove && (
         <button
@@ -1125,7 +1151,9 @@ function AssignedUserChip({
           disabled={savingAssign}
           onClick={onRemove}
           title={
-            isCreator ? "Remove creator (global admin only)" : "Remove admin"
+            isCreator
+              ? t("workflows.removeCreatorGlobalAdminOnly")
+              : t("workflows.removeAdmin")
           }
           className="workflow-pill-remove-btn"
           style={{
@@ -1158,6 +1186,7 @@ function AssignedUserChip({
 }
 
 export function WorkflowDetail(): React.ReactElement {
+  const { t } = useTranslation();
   const { workflowSlug } = useParams<{ workflowSlug: string }>();
   const navigate = useNavigate();
   useEntityTypes();
@@ -1437,8 +1466,8 @@ export function WorkflowDetail(): React.ReactElement {
   useEffect(() => {
     if (!workflowName) return;
     document.title = canvasDirty
-      ? `● ${workflowName} — Workflow`
-      : `${workflowName} — Workflow`;
+      ? `● ${workflowName} — ${t("workflows.title")}`
+      : `${workflowName} — ${t("workflows.title")}`;
     return () => {
       document.title = "OpenWind";
     };
@@ -1570,7 +1599,7 @@ export function WorkflowDetail(): React.ReactElement {
     } catch (err) {
       setAllowStateOverride(!checked);
       setOverrideToggleError(
-        err instanceof Error ? err.message : "Failed to save the setting",
+        err instanceof Error ? err.message : t("workflows.failedToSaveSetting"),
       );
     } finally {
       setSavingOverrideToggle(false);
@@ -1675,7 +1704,9 @@ export function WorkflowDetail(): React.ReactElement {
       void refetch();
     } catch (err) {
       setInlineError(
-        err instanceof Error ? err.message : "Failed to set starting step",
+        err instanceof Error
+          ? err.message
+          : t("workflows.failedToSetStartingStep"),
       );
     } finally {
       setSettingInitialStateId(null);
@@ -1720,7 +1751,7 @@ export function WorkflowDetail(): React.ReactElement {
       fetchFields(workflow.entityTypeId);
     } catch (err) {
       setFieldError(
-        err instanceof Error ? err.message : "Failed to add detail",
+        err instanceof Error ? err.message : t("workflows.failedToAddDetail"),
       );
     } finally {
       setSavingField(false);
@@ -1755,7 +1786,9 @@ export function WorkflowDetail(): React.ReactElement {
     } catch (err) {
       setFields(snapshot);
       setInlineError(
-        err instanceof Error ? err.message : "Failed to reorder details",
+        err instanceof Error
+          ? err.message
+          : t("workflows.failedToReorderDetail"),
       );
     }
   }
@@ -1771,7 +1804,9 @@ export function WorkflowDetail(): React.ReactElement {
       fetchFields(workflow.entityTypeId);
     } catch (err) {
       setInlineError(
-        err instanceof Error ? err.message : "Failed to delete detail",
+        err instanceof Error
+          ? err.message
+          : t("workflows.failedToDeleteDetail"),
       );
     } finally {
       setDeletingFieldId(null);
@@ -1799,7 +1834,7 @@ export function WorkflowDetail(): React.ReactElement {
       fetchFields(workflow.entityTypeId);
     } catch (err) {
       setFieldError(
-        err instanceof Error ? err.message : "Failed to edit detail",
+        err instanceof Error ? err.message : t("workflows.failedToEditDetail"),
       );
     } finally {
       setSavingField(false);
@@ -1827,7 +1862,9 @@ export function WorkflowDetail(): React.ReactElement {
       setStateForm(EMPTY_STATE);
       void refetch();
     } catch (err) {
-      setStateError(err instanceof Error ? err.message : "Failed to add step");
+      setStateError(
+        err instanceof Error ? err.message : t("workflows.failedToAddStep"),
+      );
     } finally {
       setSavingState(false);
     }
@@ -1843,7 +1880,7 @@ export function WorkflowDetail(): React.ReactElement {
       void refetch();
     } catch (err) {
       setInlineError(
-        err instanceof Error ? err.message : "Failed to delete step",
+        err instanceof Error ? err.message : t("workflows.failedToDeleteStep"),
       );
     } finally {
       setDeletingStateId(null);
@@ -1874,7 +1911,9 @@ export function WorkflowDetail(): React.ReactElement {
       setStateForm(EMPTY_STATE);
       void refetch();
     } catch (err) {
-      setStateError(err instanceof Error ? err.message : "Failed to edit step");
+      setStateError(
+        err instanceof Error ? err.message : t("workflows.failedToEditStep"),
+      );
     } finally {
       setSavingState(false);
     }
@@ -1904,7 +1943,7 @@ export function WorkflowDetail(): React.ReactElement {
       void refetch();
     } catch (err) {
       setTransError(
-        err instanceof Error ? err.message : "Failed to add action",
+        err instanceof Error ? err.message : t("workflows.failedToAddAction"),
       );
     } finally {
       setSavingTrans(false);
@@ -1921,7 +1960,9 @@ export function WorkflowDetail(): React.ReactElement {
       void refetch();
     } catch (err) {
       setInlineError(
-        err instanceof Error ? err.message : "Failed to delete action",
+        err instanceof Error
+          ? err.message
+          : t("workflows.failedToDeleteAction"),
       );
     } finally {
       setDeletingTransId(null);
@@ -1950,7 +1991,7 @@ export function WorkflowDetail(): React.ReactElement {
       void refetch();
     } catch (err) {
       setTransError(
-        err instanceof Error ? err.message : "Failed to edit action",
+        err instanceof Error ? err.message : t("workflows.failedToEditAction"),
       );
     } finally {
       setSavingTrans(false);
@@ -1966,7 +2007,9 @@ export function WorkflowDetail(): React.ReactElement {
       void navigate("/workflows");
     } catch (err) {
       setDeleteWorkflowError(
-        err instanceof Error ? err.message : "Failed to delete workflow",
+        err instanceof Error
+          ? err.message
+          : t("workflows.failedToDeleteWorkflow"),
       );
       setDeletingWorkflow(false);
     }
@@ -1977,13 +2020,13 @@ export function WorkflowDetail(): React.ReactElement {
   if (slugNotFound || (!isLoading && !workflow)) {
     return (
       <div className="empty-state">
-        <h4>Workflow not found</h4>
+        <h4>{t("workflows.notFound")}</h4>
         <Link
           to="/workflows"
           className="back-link"
           style={{ marginTop: "12px", display: "inline-block" }}
         >
-          ← Back to Workflows
+          {t("workflows.backToWorkflows")}
         </Link>
       </div>
     );
@@ -1993,7 +2036,7 @@ export function WorkflowDetail(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading workflow…</span>
+        <span className="loader-text">{t("workflows.loadingWorkflow")}</span>
       </div>
     );
   }
@@ -2062,7 +2105,7 @@ export function WorkflowDetail(): React.ReactElement {
               />
             </svg>
           </div>
-          <h3 style={{ marginBottom: "8px" }}>No access to this workflow</h3>
+          <h3 style={{ marginBottom: "8px" }}>{t("workflows.noAccess")}</h3>
           <p
             style={{
               fontSize: "13px",
@@ -2071,20 +2114,12 @@ export function WorkflowDetail(): React.ReactElement {
               marginBottom: "20px",
             }}
           >
-            {creatorName ? (
-              <>
-                You're not an admin of this workflow. Contact{" "}
-                <strong style={{ color: "var(--text-primary)" }}>
-                  {creatorName}
-                </strong>
-                , its creator, to request access.
-              </>
-            ) : (
-              "You're not an admin of this workflow. Contact a workflow admin to request access."
-            )}
+            {creatorName
+              ? t("workflows.noAccessContactCreator", { name: creatorName })
+              : t("workflows.noAccessContactAdmin")}
           </p>
           <Button asChild variant="secondary">
-            <Link to="/workflows">← Back to Workflows</Link>
+            <Link to="/workflows">{t("workflows.backToWorkflows")}</Link>
           </Button>
         </div>
       </div>
@@ -2104,17 +2139,21 @@ export function WorkflowDetail(): React.ReactElement {
   const slaStates = workflow.states.filter((s) => s.slaHours !== null).length;
 
   const TABS = [
-    { id: "settings" as const, label: "Settings" },
-    { id: "canvas" as const, label: "Canvas" },
-    { id: "states" as const, label: "Steps", count: workflow.states.length },
+    { id: "settings" as const, label: t("workflows.settings") },
+    { id: "canvas" as const, label: t("workflows.canvas") },
+    {
+      id: "states" as const,
+      label: t("workflows.steps"),
+      count: workflow.states.length,
+    },
     {
       id: "transitions" as const,
-      label: "Actions",
+      label: t("workflows.actions"),
       count: workflow.transitions.length,
     },
     {
       id: "fields" as const,
-      label: "Details to Collect",
+      label: t("workflows.detailsToCollect"),
       count: fieldsLoading ? undefined : fields.length,
     },
   ] as const;
@@ -2140,7 +2179,7 @@ export function WorkflowDetail(): React.ReactElement {
             fontWeight: 600,
           }}
         >
-          Workflows
+          {t("workflows.title")}
         </Link>
         <span>/</span>
         <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
@@ -2249,7 +2288,9 @@ export function WorkflowDetail(): React.ReactElement {
                         : "var(--text-muted)",
                     }}
                   >
-                    {workflow.isActive ? "Active" : "Inactive"}
+                    {workflow.isActive
+                      ? t("workflows.active")
+                      : t("workflows.inactive")}
                   </span>
                 </span>
                 <span
@@ -2263,7 +2304,8 @@ export function WorkflowDetail(): React.ReactElement {
                 <span
                   style={{ fontSize: "12px", color: "var(--text-secondary)" }}
                 >
-                  Created {new Date(workflow.createdAt).toLocaleDateString()}
+                  {t("workflows.created")}{" "}
+                  {new Date(workflow.createdAt).toLocaleDateString()}
                 </span>
                 <span
                   style={{
@@ -2276,7 +2318,7 @@ export function WorkflowDetail(): React.ReactElement {
                 <span
                   style={{ fontSize: "12px", color: "var(--text-secondary)" }}
                 >
-                  Starting step:{" "}
+                  {t("workflows.startingStepLabel")}:{" "}
                   <strong style={{ color: "var(--text-primary)" }}>
                     {workflow.initialState}
                   </strong>
@@ -2319,7 +2361,7 @@ export function WorkflowDetail(): React.ReactElement {
                 <polyline points="15 3 21 3 21 9" />
                 <line x1="10" y1="14" x2="21" y2="3" />
               </svg>
-              View Records
+              {t("workflows.viewRecords")}
             </Button>
           </div>
         </div>
@@ -2335,22 +2377,22 @@ export function WorkflowDetail(): React.ReactElement {
           }}
         >
           <KpiChip
-            label="Steps"
+            label={t("workflows.steps")}
             value={workflow.states.length}
             accent="var(--accent-primary)"
           />
           <KpiChip
-            label="Actions"
+            label={t("workflows.actions")}
             value={workflow.transitions.length}
             accent="hsl(185,80%,40%)"
           />
           <KpiChip
-            label="Details to Collect"
+            label={t("workflows.detailsToCollect")}
             value={fieldsLoading ? "…" : fields.length}
             accent="hsl(265,84%,60%)"
           />
           <KpiChip
-            label="Steps with Deadlines"
+            label={t("workflows.stepsWithDeadlines")}
             value={slaStates}
             accent="hsl(35,90%,50%)"
           />
@@ -2481,10 +2523,9 @@ export function WorkflowDetail(): React.ReactElement {
                   fontWeight: 500,
                 }}
               >
-                Canvas view is disabled for workflows with more than 20 steps or
-                40 actions. Using pipeline view.
+                {t("workflows.canvasDisabledWarning")}
               </div>
-              <SectionHeader label="Step Pipeline" />
+              <SectionHeader label={t("workflows.stepPipeline")} />
               <StateFlowDiagram
                 states={workflow.states}
                 transitions={workflow.transitions}
@@ -2513,8 +2554,8 @@ export function WorkflowDetail(): React.ReactElement {
                   }}
                 >
                   {canvasView === "canvas"
-                    ? "Workflow Canvas"
-                    : "Step Pipeline"}
+                    ? t("workflows.workflowCanvas")
+                    : t("workflows.stepPipeline")}
                 </span>
                 <div
                   style={{
@@ -2546,7 +2587,9 @@ export function WorkflowDetail(): React.ReactElement {
                         transition: "background 0.15s",
                       }}
                     >
-                      {v === "canvas" ? "Canvas" : "Pipeline"}
+                      {v === "canvas"
+                        ? t("workflows.canvas")
+                        : t("workflows.pipeline")}
                     </button>
                   ))}
                 </div>
@@ -2587,7 +2630,7 @@ export function WorkflowDetail(): React.ReactElement {
           }}
         >
           <SectionHeader
-            label="Steps"
+            label={t("workflows.steps")}
             count={workflow.states.length}
             action={
               <Button
@@ -2595,17 +2638,21 @@ export function WorkflowDetail(): React.ReactElement {
                 size="sm"
                 onClick={() => setShowAddState(true)}
               >
-                + Add Step
+                + {t("workflows.addStep")}
               </Button>
             }
           />
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Step</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="wfd-table-hide-xs">Deadline</TableHead>
-                <TableHead className="wfd-table-hide-xs">Order</TableHead>
+                <TableHead>{t("workflows.step")}</TableHead>
+                <TableHead>{t("workflows.type")}</TableHead>
+                <TableHead className="wfd-table-hide-xs">
+                  {t("workflows.deadline")}
+                </TableHead>
+                <TableHead className="wfd-table-hide-xs">
+                  {t("workflows.order")}
+                </TableHead>
                 <TableHead style={{ width: "80px" }}></TableHead>
               </TableRow>
             </TableHeader>
@@ -2636,11 +2683,17 @@ export function WorkflowDetail(): React.ReactElement {
                   </TableCell>
                   <TableCell>
                     {state.isTerminal ? (
-                      <span className="badge badge-muted">Final</span>
+                      <span className="badge badge-muted">
+                        {t("workflows.final")}
+                      </span>
                     ) : state.name === workflow.initialState ? (
-                      <span className="badge badge-primary">Starting Step</span>
+                      <span className="badge badge-primary">
+                        {t("workflows.startingStep")}
+                      </span>
                     ) : (
-                      <span className="badge badge-success">Active</span>
+                      <span className="badge badge-success">
+                        {t("workflows.active")}
+                      </span>
                     )}
                   </TableCell>
                   <TableCell
@@ -2690,7 +2743,7 @@ export function WorkflowDetail(): React.ReactElement {
                           });
                           setStateError(null);
                         }}
-                        title="Edit step"
+                        title={t("workflows.editStep")}
                       >
                         <svg
                           width="13"
@@ -2711,7 +2764,7 @@ export function WorkflowDetail(): React.ReactElement {
                           <IconButton
                             disabled={settingInitialStateId === state.id}
                             onClick={() => void handleSetInitialState(state)}
-                            title="Set as starting step"
+                            title={t("workflows.setAsStartingStep")}
                           >
                             {settingInitialStateId === state.id ? (
                               <span style={{ fontSize: "11px" }}>…</span>
@@ -2737,14 +2790,16 @@ export function WorkflowDetail(): React.ReactElement {
                           disabled={deletingStateId === state.id}
                           onClick={() =>
                             setConfirmDelete({
-                              message: `Delete step "${state.label}"?`,
+                              message: t("workflows.confirmDeleteStep", {
+                                name: state.label,
+                              }),
                               onConfirm: () => {
                                 setConfirmDelete(null);
                                 void handleDeleteState(state.id);
                               },
                             })
                           }
-                          title="Delete step"
+                          title={t("workflows.deleteStep")}
                         >
                           {deletingStateId === state.id ? (
                             <span style={{ fontSize: "11px" }}>…</span>
@@ -2791,7 +2846,7 @@ export function WorkflowDetail(): React.ReactElement {
           }}
         >
           <SectionHeader
-            label="Actions"
+            label={t("workflows.actions")}
             count={workflow.transitions.length}
             action={
               <Button
@@ -2799,7 +2854,7 @@ export function WorkflowDetail(): React.ReactElement {
                 size="sm"
                 onClick={() => setShowAddTransition(true)}
               >
-                + Add Action
+                + {t("workflows.addAction")}
               </Button>
             }
           />
@@ -2808,21 +2863,22 @@ export function WorkflowDetail(): React.ReactElement {
               className="empty-state-inline"
               style={{ padding: "28px", fontSize: "13px" }}
             >
-              No actions yet. Add actions to define how tickets move between
-              steps.
+              {t("workflows.noActionsDesc")}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead style={{ width: "40px" }}>#</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead className="wfd-table-hide-xs">Label</TableHead>
+                  <TableHead>{t("workflows.route")}</TableHead>
                   <TableHead className="wfd-table-hide-xs">
-                    Who Can Do This
+                    {t("workflows.label")}
                   </TableHead>
                   <TableHead className="wfd-table-hide-xs">
-                    Requirements
+                    {t("workflows.whoCanDoThis")}
+                  </TableHead>
+                  <TableHead className="wfd-table-hide-xs">
+                    {t("workflows.requirements")}
                   </TableHead>
                   <TableHead style={{ width: "80px" }}></TableHead>
                 </TableRow>
@@ -2830,8 +2886,8 @@ export function WorkflowDetail(): React.ReactElement {
               <TableBody>
                 {/* Already ORDER BY sort_order server-side (workflow-crud.ts) — no
                     need to re-sort on every render. */}
-                {workflow.transitions.map((t, i) => (
-                  <TableRow key={t.id}>
+                {workflow.transitions.map((trans, i) => (
+                  <TableRow key={trans.id}>
                     <TableCell
                       className="text-muted-sm"
                       style={{ fontWeight: 600 }}
@@ -2851,7 +2907,7 @@ export function WorkflowDetail(): React.ReactElement {
                           className="code-inline"
                           style={{ fontSize: "11px" }}
                         >
-                          {t.fromState}
+                          {trans.fromState}
                         </code>
                         <span
                           style={{
@@ -2866,7 +2922,7 @@ export function WorkflowDetail(): React.ReactElement {
                           className="code-inline"
                           style={{ fontSize: "11px" }}
                         >
-                          {t.toState}
+                          {trans.toState}
                         </code>
                       </div>
                     </TableCell>
@@ -2874,11 +2930,13 @@ export function WorkflowDetail(): React.ReactElement {
                       className="wfd-table-hide-xs"
                       style={{ fontWeight: 500, fontSize: "13px" }}
                     >
-                      {t.label || <span className="text-muted-sm">—</span>}
+                      {trans.label || <span className="text-muted-sm">—</span>}
                     </TableCell>
                     <TableCell className="wfd-table-hide-xs">
-                      {t.allowedRoles.length === 0 ? (
-                        <span className="text-muted-sm">Any</span>
+                      {trans.allowedRoles.length === 0 ? (
+                        <span className="text-muted-sm">
+                          {t("workflows.anyRole")}
+                        </span>
                       ) : (
                         <div
                           style={{
@@ -2887,7 +2945,7 @@ export function WorkflowDetail(): React.ReactElement {
                             flexWrap: "wrap",
                           }}
                         >
-                          {t.allowedRoles.map((r) => (
+                          {trans.allowedRoles.map((r) => (
                             <span key={r} className="badge badge-primary">
                               {r}
                             </span>
@@ -2896,7 +2954,8 @@ export function WorkflowDetail(): React.ReactElement {
                       )}
                     </TableCell>
                     <TableCell className="wfd-table-hide-xs">
-                      {!t.requiresComment && t.requiresFields.length === 0 ? (
+                      {!trans.requiresComment &&
+                      trans.requiresFields.length === 0 ? (
                         <span className="text-muted-sm">—</span>
                       ) : (
                         <div
@@ -2906,13 +2965,20 @@ export function WorkflowDetail(): React.ReactElement {
                             flexWrap: "wrap",
                           }}
                         >
-                          {t.requiresComment && (
-                            <span className="badge badge-warning">Comment</span>
-                          )}
-                          {t.requiresFields.length > 0 && (
+                          {trans.requiresComment && (
                             <span className="badge badge-warning">
-                              {t.requiresFields.length} detail
-                              {t.requiresFields.length > 1 ? "s" : ""}
+                              {t("workflows.comment")}
+                            </span>
+                          )}
+                          {trans.requiresFields.length > 0 && (
+                            <span className="badge badge-warning">
+                              {trans.requiresFields.length > 1
+                                ? t("workflows.detailsCount", {
+                                    count: trans.requiresFields.length,
+                                  })
+                                : t("workflows.detailCount", {
+                                    count: trans.requiresFields.length,
+                                  })}
                             </span>
                           )}
                         </div>
@@ -2931,17 +2997,17 @@ export function WorkflowDetail(): React.ReactElement {
                         <IconButton
                           variant="edit"
                           onClick={() => {
-                            setEditingTransition(t);
+                            setEditingTransition(trans);
                             setTransForm({
-                              fromState: t.fromState,
-                              toState: t.toState,
-                              label: t.label,
-                              allowedRoles: [...t.allowedRoles],
-                              requiresComment: t.requiresComment,
+                              fromState: trans.fromState,
+                              toState: trans.toState,
+                              label: trans.label,
+                              allowedRoles: [...trans.allowedRoles],
+                              requiresComment: trans.requiresComment,
                             });
                             setTransError(null);
                           }}
-                          title="Edit action"
+                          title={t("workflows.editAction")}
                         >
                           <svg
                             width="13"
@@ -2959,19 +3025,23 @@ export function WorkflowDetail(): React.ReactElement {
                         </IconButton>
                         <IconButton
                           variant="delete"
-                          disabled={deletingTransId === t.id}
+                          disabled={deletingTransId === trans.id}
                           onClick={() =>
                             setConfirmDelete({
-                              message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
+                              message: t("workflows.confirmDeleteAction", {
+                                name:
+                                  trans.label ||
+                                  `${trans.fromState} → ${trans.toState}`,
+                              }),
                               onConfirm: () => {
                                 setConfirmDelete(null);
-                                void handleDeleteTransition(t.id);
+                                void handleDeleteTransition(trans.id);
                               },
                             })
                           }
-                          title="Delete action"
+                          title={t("workflows.deleteAction")}
                         >
-                          {deletingTransId === t.id ? (
+                          {deletingTransId === trans.id ? (
                             <span style={{ fontSize: "11px" }}>…</span>
                           ) : (
                             <svg
@@ -3012,7 +3082,7 @@ export function WorkflowDetail(): React.ReactElement {
           }}
         >
           <SectionHeader
-            label="Details to Collect"
+            label={t("workflows.detailsToCollect")}
             count={fields.length}
             action={
               <Button
@@ -3020,7 +3090,7 @@ export function WorkflowDetail(): React.ReactElement {
                 size="sm"
                 onClick={() => setShowAddField(true)}
               >
-                + Add Detail
+                + {t("workflows.addDetail")}
               </Button>
             }
           />
@@ -3033,16 +3103,20 @@ export function WorkflowDetail(): React.ReactElement {
               className="empty-state-inline"
               style={{ padding: "28px", fontSize: "13px" }}
             >
-              No details yet. Add details to capture information on tickets.
+              {t("workflows.noDetailsDesc")}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead style={{ width: "28px" }}></TableHead>
-                  <TableHead>Detail</TableHead>
-                  <TableHead className="wfd-table-hide-xs">Type</TableHead>
-                  <TableHead className="wfd-table-hide-xs">Required</TableHead>
+                  <TableHead>{t("workflows.detail")}</TableHead>
+                  <TableHead className="wfd-table-hide-xs">
+                    {t("workflows.type")}
+                  </TableHead>
+                  <TableHead className="wfd-table-hide-xs">
+                    {t("workflows.required")}
+                  </TableHead>
                   <TableHead style={{ width: "80px" }}></TableHead>
                 </TableRow>
               </TableHeader>
@@ -3088,7 +3162,9 @@ export function WorkflowDetail(): React.ReactElement {
                           </TableCell>
                           <TableCell className="wfd-table-hide-xs">
                             {f.isRequired ? (
-                              <span className="badge badge-primary">Yes</span>
+                              <span className="badge badge-primary">
+                                {t("workflows.yes")}
+                              </span>
                             ) : (
                               <span className="text-muted-sm">—</span>
                             )}
@@ -3122,7 +3198,7 @@ export function WorkflowDetail(): React.ReactElement {
                                       });
                                       setFieldError(null);
                                     }}
-                                    title="Edit detail"
+                                    title={t("workflows.editDetail")}
                                   >
                                     <svg
                                       width="13"
@@ -3143,14 +3219,17 @@ export function WorkflowDetail(): React.ReactElement {
                                     disabled={deletingFieldId === f.id}
                                     onClick={() =>
                                       setConfirmDelete({
-                                        message: `Delete detail "${f.label}"?`,
+                                        message: t(
+                                          "workflows.confirmDeleteDetail",
+                                          { name: f.label },
+                                        ),
                                         onConfirm: () => {
                                           setConfirmDelete(null);
                                           void handleDeleteField(f.id);
                                         },
                                       })
                                     }
-                                    title="Delete detail"
+                                    title={t("workflows.deleteDetail")}
                                   >
                                     {deletingFieldId === f.id ? (
                                       <span style={{ fontSize: "11px" }}>
@@ -3207,7 +3286,7 @@ export function WorkflowDetail(): React.ReactElement {
             className="data-panel wfd-settings-panel"
             style={{ marginBottom: "20px" }}
           >
-            <SectionHeader label="Workflow Admins" />
+            <SectionHeader label={t("workflows.workflowAdmins")} />
             <p
               style={{
                 fontSize: "13px",
@@ -3216,10 +3295,9 @@ export function WorkflowDetail(): React.ReactElement {
                 lineHeight: 1.5,
               }}
             >
-              Admins have full access over this workflow — they can manage
-              steps, actions, and details to collect.
+              {t("workflows.workflowAdminsDesc")}
               {!isAdminListEditor &&
-                " Only the creator or a global admin can add or remove admins."}
+                " " + t("workflows.workflowAdminsRestricted")}
             </p>
 
             {/* Admin pills */}
@@ -3265,7 +3343,7 @@ export function WorkflowDetail(): React.ReactElement {
                   users={orgUsers}
                   value={assignedTo}
                   onChange={(uids) => void handleAssign(uids)}
-                  placeholder="Add workflow admins…"
+                  placeholder={t("workflows.addWorkflowAdminsPlaceholder")}
                   disabled={savingAssign}
                 />
                 {savingAssign && (
@@ -3276,7 +3354,7 @@ export function WorkflowDetail(): React.ReactElement {
                       marginTop: "8px",
                     }}
                   >
-                    Saving…
+                    {t("workflows.saving")}
                   </p>
                 )}
               </>
@@ -3297,7 +3375,7 @@ export function WorkflowDetail(): React.ReactElement {
               style={{ display: "flex", flexDirection: "column", gap: "20px" }}
             >
               <div className="data-panel wfd-settings-panel">
-                <SectionHeader label="Workflow Details" />
+                <SectionHeader label={t("workflows.workflowDetails")} />
                 <div
                   style={{
                     display: "flex",
@@ -3306,29 +3384,37 @@ export function WorkflowDetail(): React.ReactElement {
                   }}
                 >
                   {[
-                    { label: "Workflow ID", value: id ?? "" },
-                    { label: "Starting Step", value: workflow.initialState },
+                    { label: t("workflows.workflowId"), value: id ?? "" },
                     {
-                      label: "Final Steps",
+                      label: t("workflows.startingStep"),
+                      value: workflow.initialState,
+                    },
+                    {
+                      label: t("workflows.finalSteps"),
                       value:
                         workflow.states
                           .filter((s) => s.isTerminal)
                           .map((s) => s.label)
-                          .join(", ") || "None",
+                          .join(", ") || t("workflows.none"),
                     },
                     {
-                      label: "Steps with Deadlines",
+                      label: t("workflows.stepsWithDeadlines"),
                       value:
                         slaStates > 0
-                          ? `${slaStates} of ${workflow.states.length} steps`
-                          : "No deadlines set",
+                          ? t("workflows.stepsWithDeadlinesCount", {
+                              sla: slaStates,
+                              total: workflow.states.length,
+                            })
+                          : t("workflows.noDeadlinesSet"),
                     },
                     {
-                      label: "Status",
-                      value: workflow.isActive ? "Active" : "Inactive",
+                      label: t("workflows.status"),
+                      value: workflow.isActive
+                        ? t("workflows.active")
+                        : t("workflows.inactive"),
                     },
                     {
-                      label: "Created",
+                      label: t("workflows.created"),
                       value: new Date(workflow.createdAt).toLocaleDateString(
                         undefined,
                         { year: "numeric", month: "long", day: "numeric" },
@@ -3370,7 +3456,7 @@ export function WorkflowDetail(): React.ReactElement {
               {/* State color legend */}
               {workflow.states.length > 0 && (
                 <div className="data-panel wfd-settings-panel">
-                  <SectionHeader label="Step Colors" />
+                  <SectionHeader label={t("workflows.stepColors")} />
                   <div
                     style={{
                       display: "flex",
@@ -3426,7 +3512,7 @@ export function WorkflowDetail(): React.ReactElement {
                               letterSpacing: "0.4px",
                             }}
                           >
-                            start
+                            {t("workflows.start")}
                           </span>
                         )}
                         {s.isTerminal && (
@@ -3439,7 +3525,7 @@ export function WorkflowDetail(): React.ReactElement {
                               letterSpacing: "0.4px",
                             }}
                           >
-                            end
+                            {t("workflows.end")}
                           </span>
                         )}
                       </div>
@@ -3455,7 +3541,7 @@ export function WorkflowDetail(): React.ReactElement {
             >
               {/* Child ticket limits */}
               <div className="data-panel wfd-settings-panel">
-                <SectionHeader label="Sub-task Limits" />
+                <SectionHeader label={t("workflows.subTaskLimits")} />
                 <p
                   style={{
                     fontSize: "13px",
@@ -3464,8 +3550,7 @@ export function WorkflowDetail(): React.ReactElement {
                     lineHeight: 1.5,
                   }}
                 >
-                  Control how deeply tickets can be nested and how many
-                  sub-tasks a single ticket can have.
+                  {t("workflows.subTaskLimitsDesc")}
                 </p>
                 <div
                   style={{
@@ -3487,7 +3572,7 @@ export function WorkflowDetail(): React.ReactElement {
                         marginBottom: "5px",
                       }}
                     >
-                      Max nesting depth
+                      {t("workflows.maxNestingDepth")}
                     </label>
                     <input
                       type="number"
@@ -3506,7 +3591,7 @@ export function WorkflowDetail(): React.ReactElement {
                         marginTop: "4px",
                       }}
                     >
-                      How many levels deep sub-tasks can go (default: 1)
+                      {t("workflows.maxNestingDepthHelp")}
                     </p>
                   </div>
                   <div>
@@ -3521,7 +3606,7 @@ export function WorkflowDetail(): React.ReactElement {
                         marginBottom: "5px",
                       }}
                     >
-                      Max sub-tasks per ticket
+                      {t("workflows.maxSubTasksPerTicket")}
                     </label>
                     <input
                       type="number"
@@ -3540,7 +3625,7 @@ export function WorkflowDetail(): React.ReactElement {
                         marginTop: "4px",
                       }}
                     >
-                      Maximum number of direct sub-tasks (default: 10)
+                      {t("workflows.maxSubTasksPerTicketHelp")}
                     </p>
                   </div>
                 </div>
@@ -3550,13 +3635,15 @@ export function WorkflowDetail(): React.ReactElement {
                   onClick={() => void handleSaveChildSettings()}
                   style={{ minWidth: "110px" }}
                 >
-                  {savingChildSettings ? "Saving…" : "Save limits"}
+                  {savingChildSettings
+                    ? t("workflows.saving")
+                    : t("workflows.saveLimits")}
                 </Button>
               </div>
 
               {/* Third-party API mention auto-grant (ADR-012 Phase C, R5) */}
               <div className="data-panel wfd-settings-panel">
-                <SectionHeader label="Third-Party API Mentions" />
+                <SectionHeader label={t("workflows.mentionAccess")} />
                 <p
                   style={{
                     fontSize: "13px",
@@ -3565,9 +3652,7 @@ export function WorkflowDetail(): React.ReactElement {
                     lineHeight: 1.5,
                   }}
                 >
-                  When a comment posted via the third-party API @mentions
-                  someone who has access to this workflow but not the specific
-                  ticket, choose what happens.
+                  {t("workflows.mentionAccessDesc")}
                 </p>
                 <label className="form-checkbox">
                   <input
@@ -3578,18 +3663,14 @@ export function WorkflowDetail(): React.ReactElement {
                       void handleToggleAutoGrantOnMention(e.target.checked)
                     }
                   />
-                  <span>
-                    Automatically grant read-only access on mention (off by
-                    default — otherwise an access request is created for the
-                    ticket's creator, assignee, or a workflow admin to approve)
-                  </span>
+                  <span>{t("workflows.mentionAccessCheckbox")}</span>
                 </label>
               </div>
 
               {/* Admin state override (docs/specs/state-override.md D1) */}
               {isAdmin && (
                 <div className="data-panel wfd-settings-panel">
-                  <SectionHeader label="State Override" />
+                  <SectionHeader label={t("workflows.stateOverride")} />
                   <p
                     style={{
                       fontSize: "13px",
@@ -3598,10 +3679,7 @@ export function WorkflowDetail(): React.ReactElement {
                       lineHeight: 1.5,
                     }}
                   >
-                    Lets an admin move a record to any step with a written
-                    reason, for cases the transitions cannot fix. It skips the
-                    transition rules, is recorded in the history and the audit
-                    log, and is never open to the record's creator.
+                    {t("workflows.stateOverrideDesc")}
                   </p>
                   {overrideToggleError && (
                     <div
@@ -3620,17 +3698,14 @@ export function WorkflowDetail(): React.ReactElement {
                         void handleToggleStateOverride(e.target.checked)
                       }
                     />
-                    <span>
-                      Allow admins to override the state of records in this
-                      workflow (off by default)
-                    </span>
+                    <span>{t("workflows.stateOverrideCheckbox")}</span>
                   </label>
                 </div>
               )}
 
               {/* Activate / Deactivate */}
               <div className="data-panel wfd-settings-panel">
-                <SectionHeader label="Workflow Status" />
+                <SectionHeader label={t("workflows.workflowStatus")} />
                 <p
                   style={{
                     fontSize: "13px",
@@ -3640,8 +3715,8 @@ export function WorkflowDetail(): React.ReactElement {
                   }}
                 >
                   {workflow.isActive
-                    ? "This workflow is currently active. Deactivating it will prevent new records from being created."
-                    : "This workflow is inactive. Activate it to allow new records to be created."}
+                    ? t("workflows.statusActiveDesc")
+                    : t("workflows.statusInactiveDesc")}
                 </p>
                 <Button
                   variant={workflow.isActive ? "secondary" : "primary"}
@@ -3650,10 +3725,10 @@ export function WorkflowDetail(): React.ReactElement {
                   style={{ minWidth: "130px" }}
                 >
                   {togglingActive
-                    ? "Saving…"
+                    ? t("workflows.saving")
                     : workflow.isActive
-                      ? "Deactivate Workflow"
-                      : "Activate Workflow"}
+                      ? t("workflows.deactivateWorkflow")
+                      : t("workflows.activateWorkflow")}
                 </Button>
               </div>
 
@@ -3667,7 +3742,7 @@ export function WorkflowDetail(): React.ReactElement {
                     background: "hsla(0,84%,60%,.03)",
                   }}
                 >
-                  <SectionHeader label="Danger Zone" />
+                  <SectionHeader label={t("workflows.dangerZone")} />
                   <p
                     style={{
                       fontSize: "13px",
@@ -3676,15 +3751,14 @@ export function WorkflowDetail(): React.ReactElement {
                       lineHeight: 1.5,
                     }}
                   >
-                    Permanently delete this workflow and all its states and
-                    transitions. This cannot be undone.
+                    {t("workflows.dangerZoneDesc")}
                   </p>
                   <Button
                     variant="danger"
                     size="sm"
                     onClick={() => setShowDeleteWorkflow(true)}
                   >
-                    Delete Workflow
+                    {t("workflows.deleteWorkflow")}
                   </Button>
                 </div>
               )}
@@ -3709,10 +3783,14 @@ export function WorkflowDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Add Detail</h3>
+              <h3 className="modal-title">{t("workflows.addDetail")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("workflows.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -3729,10 +3807,12 @@ export function WorkflowDetail(): React.ReactElement {
               )}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label *</label>
+                  <label className="form-label">
+                    {t("workflows.labelRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. Customer Name"
+                    placeholder={t("workflows.fieldLabelPlaceholder")}
                     value={fieldForm.label}
                     onChange={(e) => {
                       const label = e.target.value;
@@ -3747,22 +3827,26 @@ export function WorkflowDetail(): React.ReactElement {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Detail ID *</label>
+                  <label className="form-label">
+                    {t("workflows.detailIdRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. customer_name"
+                    placeholder={t("workflows.detailIdPlaceholder")}
                     value={fieldForm.name}
                     onChange={(e) =>
                       setFieldForm((f) => ({ ...f, name: e.target.value }))
                     }
                     pattern="^[a-z_][a-z0-9_]*$"
-                    title="snake_case only"
+                    title={t("workflows.snakeCaseOnly")}
                     required
                   />
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Detail Type *</label>
+                <label className="form-label">
+                  {t("workflows.detailTypeRequired")}
+                </label>
                 <select
                   className="form-input"
                   value={fieldForm.fieldType}
@@ -3775,7 +3859,7 @@ export function WorkflowDetail(): React.ReactElement {
                 >
                   {FIELD_TYPES.map((ft) => (
                     <option key={ft.value} value={ft.value}>
-                      {ft.label}
+                      {t(ft.labelKey)}
                     </option>
                   ))}
                 </select>
@@ -3791,7 +3875,7 @@ export function WorkflowDetail(): React.ReactElement {
                     }))
                   }
                 />
-                <span>Required field</span>
+                <span>{t("workflows.requiredField")}</span>
               </label>
             </div>
             <div className="modal-footer">
@@ -3800,10 +3884,10 @@ export function WorkflowDetail(): React.ReactElement {
                 variant="secondary"
                 onClick={() => setShowAddField(false)}
               >
-                Cancel
+                {t("workflows.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={savingField}>
-                {savingField ? "Adding…" : "Add Detail"}
+                {savingField ? t("workflows.adding") : t("workflows.addDetail")}
               </Button>
             </div>
           </form>
@@ -3824,10 +3908,14 @@ export function WorkflowDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Add Step</h3>
+              <h3 className="modal-title">{t("workflows.addStep")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("workflows.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -3844,10 +3932,12 @@ export function WorkflowDetail(): React.ReactElement {
               )}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label *</label>
+                  <label className="form-label">
+                    {t("workflows.labelRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. In Progress"
+                    placeholder={t("workflows.stepLabelPlaceholder")}
                     value={stateForm.label}
                     onChange={(e) => {
                       const label = e.target.value;
@@ -3862,23 +3952,25 @@ export function WorkflowDetail(): React.ReactElement {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Step ID *</label>
+                  <label className="form-label">
+                    {t("workflows.stepIdRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. in_progress"
+                    placeholder={t("workflows.stepIdPlaceholder")}
                     value={stateForm.name}
                     onChange={(e) =>
                       setStateForm((f) => ({ ...f, name: e.target.value }))
                     }
                     pattern="^[a-z_][a-z0-9_]*$"
-                    title="snake_case only"
+                    title={t("workflows.snakeCaseOnly")}
                     required
                   />
                 </div>
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Color</label>
+                  <label className="form-label">{t("workflows.color")}</label>
                   <div
                     style={{
                       display: "flex",
@@ -3918,7 +4010,7 @@ export function WorkflowDetail(): React.ReactElement {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Order</label>
+                  <label className="form-label">{t("workflows.order")}</label>
                   <input
                     className="form-input"
                     type="number"
@@ -3934,12 +4026,14 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Deadline (hours, optional)</label>
+                <label className="form-label">
+                  {t("workflows.deadlineHoursOptional")}
+                </label>
                 <input
                   className="form-input"
                   type="number"
                   min={1}
-                  placeholder="e.g. 24"
+                  placeholder={t("workflows.slaHoursPlaceholder")}
                   value={stateForm.slaHours}
                   onChange={(e) =>
                     setStateForm((f) => ({
@@ -3961,10 +4055,10 @@ export function WorkflowDetail(): React.ReactElement {
                   }
                 />
                 <span>
-                  This is a final step
+                  {t("workflows.isFinalStep")}
                   <br />
                   <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
-                    Tickets won&apos;t move further once they reach this step
+                    {t("workflows.isFinalStepHelp")}
                   </span>
                 </span>
               </label>
@@ -3975,10 +4069,10 @@ export function WorkflowDetail(): React.ReactElement {
                 variant="secondary"
                 onClick={() => setShowAddState(false)}
               >
-                Cancel
+                {t("workflows.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={savingState}>
-                {savingState ? "Adding…" : "Add Step"}
+                {savingState ? t("workflows.adding") : t("workflows.addStep")}
               </Button>
             </div>
           </form>
@@ -3999,10 +4093,14 @@ export function WorkflowDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Add Action</h3>
+              <h3 className="modal-title">{t("workflows.addAction")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("workflows.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -4019,7 +4117,9 @@ export function WorkflowDetail(): React.ReactElement {
               )}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">From Step *</label>
+                  <label className="form-label">
+                    {t("workflows.fromStepRequired")}
+                  </label>
                   <select
                     className="form-input"
                     value={transForm.fromState}
@@ -4031,7 +4131,7 @@ export function WorkflowDetail(): React.ReactElement {
                     }
                     required
                   >
-                    <option value="">Select…</option>
+                    <option value="">{t("workflows.selectOption")}</option>
                     {stateNames.map((s) => (
                       <option key={s} value={s}>
                         {s}
@@ -4040,7 +4140,9 @@ export function WorkflowDetail(): React.ReactElement {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">To Step *</label>
+                  <label className="form-label">
+                    {t("workflows.toStepRequired")}
+                  </label>
                   <select
                     className="form-input"
                     value={transForm.toState}
@@ -4052,7 +4154,7 @@ export function WorkflowDetail(): React.ReactElement {
                     }
                     required
                   >
-                    <option value="">Select…</option>
+                    <option value="">{t("workflows.selectOption")}</option>
                     {stateNames.map((s) => (
                       <option key={s} value={s}>
                         {s}
@@ -4062,10 +4164,10 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Label</label>
+                <label className="form-label">{t("workflows.label")}</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Start Work"
+                  placeholder={t("workflows.actionLabelPlaceholder")}
                   value={transForm.label}
                   onChange={(e) =>
                     setTransForm((f) => ({ ...f, label: e.target.value }))
@@ -4075,11 +4177,11 @@ export function WorkflowDetail(): React.ReactElement {
               </div>
               <div className="form-group">
                 <label className="form-label">
-                  Who Can Do This (blank = anyone)
+                  {t("workflows.whoCanDoThisBlankAnyone")}
                 </label>
                 {availableRoles.length === 0 ? (
                   <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                    Loading roles…
+                    {t("workflows.loadingRoles")}
                   </p>
                 ) : (
                   <div
@@ -4134,7 +4236,7 @@ export function WorkflowDetail(): React.ReactElement {
                     }))
                   }
                 />
-                <span>Requires comment</span>
+                <span>{t("workflows.requiresComment")}</span>
               </label>
             </div>
             <div className="modal-footer">
@@ -4143,10 +4245,10 @@ export function WorkflowDetail(): React.ReactElement {
                 variant="secondary"
                 onClick={() => setShowAddTransition(false)}
               >
-                Cancel
+                {t("workflows.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={savingTrans}>
-                {savingTrans ? "Adding…" : "Add Action"}
+                {savingTrans ? t("workflows.adding") : t("workflows.addAction")}
               </Button>
             </div>
           </form>
@@ -4168,11 +4270,15 @@ export function WorkflowDetail(): React.ReactElement {
           <div className="modal-header">
             <DialogTitle asChild>
               <h3 className="modal-title">
-                Edit Detail — {editingField?.label}
+                {t("workflows.editDetailTitle", { name: editingField?.label })}
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("workflows.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -4189,10 +4295,12 @@ export function WorkflowDetail(): React.ReactElement {
               )}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label *</label>
+                  <label className="form-label">
+                    {t("workflows.labelRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. Customer Name"
+                    placeholder={t("workflows.fieldLabelPlaceholder")}
                     value={fieldForm.label}
                     onChange={(e) =>
                       setFieldForm((f) => ({ ...f, label: e.target.value }))
@@ -4203,7 +4311,7 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Detail ID (cannot be changed)
+                    {t("workflows.detailIdCannotBeChanged")}
                   </label>
                   <input
                     className="form-input"
@@ -4214,14 +4322,16 @@ export function WorkflowDetail(): React.ReactElement {
               </div>
               <div className="form-group">
                 <label className="form-label">
-                  Detail Type (cannot be changed)
+                  {t("workflows.detailTypeCannotBeChanged")}
                 </label>
                 <input
                   className="form-input"
-                  value={
-                    FIELD_TYPES.find((ft) => ft.value === fieldForm.fieldType)
-                      ?.label ?? fieldForm.fieldType
-                  }
+                  value={(() => {
+                    const found = FIELD_TYPES.find(
+                      (ft) => ft.value === fieldForm.fieldType,
+                    );
+                    return found ? t(found.labelKey) : fieldForm.fieldType;
+                  })()}
                   disabled
                 />
               </div>
@@ -4236,7 +4346,7 @@ export function WorkflowDetail(): React.ReactElement {
                     }))
                   }
                 />
-                <span>Required field</span>
+                <span>{t("workflows.requiredField")}</span>
               </label>
             </div>
             <div className="modal-footer">
@@ -4245,10 +4355,12 @@ export function WorkflowDetail(): React.ReactElement {
                 variant="secondary"
                 onClick={() => setEditingField(null)}
               >
-                Cancel
+                {t("workflows.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={savingField}>
-                {savingField ? "Saving…" : "Save Changes"}
+                {savingField
+                  ? t("workflows.saving")
+                  : t("workflows.saveChanges")}
               </Button>
             </div>
           </form>
@@ -4269,10 +4381,16 @@ export function WorkflowDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Edit Step — {editingState?.label}</h3>
+              <h3 className="modal-title">
+                {t("workflows.editStepTitle", { name: editingState?.label })}
+              </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("workflows.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -4289,10 +4407,12 @@ export function WorkflowDetail(): React.ReactElement {
               )}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label *</label>
+                  <label className="form-label">
+                    {t("workflows.labelRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. In Progress"
+                    placeholder={t("workflows.stepLabelPlaceholder")}
                     value={stateForm.label}
                     onChange={(e) => {
                       const label = e.target.value;
@@ -4307,16 +4427,18 @@ export function WorkflowDetail(): React.ReactElement {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Step ID *</label>
+                  <label className="form-label">
+                    {t("workflows.stepIdRequired")}
+                  </label>
                   <input
                     className="form-input"
-                    placeholder="e.g. in_progress"
+                    placeholder={t("workflows.stepIdPlaceholder")}
                     value={stateForm.name}
                     onChange={(e) =>
                       setStateForm((f) => ({ ...f, name: e.target.value }))
                     }
                     pattern="^[a-z_][a-z0-9_]*$"
-                    title="snake_case only"
+                    title={t("workflows.snakeCaseOnly")}
                     required
                   />
                   <span
@@ -4325,14 +4447,13 @@ export function WorkflowDetail(): React.ReactElement {
                       color: "var(--text-secondary, #6b7280)",
                     }}
                   >
-                    Used to connect Actions to this step — changing it updates
-                    any Actions that already point here.
+                    {t("workflows.stepIdHelp")}
                   </span>
                 </div>
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Color</label>
+                  <label className="form-label">{t("workflows.color")}</label>
                   <div
                     style={{
                       display: "flex",
@@ -4372,7 +4493,7 @@ export function WorkflowDetail(): React.ReactElement {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Order</label>
+                  <label className="form-label">{t("workflows.order")}</label>
                   <input
                     className="form-input"
                     type="number"
@@ -4388,12 +4509,14 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Deadline (hours, optional)</label>
+                <label className="form-label">
+                  {t("workflows.deadlineHoursOptional")}
+                </label>
                 <input
                   className="form-input"
                   type="number"
                   min={1}
-                  placeholder="e.g. 24"
+                  placeholder={t("workflows.slaHoursPlaceholder")}
                   value={stateForm.slaHours}
                   onChange={(e) =>
                     setStateForm((f) => ({
@@ -4415,10 +4538,10 @@ export function WorkflowDetail(): React.ReactElement {
                   }
                 />
                 <span>
-                  This is a final step
+                  {t("workflows.isFinalStep")}
                   <br />
                   <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
-                    Tickets won&apos;t move further once they reach this step
+                    {t("workflows.isFinalStepHelp")}
                   </span>
                 </span>
               </label>
@@ -4429,10 +4552,12 @@ export function WorkflowDetail(): React.ReactElement {
                 variant="secondary"
                 onClick={() => setEditingState(null)}
               >
-                Cancel
+                {t("workflows.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={savingState}>
-                {savingState ? "Saving…" : "Save Changes"}
+                {savingState
+                  ? t("workflows.saving")
+                  : t("workflows.saveChanges")}
               </Button>
             </div>
           </form>
@@ -4453,10 +4578,14 @@ export function WorkflowDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Edit Action</h3>
+              <h3 className="modal-title">{t("workflows.editAction")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("workflows.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -4474,7 +4603,7 @@ export function WorkflowDetail(): React.ReactElement {
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">
-                    From Step (cannot be changed)
+                    {t("workflows.fromStepCannotBeChanged")}
                   </label>
                   <input
                     className="form-input"
@@ -4484,7 +4613,7 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    To Step (cannot be changed)
+                    {t("workflows.toStepCannotBeChanged")}
                   </label>
                   <input
                     className="form-input"
@@ -4494,10 +4623,10 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Label</label>
+                <label className="form-label">{t("workflows.label")}</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Start Work"
+                  placeholder={t("workflows.actionLabelPlaceholder")}
                   value={transForm.label}
                   onChange={(e) =>
                     setTransForm((f) => ({ ...f, label: e.target.value }))
@@ -4507,11 +4636,11 @@ export function WorkflowDetail(): React.ReactElement {
               </div>
               <div className="form-group">
                 <label className="form-label">
-                  Who Can Do This (blank = anyone)
+                  {t("workflows.whoCanDoThisBlankAnyone")}
                 </label>
                 {availableRoles.length === 0 ? (
                   <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                    Loading roles…
+                    {t("workflows.loadingRoles")}
                   </p>
                 ) : (
                   <div
@@ -4566,7 +4695,7 @@ export function WorkflowDetail(): React.ReactElement {
                     }))
                   }
                 />
-                <span>Requires comment</span>
+                <span>{t("workflows.requiresComment")}</span>
               </label>
             </div>
             <div className="modal-footer">
@@ -4575,10 +4704,12 @@ export function WorkflowDetail(): React.ReactElement {
                 variant="secondary"
                 onClick={() => setEditingTransition(null)}
               >
-                Cancel
+                {t("workflows.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={savingTrans}>
-                {savingTrans ? "Saving…" : "Save Changes"}
+                {savingTrans
+                  ? t("workflows.saving")
+                  : t("workflows.saveChanges")}
               </Button>
             </div>
           </form>
@@ -4601,16 +4732,12 @@ export function WorkflowDetail(): React.ReactElement {
       {/* Delete workflow */}
       <ConfirmDeleteDialog
         open={showDeleteWorkflow}
-        title="Delete workflow?"
-        message={
-          <>
-            You are about to permanently delete{" "}
-            <strong>"{workflow.name}"</strong>. This will also remove all its
-            steps and actions.
-          </>
-        }
+        title={t("workflows.deleteWorkflowTitle")}
+        message={t("workflows.deleteWorkflowConfirmMessage", {
+          name: workflow.name,
+        })}
         errorMessage={deleteWorkflowError}
-        confirmLabel="Delete Workflow"
+        confirmLabel={t("workflows.deleteWorkflow")}
         busy={deletingWorkflow}
         onConfirm={() => void handleDeleteWorkflow()}
         onCancel={() => setShowDeleteWorkflow(false)}
@@ -4641,7 +4768,7 @@ export function WorkflowDetail(): React.ReactElement {
               marginBottom: "8px",
             }}
           >
-            Unsaved canvas changes
+            {t("workflows.unsavedChangesTitle")}
           </AlertDialogTitle>
           <AlertDialogDescription
             style={{
@@ -4649,18 +4776,18 @@ export function WorkflowDetail(): React.ReactElement {
               marginBottom: "20px",
             }}
           >
-            You have unsaved canvas changes. Leave without saving?
+            {t("workflows.unsavedChangesDesc")}
           </AlertDialogDescription>
           <AlertDialogFooter
             style={{ justifyContent: "flex-start", marginTop: 0 }}
           >
             <AlertDialogAction asChild>
               <Button variant="primary" onClick={() => blocker.proceed()}>
-                Leave without saving
+                {t("workflows.leaveWithoutSaving")}
               </Button>
             </AlertDialogAction>
             <AlertDialogCancel asChild>
-              <Button variant="secondary">Stay</Button>
+              <Button variant="secondary">{t("workflows.stay")}</Button>
             </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>

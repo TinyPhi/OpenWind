@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../../lib/api.js";
 import { useUsers } from "../../../lib/use-users.js";
 import {
@@ -47,12 +48,16 @@ function placeholder(state: LoadState, ready: string): string {
 }
 
 function LoadFailed({ what }: { what: string }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <p
       role="alert"
       style={{ fontSize: "12px", color: "var(--danger)", margin: "4px 0 0" }}
     >
-      Couldn&apos;t load the {what}. Refresh the page to try again.
+      {t("automations.loadFailed", {
+        what,
+        defaultValue: `Couldn't load the ${what}. Refresh the page to try again.`,
+      })}
     </p>
   );
 }
@@ -70,6 +75,7 @@ export function TicketTemplateConfig({
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const { items: workflows, state: workflowsState } =
     useOptions<WorkflowOption>(
       type === "create_entity" ? "/workflows?activeOnly=true" : null,
@@ -108,7 +114,7 @@ export function TicketTemplateConfig({
       {type === "create_entity" && (
         <div className="form-group">
           <label className="form-label" htmlFor="ticket-action-workflow">
-            Workflow
+            {t("automations.workflow", { defaultValue: "Workflow" })}
           </label>
           <select
             id="ticket-action-workflow"
@@ -120,7 +126,12 @@ export function TicketTemplateConfig({
             }}
           >
             <option value="">
-              {placeholder(workflowsState, "Select a workflow…")}
+              {placeholder(
+                workflowsState,
+                t("automations.selectWorkflowPlaceholder", {
+                  defaultValue: "Select a workflow…",
+                }),
+              )}
             </option>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
@@ -128,12 +139,18 @@ export function TicketTemplateConfig({
               </option>
             ))}
           </select>
-          {workflowsState === "failed" && <LoadFailed what="workflows" />}
+          {workflowsState === "failed" && (
+            <LoadFailed
+              what={t("automations.workflowsWhat", {
+                defaultValue: "workflows",
+              })}
+            />
+          )}
         </div>
       )}
       <div className="form-group">
         <label className="form-label" htmlFor="ticket-action-title">
-          Title
+          {t("automations.titleField", { defaultValue: "Title" })}
         </label>
         <input
           id="ticket-action-title"
@@ -141,8 +158,12 @@ export function TicketTemplateConfig({
           value={template.title ?? ""}
           placeholder={
             type === "create_entity"
-              ? "The rule's name"
-              : "<rule name>: <parent ticket title>"
+              ? t("automations.rulesNamePlaceholder", {
+                  defaultValue: "The rule's name",
+                })
+              : t("automations.childTitlePlaceholder", {
+                  defaultValue: "<rule name>: <parent ticket title>",
+                })
           }
           onChange={(e) => patchTemplate({ title: e.target.value })}
         />
@@ -150,7 +171,7 @@ export function TicketTemplateConfig({
       <div style={{ display: "flex", gap: "10px" }}>
         <div className="form-group" style={{ flex: 1 }}>
           <label className="form-label" htmlFor="ticket-action-due">
-            Due in (days)
+            {t("automations.dueInDays", { defaultValue: "Due in (days)" })}
           </label>
           <input
             id="ticket-action-due"
@@ -170,7 +191,7 @@ export function TicketTemplateConfig({
         </div>
         <div className="form-group" style={{ flex: 1 }}>
           <label className="form-label" htmlFor="ticket-action-severity">
-            Severity
+            {t("automations.severity", { defaultValue: "Severity" })}
           </label>
           <select
             id="ticket-action-severity"
@@ -185,7 +206,11 @@ export function TicketTemplateConfig({
               })
             }
           >
-            <option value="">Select…</option>
+            <option value="">
+              {t("automations.selectSeverityPlaceholder", {
+                defaultValue: "Select…",
+              })}
+            </option>
             {TICKET_SEVERITIES.map((s) => (
               <option key={s} value={s}>
                 {s.charAt(0).toUpperCase() + s.slice(1)}
@@ -196,20 +221,22 @@ export function TicketTemplateConfig({
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="ticket-action-remark">
-          Remark
+          {t("automations.remark", { defaultValue: "Remark" })}
         </label>
         <textarea
           id="ticket-action-remark"
           className="form-input"
           rows={2}
           value={template.remark ?? ""}
-          placeholder="Created by automation: <rule name>"
+          placeholder={t("automations.remarkPlaceholder", {
+            defaultValue: "Created by automation: <rule name>",
+          })}
           onChange={(e) => patchTemplate({ remark: e.target.value })}
         />
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="ticket-action-assign">
-          Assign to
+          {t("automations.assignTo", { defaultValue: "Assign to" })}
         </label>
         <select
           id="ticket-action-assign"
@@ -219,14 +246,24 @@ export function TicketTemplateConfig({
           onChange={(e) => switchMode(e.target.value as AssignMode)}
         >
           <option value="owner">
-            Workflow owner, else an admin (automatic)
+            {t("automations.assignOwnerAutomatic", {
+              defaultValue: "Workflow owner, else an admin (automatic)",
+            })}
           </option>
-          <option value="user">A person</option>
-          <option value="team">A team (its on-call person)</option>
+          <option value="user">
+            {t("automations.assignPerson", { defaultValue: "A person" })}
+          </option>
+          <option value="team">
+            {t("automations.assignTeam", {
+              defaultValue: "A team (its on-call person)",
+            })}
+          </option>
         </select>
         {mode === "user" && (
           <select
-            aria-label="Person"
+            aria-label={t("automations.personAriaLabel", {
+              defaultValue: "Person",
+            })}
             className="form-input"
             style={{ marginTop: "6px" }}
             value={template.assignedTo ?? ""}
@@ -235,7 +272,9 @@ export function TicketTemplateConfig({
             <option value="">
               {placeholder(
                 usersLoading ? "loading" : "ready",
-                "Select a person…",
+                t("automations.selectPersonPlaceholder", {
+                  defaultValue: "Select a person…",
+                }),
               )}
             </option>
             {users.map((u) => (
@@ -245,27 +284,40 @@ export function TicketTemplateConfig({
             ))}
           </select>
         )}
-        {mode === "user" && usersError && <LoadFailed what="people" />}
+        {mode === "user" && usersError && (
+          <LoadFailed
+            what={t("automations.peopleWhat", { defaultValue: "people" })}
+          />
+        )}
         {mode === "team" && (
           <select
-            aria-label="Team"
+            aria-label={t("automations.teamAriaLabel", {
+              defaultValue: "Team",
+            })}
             className="form-input"
             style={{ marginTop: "6px" }}
             value={template.teamId ?? ""}
             onChange={(e) => patchTemplate({ teamId: e.target.value })}
           >
             <option value="">
-              {placeholder(teamsState, "Select a team…")}
+              {placeholder(
+                teamsState,
+                t("automations.selectTeamPlaceholder", {
+                  defaultValue: "Select a team…",
+                }),
+              )}
             </option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+            {teams.map((tItem) => (
+              <option key={tItem.id} value={tItem.id}>
+                {tItem.name}
               </option>
             ))}
           </select>
         )}
         {mode === "team" && teamsState === "failed" && (
-          <LoadFailed what="teams" />
+          <LoadFailed
+            what={t("automations.teamsWhat", { defaultValue: "teams" })}
+          />
         )}
       </div>
       {problem && (
