@@ -11,7 +11,11 @@ import {
   type ThemeMode,
   type AccentColor,
 } from "../lib/theme.js";
-import { useLocale, SUPPORTED_LANGUAGES } from "../lib/language.js";
+import {
+  useLocale,
+  SUPPORTED_LANGUAGES,
+  isTranslatedLanguage,
+} from "../lib/language.js";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 
@@ -439,37 +443,51 @@ export function Settings(): React.ReactElement {
                 role="listbox"
                 aria-label={t("settings.selectDisplayLanguage")}
               >
-                {SUPPORTED_LANGUAGES.map((lng) => (
-                  <button
-                    key={lng}
-                    type="button"
-                    role="option"
-                    aria-selected={locale === lng}
-                    className={`language-option ${locale === lng ? "language-option-active" : ""}`}
-                    onClick={() => void changeLocale(lng)}
-                  >
-                    <span className="language-option-name">
-                      {LANGUAGE_NAMES[lng] ?? lng}
-                    </span>
-                    {locale === lng && (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth="2.5"
-                        stroke="currentColor"
-                        style={{ width: 16, height: 16, flexShrink: 0 }}
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="m4.5 12.75 6 6 9-13.5"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                ))}
+                {SUPPORTED_LANGUAGES.map((lng) => {
+                  const isTranslated = isTranslatedLanguage(lng);
+                  return (
+                    <button
+                      key={lng}
+                      type="button"
+                      role="option"
+                      aria-selected={locale === lng}
+                      aria-disabled={!isTranslated}
+                      disabled={!isTranslated}
+                      className={`language-option ${locale === lng ? "language-option-active" : ""} ${!isTranslated ? "language-option-disabled" : ""}`}
+                      onClick={() => {
+                        if (isTranslated) {
+                          void changeLocale(lng);
+                        }
+                      }}
+                    >
+                      <span className="language-option-name">
+                        {LANGUAGE_NAMES[lng] ?? lng}
+                      </span>
+                      {!isTranslated && (
+                        <span className="language-option-badge">
+                          {t("settings.comingSoon")}
+                        </span>
+                      )}
+                      {locale === lng && (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth="2.5"
+                          stroke="currentColor"
+                          style={{ width: 16, height: 16, flexShrink: 0 }}
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m4.5 12.75 6 6 9-13.5"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

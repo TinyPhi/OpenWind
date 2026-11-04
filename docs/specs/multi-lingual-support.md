@@ -100,11 +100,13 @@ R8: localStorage language code validation
 
 ## §V Invariants
 
-- `getSavedLanguage()` never returns a code outside `SUPPORTED_LANGUAGES`
-- `document.documentElement.lang` is always set from a validated language code, never raw `localStorage` output
+- `getSavedLanguage()` never returns a code outside `TRANSLATED_LANGUAGES` (and `SUPPORTED_LANGUAGES`)
+- `document.documentElement.lang` is always set from a validated language code in `TRANSLATED_LANGUAGES`, never raw `localStorage` output
 - Translation values never render via `dangerouslySetInnerHTML`; i18next interpolation outputs text only
 - `fallbackLng: "en"` is never removed — partial translation must always be safe
 - All 11 locale stubs contain identical top-level keys to `en/common.json` (enforced by completeness test)
+- Untranslated locales are disabled in the UI with a "Coming soon" label until translated strings land (#1110)
+- Indic script `@font-face` blocks define explicit `unicode-range` descriptors so Latin users do not download Indic font bytes (#1092)
 - No `process.env` reads introduced; no `any` types
 
 ## §T Tasks
@@ -131,8 +133,10 @@ phase gate: `pnpm typecheck && pnpm lint && pnpm test` green before advancing to
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed | root cause | promoted to §V? |
-| --- | ----------- | ---------- | --------------- |
+| id    | what failed                                  | root cause                                                                                                | promoted to §V? |
+| ----- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------- |
+| #1092 | Latin users downloaded Indic fonts (~1.5 MB) | Google Fonts `@import` loaded font families without explicit CSS `unicode-range` `@font-face` descriptors | Yes             |
+| #1110 | Untranslated locales selectable in Settings  | UI allowed switching to locale stubs containing English copy                                              | Yes             |
 
 ---
 

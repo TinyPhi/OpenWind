@@ -111,7 +111,8 @@
     "loadingNotifications": "Loading notification settings…",
     "loadingTemplates": "Loading templates…",
     "templateVisible": "Visible on the Templates page for everyone",
-    "templateHidden": "Hidden — no tenant can see or install this template"
+    "templateHidden": "Hidden — no tenant can see or install this template",
+    "comingSoon": "Coming soon"
   },
   "dashboard": {
     "myDashboard": "My Dashboard",
