@@ -267,7 +267,9 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
             </label>
             {loadingWorkflows ? (
               <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {t("automations.loading")}
+                {t("automations.loadingWorkflows", {
+                  defaultValue: "Loading workflows…",
+                })}
               </p>
             ) : (
               <select
@@ -336,7 +338,9 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
             </label>
             {loadingEntityTypes ? (
               <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {t("automations.loading")}
+                {t("automations.loadingEntityTypes", {
+                  defaultValue: "Loading entity types…",
+                })}
               </p>
             ) : (
               <select
@@ -369,7 +373,9 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
               </label>
               {loadingFields ? (
                 <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                  {t("automations.loading")}
+                  {t("automations.loadingFields", {
+                    defaultValue: "Loading fields…",
+                  })}
                 </p>
               ) : (
                 <select
