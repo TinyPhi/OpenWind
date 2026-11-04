@@ -233,10 +233,10 @@ const EnvSchema = z
     // each pull up to 10,000 rows including PII/financial fields.
     RATE_LIMIT_EXPORT_PER_MIN: z.coerce.number().int().positive().default(5),
     // docs/specs/multi-org-sandbox.md R13 -- per-IP cap on the unauthenticated login-page brand
-    // lookup (GET /public/org-branding/:slug). It has its own bucket, apart from the /auth class
+    // lookup (GET /public/org-branding/:key). It has its own bucket, apart from the /auth class
     // (10/min, shared with sign-in), so a flood here can neither lock a visitor out of signing in
     // nor hide inside that bucket. A visitor makes one lookup per login-page load, so 30 is
-    // generous for a shared office address and still stops slug scanning.
+    // generous for a shared office address and still stops key scanning.
     RATE_LIMIT_PUBLIC_BRANDING_PER_MIN: z.coerce
       .number()
       .int()

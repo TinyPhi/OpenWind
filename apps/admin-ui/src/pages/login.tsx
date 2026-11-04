@@ -150,7 +150,9 @@ export function Login(): React.ReactElement {
 
   // Plain /login, but this browser signed in through an organisation's own link before: go back
   // to that link. Every redirect to /login (sign-out, idle logout, expired session) lands here.
-  const remembered = orgKey === null ? rememberedLoginOrg() : null;
+  const [remembered] = React.useState(() =>
+    orgKey === null ? rememberedLoginOrg() : null,
+  );
 
   function toggleTheme(): void {
     setTheme((t) => (t === "dark" ? "light" : "dark"));

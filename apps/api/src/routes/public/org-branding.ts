@@ -25,6 +25,11 @@ const NOT_FOUND = { error: "NOT_FOUND", message: "Not found" } as const;
 export const getOrgBrandingByKeyHandler = factory.createHandlers(async (c) => {
   const limit = await enforcePublicBrandingRateLimit(rateLimitKey(c));
   if (!limit.allowed) {
+    const retryAfter = Math.max(
+      1,
+      limit.resetAt - Math.ceil(Date.now() / 1000),
+    );
+    c.header("Retry-After", String(retryAfter));
     c.header("Cache-Control", "no-store");
     return c.json({ error: "RATE_LIMITED", message: "Too many requests" }, 429);
   }

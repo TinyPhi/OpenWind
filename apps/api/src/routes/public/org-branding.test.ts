@@ -131,14 +131,36 @@ describe("GET /public/org-branding/:key", () => {
     expect(malformed).toBe(unknown);
   });
 
-  it("answers 429 uncached and reads nothing when the limit is spent", async () => {
-    mockEnforce.mockResolvedValue({ allowed: false, remaining: 0, resetAt: 1 });
+  it("answers 429 uncached with Retry-After and reads nothing when the limit is spent", async () => {
+    const now = 1_700_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+    mockEnforce.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      resetAt: now + 35,
+    });
 
     const res = await get(KEY);
 
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("35");
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(mockSelect).not.toHaveBeenCalled();
+  });
+
+  it("never sends a Retry-After below 1 second", async () => {
+    const now = 1_700_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+    mockEnforce.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      resetAt: now - 5,
+    });
+
+    const res = await get(KEY);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("1");
   });
 
   it("limits by the client address, before it looks at the key", async () => {

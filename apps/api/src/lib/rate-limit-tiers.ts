@@ -136,7 +136,7 @@ export async function enforceSandboxProvisioningRateLimit(
 const PUBLIC_BRANDING_RATE_LIMIT_WINDOW_SECONDS = 60;
 
 /**
- * docs/specs/multi-org-sandbox.md R13 -- per-IP cap on GET /public/org-branding/:slug, which has
+ * docs/specs/multi-org-sandbox.md R13 -- per-IP cap on GET /public/org-branding/:key, which has
  * no identity to key on. Its own bucket (`rl:public-branding:`), never the `/auth` class that
  * sign-in shares. Fails open like every other tier, as ADR-013's limiter already does.
  */
