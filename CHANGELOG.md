@@ -3,6 +3,19 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — font range & language gate (#1092, #1110)]
+
+### Added
+
+- `TRANSLATED_LANGUAGES` constant gating the language switcher so untranslated locales (currently all non-English stubs) display a localized "Coming soon" pill badge and are disabled until full translations are ready (#1110).
+- Restored Google Fonts Indic `@import` font delivery with full glyph coverage (#1092). Google Fonts CSS API natively partitions font files into unicode-range subsets, ensuring on-demand download only when Indic glyphs are present.
+- Unit tests for the Settings Language tab (`settings.test.tsx`) and Refine `i18nProvider` (`i18n-provider.test.ts`) (#1110).
+- Extended `locale-completeness.test.ts` to assert translation coverage thresholds for enabled languages.
+
+### Changed
+
+- Stored language selections for untranslated locales (e.g. from earlier sessions) silently fall back to 'en' until translations are completed (#1110).
+
 ## [Unreleased — Superset erasure enablement check (#1137)]
 
 ### Added
