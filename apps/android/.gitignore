@@ -1,0 +1,21 @@
+# Gradle / Android build output
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local machine config — never commit
+local.properties
+*.iml
+.idea/
+.DS_Store
+
+# Signing material — never commit. Release signing keys live in CI secrets only.
+*.jks
+*.keystore
+keystore.properties
+
+# Local env overrides
+.env
+.env.*
