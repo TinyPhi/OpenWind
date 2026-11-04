@@ -33,7 +33,7 @@ export function useLoginOrgBranding(key: string | null): OrgBrandingState {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
     let cancelled = false;
-    fetch(`${API_URL}/public/org-branding/${encodeURIComponent(usable)}`, {
+    fetch(`${API_URL}/public/org-branding/${usable}`, {
       signal: controller.signal,
     })
       .then(async (res) => {
