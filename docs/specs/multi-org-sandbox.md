@@ -196,6 +196,11 @@ wait-screen polls this job rather than holding one HTTP connection open for the 
 account's own password (revised 2026-10-14; was one shared default password), for handing off
 to the prospect — this is the actual handover artifact, not just a "done" status (`GET /platform-admin/sandboxes/:jobId/handover`).
 
+Operational note (review finding, PR #913): sandbox provisioning sets bare short usernames (the
+email's local part), which Zitadel only accepts while `userLoginMustBeDomain = false` (the
+default). It is an instance-level setting, so a deployment that enables it makes provisioning fail
+with a username validation error. See the troubleshooting entry in [local-setup](../local-setup.md).
+
 Operational note (review finding, PR #805): the handover artifact (usernames + per-account passwords)
 lives in Redis with a 7-day TTL, not a durable DB column — see migration 0137's comment. If a
 platform admin misses that window, the endpoint returns 404 ("Handover window has expired"); the
