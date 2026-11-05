@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   useParams,
@@ -96,9 +98,12 @@ let _activeDragCol: string | null = null;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function fieldDisplay(value: unknown, fieldType: string): string {
+function fieldDisplay(value: unknown, fieldType: string, t: TFunction): string {
   if (value === null || value === undefined) return "";
-  if (fieldType === "boolean") return String(value) === "true" ? "Yes" : "No";
+  if (fieldType === "boolean")
+    return String(value) === "true"
+      ? t("workflowRecords.yes")
+      : t("workflowRecords.no");
   if (fieldType === "date" || fieldType === "datetime") {
     const d = new Date(value as string);
     return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString();
@@ -223,6 +228,7 @@ function ChildTicketCard({
   typeSlug: string;
   users: OrgUser[];
 }): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const title =
     String(
@@ -234,8 +240,8 @@ function ChildTicketCard({
     ? (users.find((u) => u.userId === ticket.assignedTo) ?? null)
     : null;
   const assigneeLabel = ticket.assignedTo
-    ? (assignee?.displayName ?? assignee?.email ?? "Unknown")
-    : "Unassigned";
+    ? (assignee?.displayName ?? assignee?.email ?? t("workflowRecords.unknown"))
+    : t("workflowRecords.unassigned");
 
   return (
     <div
@@ -257,17 +263,23 @@ function ChildTicketCard({
       </div>
 
       <div className="kb-card-meta">
-        <span className="kb-card-meta-label">State</span>
+        <span className="kb-card-meta-label">
+          {t("workflowRecords.stateLabel")}
+        </span>
         <span
           className={`kb-child-status-badge ${isDone ? "kb-child-status-badge--done" : ""}`}
         >
-          {isDone ? "✓ Closed" : "○ Open"}
+          {isDone
+            ? t("workflowRecords.stateClosed")
+            : t("workflowRecords.stateOpen")}
         </span>
       </div>
 
       <div className="kb-card-footer">
         <span className="kb-card-time">
-          Created {relativeTime(ticket.createdAt)}
+          {t("workflowRecords.created", {
+            time: relativeTime(ticket.createdAt),
+          })}
         </span>
         <span className="kb-card-assignee" title={assigneeLabel}>
           {ticket.assignedTo ? (
@@ -297,13 +309,14 @@ function RecordCard({
   stateLabel?: string | null | undefined;
   users: OrgUser[];
 }): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const divRef = useRef<HTMLDivElement>(null);
 
   const preview: Array<{ field: EntityField; value: string }> = [];
   for (const f of fields) {
     if (preview.length >= 1) break;
-    const v = fieldDisplay(record.fields[f.name], f.fieldType);
+    const v = fieldDisplay(record.fields[f.name], f.fieldType, t);
     if (v) preview.push({ field: f, value: v });
   }
 
@@ -311,8 +324,8 @@ function RecordCard({
     ? (users.find((u) => u.userId === record.assignedTo) ?? null)
     : null;
   const assigneeLabel = record.assignedTo
-    ? (assignee?.displayName ?? assignee?.email ?? "Unknown")
-    : "Unassigned";
+    ? (assignee?.displayName ?? assignee?.email ?? t("workflowRecords.unknown"))
+    : t("workflowRecords.unassigned");
 
   return (
     <div
@@ -352,14 +365,18 @@ function RecordCard({
 
       {stateLabel && (
         <div className="kb-card-meta">
-          <span className="kb-card-meta-label">State</span>
+          <span className="kb-card-meta-label">
+            {t("workflowRecords.stateLabel")}
+          </span>
           <span className="kb-card-meta-value">{stateLabel}</span>
         </div>
       )}
 
       <div className="kb-card-footer">
         <span className="kb-card-time">
-          Created {relativeTime(record.createdAt)}
+          {t("workflowRecords.created", {
+            time: relativeTime(record.createdAt),
+          })}
         </span>
         <span className="kb-card-assignee" title={assigneeLabel}>
           {record.assignedTo ? (
@@ -405,6 +422,7 @@ function KanbanColumn({
   childTickets?: ChildTicket[];
   users: OrgUser[];
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [dropState, setDropState] = useState<ColDropState>("idle");
   const enterCount = useRef(0);
 
@@ -514,7 +532,10 @@ function KanbanColumn({
         }}
       >
         <div className="kb-col-header-left">
-          <span className="kb-col-drag-handle" title="Drag to reorder">
+          <span
+            className="kb-col-drag-handle"
+            title={t("workflowRecords.dragToReorder")}
+          >
             <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
               <circle
                 cx="3"
@@ -549,7 +570,9 @@ function KanbanColumn({
             </svg>
           </span>
           <span className="kb-col-dot" style={{ background: accentColor }} />
-          <span className="kb-col-title">{state?.label ?? "Unassigned"}</span>
+          <span className="kb-col-title">
+            {state?.label ?? t("workflowRecords.unassigned")}
+          </span>
         </div>
         <span className="kb-col-count">{records.length}</span>
       </div>
@@ -570,15 +593,19 @@ function KanbanColumn({
         {records.length === 0 &&
           dropState === "idle" &&
           childTickets.length === 0 && (
-            <div className="kb-col-empty">No items</div>
+            <div className="kb-col-empty">{t("workflowRecords.noItems")}</div>
           )}
 
         {dropState === "valid" && (
-          <div className="kb-drop-zone">Drop to move here</div>
+          <div className="kb-drop-zone">
+            {t("workflowRecords.dropToMoveHere")}
+          </div>
         )}
 
         {dropState === "reorder" && (
-          <div className="kb-reorder-zone">Insert column here</div>
+          <div className="kb-reorder-zone">
+            {t("workflowRecords.insertColumnHere")}
+          </div>
         )}
 
         {/* Sub-tasks — rendered as full cards below parent cards */}
@@ -586,7 +613,7 @@ function KanbanColumn({
           <div className="kb-subtasks">
             <div className="kb-subtasks-divider">
               <span className="kb-subtasks-label">
-                Sub-tasks ({childTickets.length})
+                {t("workflowRecords.subTasks", { count: childTickets.length })}
               </span>
             </div>
             {childTickets.map((ct) => (
@@ -629,6 +656,7 @@ const DEFAULT_FILTERS: RecordsFilterState = {
 };
 
 export function WorkflowRecords(): React.ReactElement {
+  const { t } = useTranslation();
   const { workflowSlug } = useParams<{ workflowSlug: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -761,7 +789,10 @@ export function WorkflowRecords(): React.ReactElement {
         const matched = all.find(
           (w) => toWorkflowSlug(w.name) === workflowSlug,
         );
-        if (!matched) throw new Error(`Workflow "${workflowSlug}" not found`);
+        if (!matched)
+          throw new Error(
+            t("workflowRecords.workflowNotFound", { slug: workflowSlug }),
+          );
 
         // Fetch full workflow detail (states + transitions)
         const wfRes = await fetchWithAuth(`${API_URL}/workflows/${matched.id}`);
@@ -869,7 +900,11 @@ export function WorkflowRecords(): React.ReactElement {
       })
       .catch((err: unknown) => {
         if (!isCancelled())
-          setError(err instanceof Error ? err.message : "Failed to load");
+          setError(
+            err instanceof Error
+              ? err.message
+              : t("workflowRecords.failedToLoad"),
+          );
       })
       .finally(() => {
         if (!isCancelled()) setLoading(false);
@@ -925,7 +960,11 @@ export function WorkflowRecords(): React.ReactElement {
       .catch((err: unknown) => {
         if (cancelled) return;
         appliedRecordsUrlRef.current = null;
-        setError(err instanceof Error ? err.message : "Failed to load");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t("workflowRecords.failedToLoad"),
+        );
       })
       .finally(() => {
         if (!cancelled) setRecordsRefreshing(false);
@@ -1140,7 +1179,11 @@ export function WorkflowRecords(): React.ReactElement {
               : r,
           ),
         );
-        setTransError(err instanceof Error ? err.message : "Transition failed");
+        setTransError(
+          err instanceof Error
+            ? err.message
+            : t("workflowRecords.transitionFailed"),
+        );
       } finally {
         setTransitioning(false);
       }
@@ -1274,7 +1317,7 @@ export function WorkflowRecords(): React.ReactElement {
             type="button"
             className="kb-back-btn"
             onClick={() => void navigate(-1)}
-            title="Go back"
+            title={t("workflowRecords.goBack")}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path
@@ -1304,7 +1347,7 @@ export function WorkflowRecords(): React.ReactElement {
           {transitioning && (
             <span className="kb-status-pill kb-status-pill--saving">
               <span className="kb-status-dot" />
-              Saving…
+              {t("workflowRecords.saving")}
             </span>
           )}
           {transError && (
@@ -1329,7 +1372,7 @@ export function WorkflowRecords(): React.ReactElement {
                 setSearchExpanded(true);
                 setTimeout(() => searchInputRef.current?.focus(), 50);
               }}
-              title="Search"
+              title={t("workflowRecords.search")}
             >
               <svg
                 width="14"
@@ -1350,7 +1393,7 @@ export function WorkflowRecords(): React.ReactElement {
                 <input
                   ref={searchInputRef}
                   className="kb-search"
-                  placeholder="Search by title…"
+                  placeholder={t("workflowRecords.searchByTitle")}
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                 />
@@ -1374,7 +1417,7 @@ export function WorkflowRecords(): React.ReactElement {
               type="button"
               className={`kb-circ-btn ${filterOpen ? "kb-circ-btn-open" : ""} ${activeFilterCount > 0 ? "kb-circ-btn-active" : ""}`}
               onClick={() => setFilterOpen((v) => !v)}
-              title="Filters"
+              title={t("workflowRecords.filters")}
             >
               <svg
                 width="14"
@@ -1396,7 +1439,9 @@ export function WorkflowRecords(): React.ReactElement {
             {filterOpen && (
               <div ref={filterPanelRef} className="kb-filter-panel">
                 <div className="kb-filter-panel-header">
-                  <span className="kb-filter-panel-title">Filters</span>
+                  <span className="kb-filter-panel-title">
+                    {t("workflowRecords.filters")}
+                  </span>
                   {activeFilterCount > 0 && (
                     <button
                       type="button"
@@ -1406,7 +1451,7 @@ export function WorkflowRecords(): React.ReactElement {
                         setFilters(DEFAULT_FILTERS);
                       }}
                     >
-                      Clear all
+                      {t("workflowRecords.clearAll")}
                     </button>
                   )}
                 </div>
@@ -1420,7 +1465,7 @@ export function WorkflowRecords(): React.ReactElement {
                       onClick={() => toggleFilterSection("date")}
                     >
                       <span className="kb-filter-section-label">
-                        Date
+                        {t("workflowRecords.date")}
                         {filterDateField && filterDateValue && (
                           <span className="kb-filter-section-count">1</span>
                         )}
@@ -1455,9 +1500,15 @@ export function WorkflowRecords(): React.ReactElement {
                             }));
                           }}
                         >
-                          <option value="">Select field…</option>
-                          <option value="createdAt">Created at</option>
-                          <option value="updatedAt">Last updated</option>
+                          <option value="">
+                            {t("workflowRecords.selectField")}
+                          </option>
+                          <option value="createdAt">
+                            {t("workflowRecords.createdAt")}
+                          </option>
+                          <option value="updatedAt">
+                            {t("workflowRecords.lastUpdated")}
+                          </option>
                         </select>
                         {filterDateField && (
                           <input
@@ -1485,7 +1536,7 @@ export function WorkflowRecords(): React.ReactElement {
                       onClick={() => toggleFilterSection("source")}
                     >
                       <span className="kb-filter-section-label">
-                        Source
+                        {t("workflowRecords.source")}
                         {filterOrigin && (
                           <span className="kb-filter-section-count">1</span>
                         )}
@@ -1508,10 +1559,14 @@ export function WorkflowRecords(): React.ReactElement {
                       <div className="kb-filter-section-body">
                         <div className="kb-filter-origin-options">
                           {[
-                            { key: "" as const, label: "Any", color: null },
+                            {
+                              key: "" as const,
+                              label: t("workflowRecords.any"),
+                              color: null,
+                            },
                             {
                               key: "internal" as const,
-                              label: "Internal",
+                              label: t("workflowRecords.internal"),
                               color: null,
                             },
                             {
@@ -1572,7 +1627,7 @@ export function WorkflowRecords(): React.ReactElement {
                       onClick={() => toggleFilterSection("severity")}
                     >
                       <span className="kb-filter-section-label">
-                        Severity
+                        {t("workflowRecords.severity")}
                         {filterSeverities.size > 0 && (
                           <span className="kb-filter-section-count">
                             {filterSeverities.size}
@@ -1647,7 +1702,7 @@ export function WorkflowRecords(): React.ReactElement {
                       onClick={() => toggleFilterSection("tag")}
                     >
                       <span className="kb-filter-section-label">
-                        Tag
+                        {t("workflowRecords.tag")}
                         {filterTag && (
                           <span className="kb-filter-section-count">1</span>
                         )}
@@ -1671,7 +1726,7 @@ export function WorkflowRecords(): React.ReactElement {
                         <input
                           type="text"
                           className="kb-filter-select"
-                          placeholder="Search tags…"
+                          placeholder={t("workflowRecords.searchTags")}
                           value={filterTagInput}
                           onChange={(e) =>
                             handleFilterTagInputChange(e.target.value)
@@ -1689,7 +1744,7 @@ export function WorkflowRecords(): React.ReactElement {
                       onClick={() => toggleFilterSection("assignedTo")}
                     >
                       <span className="kb-filter-section-label">
-                        Assigned to
+                        {t("workflowRecords.assignedTo")}
                         {filterAssignedTo && (
                           <span className="kb-filter-section-count">1</span>
                         )}
@@ -1726,7 +1781,7 @@ export function WorkflowRecords(): React.ReactElement {
                           </svg>
                           <input
                             className="kb-filter-user-search"
-                            placeholder="Search name or email…"
+                            placeholder={t("workflowRecords.searchNameOrEmail")}
                             value={userSearch}
                             onChange={(e) =>
                               setFilters((prev) => ({
@@ -1752,7 +1807,7 @@ export function WorkflowRecords(): React.ReactElement {
                                 <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-all">
                                   A
                                 </span>
-                                <span>Anyone</span>
+                                <span>{t("workflowRecords.anyone")}</span>
                                 {filterAssignedTo === "" && (
                                   <svg
                                     className="kb-filter-check"
@@ -1785,7 +1840,7 @@ export function WorkflowRecords(): React.ReactElement {
                                 <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-none">
                                   ?
                                 </span>
-                                <span>Unassigned</span>
+                                <span>{t("workflowRecords.unassigned")}</span>
                                 {filterAssignedTo === "__unassigned__" && (
                                   <svg
                                     className="kb-filter-check"
@@ -1831,12 +1886,18 @@ export function WorkflowRecords(): React.ReactElement {
                                 }
                               >
                                 <span className="kb-filter-assignee-avatar">
-                                  {(u.displayName ?? u.email ?? "Unknown")
+                                  {(
+                                    u.displayName ??
+                                    u.email ??
+                                    t("workflowRecords.unknown")
+                                  )
                                     .slice(0, 1)
                                     .toUpperCase()}
                                 </span>
                                 <span className="kb-filter-assignee-name">
-                                  {u.displayName ?? u.email ?? "Unknown"}
+                                  {u.displayName ??
+                                    u.email ??
+                                    t("workflowRecords.unknown")}
                                 </span>
                                 {filterAssignedTo === u.userId && (
                                   <svg
@@ -1869,7 +1930,7 @@ export function WorkflowRecords(): React.ReactElement {
             <Link
               to={`/workflows/${workflowSlug}`}
               className="kb-circ-btn"
-              title="Workflow Settings"
+              title={t("workflowRecords.workflowSettings")}
             >
               <svg
                 width="15"
@@ -1902,7 +1963,10 @@ export function WorkflowRecords(): React.ReactElement {
                 entityTypeId,
               }}
               className="kb-circ-btn kb-circ-btn-primary"
-              title={`New ${entityType?.name ?? "Record"}`}
+              title={t("workflowRecords.newRecord", {
+                name:
+                  entityType?.name ?? t("workflowRecords.defaultRecordName"),
+              })}
             >
               <svg
                 width="14"
@@ -1928,7 +1992,11 @@ export function WorkflowRecords(): React.ReactElement {
       {records.length === 0 && states.length === 0 ? (
         <div className="kb-empty-state">
           <div className="kb-empty-icon">📋</div>
-          <p className="kb-empty-title">No {displayName.toLowerCase()} yet</p>
+          <p className="kb-empty-title">
+            {t("workflowRecords.emptyTitle", {
+              name: displayName.toLowerCase(),
+            })}
+          </p>
           {(typeSlug || entityTypeId) && (
             <Link
               to={`/records/${typeSlug || entityTypeId}/new`}
@@ -1938,14 +2006,16 @@ export function WorkflowRecords(): React.ReactElement {
               }}
               className="kb-new-btn"
             >
-              Create the first one
+              {t("workflowRecords.createFirst")}
             </Link>
           )}
         </div>
       ) : (
         <div className="kb-board-scroll">
           {recordsRefreshing && (
-            <div className="kb-records-refreshing-pill">Updating…</div>
+            <div className="kb-records-refreshing-pill">
+              {t("workflowRecords.updating")}
+            </div>
           )}
           <div
             className={`kb-board ${recordsRefreshing ? "kb-board--refreshing" : ""}`}

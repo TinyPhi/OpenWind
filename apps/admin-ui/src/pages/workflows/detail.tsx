@@ -431,6 +431,7 @@ function StateEditPopover({
         </span>
         <button
           onClick={onClose}
+          aria-label={t("workflows.close")}
           style={{
             background: "none",
             border: "none",
@@ -535,7 +536,7 @@ function StateEditPopover({
           disabled={saving}
           style={{ fontSize: "12px" }}
         >
-          Cancel
+          {t("workflows.cancel")}
         </Button>
         <Button
           variant="primary"
@@ -543,7 +544,7 @@ function StateEditPopover({
           disabled={saving || !form.label.trim()}
           style={{ fontSize: "12px" }}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("workflows.saving") : t("workflows.save")}
         </Button>
       </div>
     </div>
@@ -644,7 +645,7 @@ function SortableStateNode({
                 whiteSpace: "nowrap",
               }}
             >
-              START
+              {t("workflows.startUpper")}
             </span>
           )}
           {state.isTerminal && (
@@ -661,7 +662,7 @@ function SortableStateNode({
                 whiteSpace: "nowrap",
               }}
             >
-              END
+              {t("workflows.endUpper")}
             </span>
           )}
         </div>
@@ -1474,7 +1475,7 @@ export function WorkflowDetail(): React.ReactElement {
   }, [canvasDirty, workflowName]);
 
   async function handleCanvasSave(draft: CanvasDraft): Promise<void> {
-    if (!id) throw new Error("Workflow ID missing");
+    if (!id) throw new Error(t("workflowDetail.workflowIdMissing"));
     await fetchWithAuth(`${API_URL}/workflows/${id}/canvas`, {
       method: "PUT",
       body: JSON.stringify(draft),
@@ -2483,6 +2484,7 @@ export function WorkflowDetail(): React.ReactElement {
           <span>⚠ {inlineError}</span>
           <button
             onClick={() => setInlineError(null)}
+            aria-label={t("workflows.close")}
             style={{
               background: "none",
               border: "none",
@@ -3441,7 +3443,7 @@ export function WorkflowDetail(): React.ReactElement {
                           color: "var(--text-primary)",
                           wordBreak: "break-all",
                           fontFamily:
-                            row.label === "Workflow ID"
+                            row.label === t("workflows.workflowId")
                               ? "var(--font-mono, monospace)"
                               : undefined,
                         }}
