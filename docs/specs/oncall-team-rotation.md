@@ -210,8 +210,10 @@ pass.
   at most once per (window, person, role) (unique key): both are guarded by a constraint, not by worker
   timing.
 - The rotation worker's cross-tenant database role (`oncall_rotation_sweeper`) can only read the six
-  columns of `on_call_rotations` it needs to find active rotations; it writes nothing. Generation, the
-  cursor update and notices run in a normal tenant-scoped transaction.
+  columns of `on_call_rotations` it needs to find active rotations, plus three columns of
+  `on_call_schedules` (`rotation_id`, `starts_at`, `deleted_at`, migration 0161, #1122) to find rotations
+  with a window starting within the notice lead; it writes nothing. Generation, the cursor update and
+  notices run in a normal tenant-scoped transaction.
 - A user reference is validated against the tenant in the application layer; a failure is a `422`,
   never a `403` or an existence leak.
 - Removing a member, deleting a team or stopping a rotation never deletes a schedule window.

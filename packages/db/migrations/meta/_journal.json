@@ -1128,6 +1128,13 @@
       "when": 1793491201000,
       "tag": "0160_oncall_rotations",
       "breakpoints": false
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1793577601000,
+      "tag": "0161_oncall_rotation_sweeper_schedule_read",
+      "breakpoints": false
     }
   ]
 }
