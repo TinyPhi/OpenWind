@@ -294,7 +294,7 @@ export function RosterPage(): React.ReactElement {
               setWeekStart((d) => new Date(d.getTime() - 7 * DAY_MS))
             }
           >
-            ← Prev week
+            {t("roster.prevWeek")}
           </Button>
           <span style={{ fontWeight: 600, fontSize: 14 }}>
             {weekStart.toLocaleDateString(undefined, {
@@ -316,7 +316,7 @@ export function RosterPage(): React.ReactElement {
               setWeekStart((d) => new Date(d.getTime() + 7 * DAY_MS))
             }
           >
-            Next week →
+            {t("roster.nextWeek")}
           </Button>
         </div>
       </div>
@@ -413,7 +413,12 @@ export function RosterPage(): React.ReactElement {
                       <button
                         type="button"
                         onClick={() => editModal.open(s)}
-                        title={`${s.label} — primary ${userName(s.primaryUserId)}${s.rotationId ? " (repeating roster)" : ""}`}
+                        title={t(
+                          s.rotationId
+                            ? "roster.barTitleRepeating"
+                            : "roster.barTitle",
+                          { label: s.label, name: userName(s.primaryUserId) },
+                        )}
                         style={{
                           gridColumnStart: startOffset + 1,
                           gridColumnEnd: `span ${span}`,
@@ -432,8 +437,8 @@ export function RosterPage(): React.ReactElement {
                       >
                         {s.rotationId && (
                           <span
-                            aria-label="Repeating roster"
-                            title="Part of a repeating roster"
+                            aria-label={t("roster.repeatingRoster")}
+                            title={t("roster.partOfRepeating")}
                           >
                             ↻{" "}
                           </span>
@@ -475,7 +480,9 @@ export function RosterPage(): React.ReactElement {
                     <button
                       type="button"
                       onClick={() => setProjectedView(p)}
-                      title={`Upcoming, not active yet — primary ${userName(p.primaryUserId)}`}
+                      title={t("roster.upcomingTitle", {
+                        name: userName(p.primaryUserId),
+                      })}
                       style={{
                         gridColumnStart: startOffset + 1,
                         gridColumnEnd: `span ${endOffset - startOffset}`,
@@ -493,7 +500,8 @@ export function RosterPage(): React.ReactElement {
                       }}
                     >
                       <span aria-hidden="true">↻ </span>
-                      <strong>Upcoming</strong> · {userName(p.primaryUserId)}
+                      <strong>{t("roster.upcoming")}</strong> ·{" "}
+                      {userName(p.primaryUserId)}
                     </button>
                   </div>
                 );
@@ -510,14 +518,10 @@ export function RosterPage(): React.ReactElement {
         }}
       >
         <DialogContent showCloseButton={false} style={{ maxWidth: 520 }}>
-          <DialogTitle>Upcoming window</DialogTitle>
+          <DialogTitle>{t("roster.upcomingWindow")}</DialogTitle>
           {projectedView && (
             <>
-              <p className="page-subtitle">
-                Not active yet. The repeating roster makes this window
-                automatically, about two days before it starts. This is a
-                preview, so it cannot be edited here.
-              </p>
+              <p className="page-subtitle">{t("roster.upcomingDesc")}</p>
               <dl
                 style={{
                   display: "grid",
@@ -525,31 +529,28 @@ export function RosterPage(): React.ReactElement {
                   gap: "6px 16px",
                 }}
               >
-                <dt>From</dt>
+                <dt>{t("roster.from")}</dt>
                 <dd>{new Date(projectedView.startsAt).toLocaleString()}</dd>
-                <dt>To</dt>
+                <dt>{t("roster.to")}</dt>
                 <dd>{new Date(projectedView.endsAt).toLocaleString()}</dd>
-                <dt>Primary</dt>
+                <dt>{t("roster.primary")}</dt>
                 <dd>{userName(projectedView.primaryUserId)}</dd>
-                <dt>Backup</dt>
+                <dt>{t("roster.backup")}</dt>
                 <dd>
                   {projectedView.backupUserId
                     ? userName(projectedView.backupUserId)
-                    : "None"}
+                    : t("roster.none")}
                 </dd>
-                <dt>Escalation manager</dt>
+                <dt>{t("roster.escalationManager")}</dt>
                 <dd>
                   {projectedView.escalationManagerUserId
                     ? userName(projectedView.escalationManagerUserId)
-                    : "None"}
+                    : t("roster.none")}
                 </dd>
               </dl>
-              <p className="page-subtitle">
-                To change who is on call, edit the team's members or the current
-                window; the preview follows.
-              </p>
+              <p className="page-subtitle">{t("roster.upcomingHint")}</p>
               <DialogClose asChild>
-                <Button variant="secondary">Close</Button>
+                <Button variant="secondary">{t("roster.close")}</Button>
               </DialogClose>
             </>
           )}
@@ -599,7 +600,9 @@ export function RosterPage(): React.ReactElement {
           <AlertDialogDescription>
             {deleteModal.item
               ? deleteModal.item.rotationId
-                ? `"${deleteModal.item.label}" is part of a repeating roster. Deleting it removes this window from the roster and nobody is on call for that time unless you cover it. The roster will not make it again and keeps repeating after it. To stop the repeat, pause the roster instead. This cannot be undone.`
+                ? t("roster.deleteDescRepeating", {
+                    label: deleteModal.item.label,
+                  })
                 : t("roster.deleteDesc", { label: deleteModal.item.label })
               : ""}
           </AlertDialogDescription>
@@ -854,7 +857,7 @@ function ScheduleFormModal({
       const code = (err as { status?: number }).status;
       if (!code || code < 500) {
         setError(
-          err instanceof Error ? err.message : "Failed to update the roster",
+          err instanceof Error ? err.message : t("roster.failedToUpdateRoster"),
         );
       }
     } finally {
@@ -952,7 +955,7 @@ function ScheduleFormModal({
           <DialogClose asChild>
             <button
               type="button"
-              aria-label="Close"
+              aria-label={t("roster.close")}
               style={{
                 background: "none",
                 border: "none",
@@ -1027,11 +1030,11 @@ function ScheduleFormModal({
             {autoEnd && (
               <div className="form-group" style={{ flex: 1 }}>
                 <label className="form-label" htmlFor="schedule-cycle-days">
-                  Cycle length (days) *
+                  {t("roster.cycleLength")}
                 </label>
                 <input
                   id="schedule-cycle-days"
-                  aria-label="Cycle length in days"
+                  aria-label={t("roster.cycleLengthAria")}
                   className="form-input"
                   type="number"
                   min={MIN_CYCLE_DAYS}
@@ -1044,9 +1047,7 @@ function ScheduleFormModal({
             )}
           </div>
           {started && (
-            <p className="page-subtitle">
-              This window is already running, so only its end can be changed.
-            </p>
+            <p className="page-subtitle">{t("roster.runningHint")}</p>
           )}
           <div className="form-group">
             <label className="form-label">{t("roster.ends")} *</label>
@@ -1059,14 +1060,14 @@ function ScheduleFormModal({
               required
             />
             {autoEnd && !endEditable && (
-              <p className="page-subtitle">
-                Worked out from the start and the cycle length.
-              </p>
+              <p className="page-subtitle">{t("roster.endAutoHint")}</p>
             )}
             {autoEnd && !cycleDaysValid && (
               <div className="alert alert-error">
-                Use a whole number of days from {MIN_CYCLE_DAYS} to{" "}
-                {MAX_CYCLE_DAYS}.
+                {t("roster.cycleRangeError", {
+                  min: MIN_CYCLE_DAYS,
+                  max: MAX_CYCLE_DAYS,
+                })}
               </div>
             )}
           </div>
@@ -1117,33 +1118,30 @@ function ScheduleFormModal({
                   disabled={!canRepeat}
                   onChange={(e) => updateField("repeatOn", e.target.checked)}
                 />{" "}
-                Repeat automatically
+                {t("roster.repeatAuto")}
               </label>
               {!canRepeat ? (
-                <p className="page-subtitle">
-                  Repeating needs a team with at least one member.
-                </p>
+                <p className="page-subtitle">{t("roster.repeatNeedsMember")}</p>
               ) : (
-                <p className="page-subtitle">
-                  When this window ends, the next one starts on its own and
-                  lasts the same number of days. The next member in the team
-                  takes over as primary, and the one after as backup, in the
-                  team's member order. Untick it to stop repeating; windows
-                  already made stay.
-                </p>
+                <p className="page-subtitle">{t("roster.repeatExplain")}</p>
               )}
               {schedule && rotation && repeating && userName && (
                 <p className="page-subtitle">
-                  Next window starts{" "}
-                  {new Date(rotation.nextStartsAt).toLocaleDateString(
-                    undefined,
-                    { month: "short", day: "numeric", year: "numeric" },
-                  )}
+                  {t("roster.nextWindowStarts", {
+                    date: new Date(rotation.nextStartsAt).toLocaleDateString(
+                      undefined,
+                      { month: "short", day: "numeric", year: "numeric" },
+                    ),
+                  })}
                   {rotation.nextPrimaryUserId
-                    ? `: primary ${userName(rotation.nextPrimaryUserId)}`
+                    ? t("roster.nextWindowPrimary", {
+                        name: userName(rotation.nextPrimaryUserId),
+                      })
                     : ""}
                   {rotation.nextBackupUserId
-                    ? `, backup ${userName(rotation.nextBackupUserId)}`
+                    ? t("roster.nextWindowBackup", {
+                        name: userName(rotation.nextBackupUserId),
+                      })
                     : ""}
                   .
                 </p>
@@ -1158,7 +1156,7 @@ function ScheduleFormModal({
                   style={{ border: "none", padding: 0, margin: "8px 0" }}
                 >
                   <legend className="form-label">
-                    Repeat is off. This window's end:
+                    {t("roster.repeatOffEnd")}
                   </legend>
                   <label style={{ display: "block" }}>
                     <input
@@ -1167,7 +1165,7 @@ function ScheduleFormModal({
                       checked={!overrideEnd}
                       onChange={() => updateField("overrideEnd", false)}
                     />{" "}
-                    Keep it as set ({cycleDaysNumber}-day cycle)
+                    {t("roster.keepAsSet", { days: cycleDaysNumber })}
                   </label>
                   <label style={{ display: "block" }}>
                     <input
@@ -1176,7 +1174,7 @@ function ScheduleFormModal({
                       checked={overrideEnd}
                       onChange={() => updateField("overrideEnd", true)}
                     />{" "}
-                    Change it (pick the end above)
+                    {t("roster.changeIt")}
                   </label>
                 </fieldset>
               )}
@@ -1185,12 +1183,7 @@ function ScheduleFormModal({
                   {confirmingPause ? (
                     <div className="alert alert-error">
                       <p style={{ margin: "0 0 8px" }}>
-                        Pause this roster? No new windows will be made and the
-                        upcoming windows that have not started are removed. The
-                        window running now stays until it ends. While paused you
-                        can create another roster for this team at the same
-                        time, but then this one can no longer be resumed: only
-                        one roster can run at a time.
+                        {t("roster.pauseConfirm")}
                       </p>
                       <div style={{ display: "flex", gap: 8 }}>
                         <Button
@@ -1199,14 +1192,14 @@ function ScheduleFormModal({
                           disabled={saving}
                           onClick={() => void changeRotation("stopped")}
                         >
-                          Pause roster
+                          {t("roster.pauseRoster")}
                         </Button>
                         <Button
                           type="button"
                           variant="secondary"
                           onClick={() => setConfirmingPause(false)}
                         >
-                          Keep running
+                          {t("roster.keepRunning")}
                         </Button>
                       </div>
                     </div>
@@ -1234,8 +1227,8 @@ function ScheduleFormModal({
                 color="yellow"
                 label={
                   rotation.status === "active"
-                    ? "Pause roster"
-                    : "Resume roster"
+                    ? t("roster.pauseRoster")
+                    : t("roster.resumeRoster")
                 }
                 icon={
                   rotation.status === "active" ? <PauseIcon /> : <PlayIcon />
@@ -1252,7 +1245,7 @@ function ScheduleFormModal({
               <CircleActionButton
                 type="button"
                 color="red"
-                label="Delete schedule"
+                label={t("roster.deleteSchedule")}
                 icon={<TrashIcon />}
                 onClick={onDelete}
               />
@@ -1260,7 +1253,9 @@ function ScheduleFormModal({
             <CircleActionButton
               type="submit"
               color="green"
-              label={schedule ? "Save changes" : "Create schedule"}
+              label={
+                schedule ? t("roster.saveChanges") : t("roster.createSchedule")
+              }
               icon={<TickIcon />}
               disabled={saving || !isValid}
             />

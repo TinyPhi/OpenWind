@@ -82,7 +82,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
         setTimezone(fireData.timezone);
         setNextFires(fireData.fires.map((f) => ({ fireAt: f.utc })));
       })
-      .catch(() => showAlert(t("scheduleRules.failed_to_load_schedule_rule.")))
+      .catch(() => showAlert(t("scheduleRules.failedToLoadRule")))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -111,7 +111,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
       setExecutionsCursor(response.meta.nextCursor);
       setHasMoreExecutions(response.meta.hasMore);
     } catch {
-      showAlert(t("scheduleRules.failed_to_load_more_executions."));
+      showAlert(t("scheduleRules.failedToLoadMore"));
     } finally {
       setLoadingMoreExecutions(false);
     }
@@ -121,7 +121,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading schedule rule…</span>
+        <span className="loader-text">{t("scheduleRules.loadingRule")}</span>
       </div>
     );
   }
@@ -129,7 +129,7 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
   if (!rule) {
     return (
       <div className="wfl-empty">
-        <h4>Schedule rule not found</h4>
+        <h4>{t("scheduleRules.ruleNotFound")}</h4>
       </div>
     );
   }
@@ -141,25 +141,24 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
         className="portal-back-link"
         onClick={() => void navigate("/admin/schedule-rules")}
       >
-        ← Schedule Rules
+        {t("scheduleRules.backToList")}
       </button>
       <div className="wfl-page-header">
         <div>
           <h2 className="page-title">{rule.name}</h2>
           <p className="page-subtitle">
-            {rule.cronHuman ?? rule.cronExpr} ({rule.timezone}) — {rule.status}
+            {rule.cronHuman ?? rule.cronExpr} ({rule.timezone}) —{" "}
+            {t(`scheduleRules.statusValue.${rule.status}`)}
           </p>
         </div>
       </div>
 
       <div style={{ marginTop: 24 }}>
         <h3 className="page-title" style={{ fontSize: 16 }}>
-          Next fires
+          {t("scheduleRules.nextFires")}
         </h3>
         {nextFires.length === 0 ? (
-          <p className="page-subtitle">
-            No upcoming fires (rule is paused or archived).
-          </p>
+          <p className="page-subtitle">{t("scheduleRules.noUpcomingFires")}</p>
         ) : (
           <ul>
             {nextFires.map((f) => (
@@ -174,22 +173,22 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
 
       <div style={{ marginTop: 32 }}>
         <h3 className="page-title" style={{ fontSize: 16 }}>
-          Execution history
+          {t("scheduleRules.executionHistory")}
         </h3>
         {executions.length === 0 ? (
           <div className="wfl-empty">
-            <h4>No executions yet</h4>
+            <h4>{t("scheduleRules.noExecutions")}</h4>
           </div>
         ) : (
           <>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Scheduled</TableHead>
-                  <TableHead>Fired</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Ticket</TableHead>
-                  <TableHead>Error</TableHead>
+                  <TableHead>{t("scheduleRules.colScheduled")}</TableHead>
+                  <TableHead>{t("scheduleRules.colFired")}</TableHead>
+                  <TableHead>{t("scheduleRules.status")}</TableHead>
+                  <TableHead>{t("scheduleRules.colTicket")}</TableHead>
+                  <TableHead>{t("scheduleRules.colError")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -203,7 +202,9 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
                         ? new Date(exec.firedAt).toLocaleString()
                         : "—"}
                     </TableCell>
-                    <TableCell>{exec.status}</TableCell>
+                    <TableCell>
+                      {t(`scheduleRules.execStatusValue.${exec.status}`)}
+                    </TableCell>
                     <TableCell>
                       {exec.ticket ? (
                         <Link to={`/records/ticket/${exec.ticket.id}`}>
@@ -237,7 +238,9 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
                   disabled={loadingMoreExecutions}
                   onClick={() => void handleLoadMore()}
                 >
-                  {loadingMoreExecutions ? "Loading…" : "Load more"}
+                  {loadingMoreExecutions
+                    ? t("scheduleRules.loadingMore")
+                    : t("scheduleRules.loadMore")}
                 </Button>
               </div>
             )}

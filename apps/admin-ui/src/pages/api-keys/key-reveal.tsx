@@ -47,9 +47,7 @@ export function KeyRevealModal({
         <DialogTitle asChild>
           <h2 className="page-title">{title}</h2>
         </DialogTitle>
-        <p className="page-subtitle">
-          Copy this key now — it cannot be shown again.
-        </p>
+        <p className="page-subtitle">{t("apiKeys.copyKeyNow")}</p>
         <div style={{ position: "relative", marginTop: 12 }}>
           <pre
             style={{
@@ -127,7 +125,7 @@ export function KeyRevealModal({
             onClose();
           }}
         >
-          Done
+          {t("apiKeys.done")}
         </Button>
       </DialogContent>
     </Dialog>

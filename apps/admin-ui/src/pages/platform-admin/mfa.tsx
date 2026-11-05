@@ -43,16 +43,14 @@ export function PlatformAdminMfa(): React.ReactElement {
           </svg>
         </div>
         <h1 className="pa-auth-title">{t("platformAdmin.verifyItsYou")}</h1>
-        <p className="pa-auth-subtitle">
-          Platform admin sign-in needs a one-time code every time you log in.
-        </p>
+        <p className="pa-auth-subtitle">{t("platformAdmin.mfaIntro")}</p>
         <OtpVerification
           onVerified={() =>
             void navigate("/platform-admin/dashboard", { replace: true })
           }
         />
         <div className="pa-auth-footer">
-          Not you, or no access to this inbox?{" "}
+          {t("platformAdmin.notYou")}{" "}
           <button
             type="button"
             className="pa-link-btn"

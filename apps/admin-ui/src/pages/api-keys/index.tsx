@@ -64,14 +64,11 @@ export function ApiKeys(): React.ReactElement {
       <div className="wfl-page-header">
         <div>
           <h2 className="page-title">{t("apiKeys.title")}</h2>
-          <p className="page-subtitle">
-            Third-party applications that can create and manage tickets via the
-            API, without a human logging in.
-          </p>
+          <p className="page-subtitle">{t("apiKeys.applicationsSubtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <Button variant="primary" onClick={() => setCreateOpen(true)}>
-            New Key
+            {t("apiKeys.newKey")}
           </Button>
         </div>
       </div>
@@ -85,7 +82,7 @@ export function ApiKeys(): React.ReactElement {
             style={{ marginTop: "16px" }}
             onClick={() => setCreateOpen(true)}
           >
-            Create your first key
+            {t("apiKeys.createFirstKey")}
           </Button>
         </div>
       ) : (
@@ -139,7 +136,7 @@ export function ApiKeys(): React.ReactElement {
                 </span>
               </div>
               <span className="page-subtitle" style={{ margin: 0 }}>
-                {app.keys.length} key{app.keys.length !== 1 ? "s" : ""}
+                {t("apiKeys.keyCount", { count: app.keys.length })}
               </span>
             </button>
           ))}

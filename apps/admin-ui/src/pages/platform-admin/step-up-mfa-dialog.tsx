@@ -36,7 +36,7 @@ export function StepUpMfaDialog({
           </h2>
         </DialogTitle>
         <p style={{ color: "var(--text-secondary)", margin: "8px 0 16px" }}>
-          This action can't be undone, so it needs a fresh verification code.
+          {t("platformAdmin.stepUpIntro")}
         </p>
         {open && (
           <OtpVerification
@@ -48,7 +48,7 @@ export function StepUpMfaDialog({
                 size="sm"
                 onClick={onCancel}
               >
-                Cancel
+                {t("platformAdmin.cancel")}
               </Button>
             }
           />

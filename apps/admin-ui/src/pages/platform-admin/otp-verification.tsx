@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import React from "react";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -72,6 +72,7 @@ export function OtpCodeInput({
   invalid = false,
   focusKey = 0,
 }: OtpCodeInputProps): React.ReactElement {
+  const { t } = useTranslation();
   const refs = React.useRef<(HTMLInputElement | null)[]>([]);
 
   React.useEffect(() => {
@@ -128,7 +129,7 @@ export function OtpCodeInput({
     <div
       className="pa-otp"
       role="group"
-      aria-label="Verification code"
+      aria-label={t("platformAdmin.verificationCode")}
       data-invalid={invalid || undefined}
     >
       {digits.map((digit, i) => (
@@ -313,7 +314,7 @@ export function OtpVerification({
         const left = positiveSeconds(e.meta?.attemptsRemaining);
         setError(
           left
-            ? `That code is incorrect. ${left} ${left === 1 ? "attempt" : "attempts"} left.`
+            ? t("platformAdmin.codeIncorrectAttempts", { count: left })
             : t("platformAdmin.codeIncorrect"),
         );
       } else if (e.code === "CODE_EXPIRED" || e.code === "TOO_MANY_ATTEMPTS") {
@@ -348,10 +349,14 @@ export function OtpVerification({
           t("platformAdmin.sendingCode")
         ) : sentTo ? (
           <>
-            We sent a 6-digit code to <strong>{sentTo}</strong>.
+            <Trans
+              i18nKey="platformAdmin.codeSentTo"
+              values={{ email: sentTo }}
+              components={{ strong: <strong /> }}
+            />
           </>
         ) : (
-          "Enter the 6-digit code sent to your email."
+          t("platformAdmin.enterCode")
         )}
       </p>
 
@@ -370,9 +375,11 @@ export function OtpVerification({
 
       <p className="pa-otp-status" aria-live="polite">
         {expired
-          ? "This code has expired. Request a new one."
+          ? t("platformAdmin.codeExpired")
           : expiresIn !== null && !needsNewCode
-            ? `Code expires in ${formatCountdown(expiresIn)}`
+            ? t("platformAdmin.codeExpiresIn", {
+                time: formatCountdown(expiresIn),
+              })
             : " "}
       </p>
 
@@ -388,7 +395,7 @@ export function OtpVerification({
         disabled={inputLocked || busy || code.length !== CODE_LENGTH}
         style={{ width: "100%" }}
       >
-        {verifying ? "Verifying…" : "Verify"}
+        {verifying ? t("platformAdmin.verifying") : t("platformAdmin.verify")}
       </Button>
 
       <div className="pa-otp-actions">
@@ -401,8 +408,8 @@ export function OtpVerification({
           disabled={sending || verifying || resendIn > 0}
         >
           {resendIn > 0
-            ? `Resend code in ${formatCountdown(resendIn)}`
-            : "Resend code"}
+            ? t("platformAdmin.resendIn", { time: formatCountdown(resendIn) })
+            : t("platformAdmin.resendCode")}
         </Button>
       </div>
     </form>

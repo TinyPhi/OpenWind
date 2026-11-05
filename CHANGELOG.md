@@ -3,6 +3,13 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — i18n Phase 2 remaining strings extraction (#200)]
+
+### Added
+
+- Extracted all user-facing strings across API Keys (`create.tsx`, `detail.tsx`, `edit.tsx`, `key-reveal.tsx`, `status.ts`), Platform Admin (`activity-timeline.tsx`, `create-sandbox-modal.tsx`, `dashboard.tsx`, `edit-branding-dialog.tsx`, `extend-trial-dialog.tsx`, `format.ts`, `login.tsx`, `mfa.tsx`, `otp-verification.tsx`, `sandbox-detail-panel.tsx`, `sandbox-row-actions.tsx`, `sandboxes-table.tsx`), Roster (`roster/index.tsx`), and Schedule Rules (`schedule-rules/index.tsx`, `detail.tsx`) into `common` i18n namespace keys (#200).
+- Mirrored 328 keys per locale across all 11 supported locales (`bn`, `de`, `en`, `es`, `fr`, `hi`, `it`, `kn`, `mr`, `ta`, `te`) with 100% key parity.
+
 ## [Unreleased — on-call rotation sweeper due filter (#1122)]
 
 ### Performance Improvements

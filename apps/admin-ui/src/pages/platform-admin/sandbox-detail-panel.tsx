@@ -55,7 +55,7 @@ export function SandboxDetailPanel({
         className="pa-drawer"
         role="dialog"
         aria-modal="true"
-        aria-label={`${sandbox.name} details`}
+        aria-label={t("platformAdmin.sandboxDetails", { name: sandbox.name })}
       >
         <div className="pa-drawer-header">
           <div>
@@ -63,7 +63,7 @@ export function SandboxDetailPanel({
               {sandbox.name}
             </h2>
             <div className="pa-badges">
-              <span className={`badge ${trial.cls}`}>{trial.label}</span>
+              <span className={`badge ${trial.cls}`}>{t(trial.labelKey)}</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -102,7 +102,7 @@ export function SandboxDetailPanel({
           <dt>{t("platformAdmin.created")}</dt>
           <dd>
             {new Date(sandbox.createdAt).toLocaleString()} (
-            {relativeTime(sandbox.createdAt)})
+            {relativeTime(t, sandbox.createdAt)})
           </dd>
           <dt>{t("platformAdmin.trialEnds")}</dt>
           <dd>
@@ -114,7 +114,7 @@ export function SandboxDetailPanel({
 
         <section>
           <h3 className="pa-panel-title" style={{ marginBottom: 12 }}>
-            Activity
+            {t("platformAdmin.activity")}
           </h3>
           <ActivityTimeline
             targetTenantId={sandbox.id}
