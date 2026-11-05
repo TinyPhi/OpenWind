@@ -1,10 +1,17 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   useParams,
   Link,
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
+import { filterTransitionsByRoles } from "../../lib/transition-roles.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared, type TenantUser } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
@@ -75,6 +82,7 @@ type Transition = {
   label: string;
   requiresComment: boolean;
   requiresFields: string[];
+  allowedRoles?: string[];
 };
 type ChildTicket = {
   id: string;
@@ -655,6 +663,12 @@ export function WorkflowRecords(): React.ReactElement {
   const [recordsRefreshing, setRecordsRefreshing] = useState(false);
   const [states, setStates] = useState<WorkflowState[]>([]);
   const [transitions, setTransitions] = useState<Transition[]>([]);
+  // Drop targets only for transitions the viewer's roles allow (empty allowedRoles = anyone).
+  // Conditions depend on the record and the actor, so those stay with the server.
+  const permittedTransitions = useMemo(
+    () => filterTransitionsByRoles(transitions, currentUserRoles),
+    [transitions, currentUserRoles],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
@@ -1153,7 +1167,7 @@ export function WorkflowRecords(): React.ReactElement {
       const rec = records.find((r) => r.id === recordId);
       if (!rec || rec.currentState === toStateName) return;
 
-      const transition = transitions.find(
+      const transition = permittedTransitions.find(
         (t) => t.fromState === rec.currentState && t.toState === toStateName,
       );
       if (!transition) return;
@@ -1171,7 +1185,7 @@ export function WorkflowRecords(): React.ReactElement {
 
       void executeTransitionDrop(recordId, toStateName, transition, "", {});
     },
-    [records, transitions, executeTransitionDrop],
+    [records, permittedTransitions, executeTransitionDrop],
   );
 
   function handleModalConfirm(
@@ -1959,7 +1973,7 @@ export function WorkflowRecords(): React.ReactElement {
                 typeSlug={typeSlug}
                 entityTypeId={entityTypeId}
                 workflowId={workflowId}
-                transitions={transitions}
+                transitions={permittedTransitions}
                 allRecords={records}
                 onCardDrop={(recordId, toStateName) =>
                   handleCardDrop(recordId, toStateName)
