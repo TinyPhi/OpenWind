@@ -3,6 +3,13 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — on-call rotation sweeper due filter (#1122)]
+
+### Performance Improvements
+
+- Filter on-call rotations swept by the background worker tick to only those due for advance planning or with a window starting within the notice lead, avoiding full table scans on large rotation tables (#1122).
+- Added migration 0163: column-level `SELECT (rotation_id, starts_at, deleted_at)` on `on_call_schedules` for `oncall_rotation_sweeper`.
+
 ## [Unreleased — i18n extraction for record and workflow screens (#200)]
 
 ### Added

@@ -14,7 +14,19 @@
  *     never blocks generation.
  */
 
-import { and, asc, eq, gt, isNotNull, isNull, lt, lte } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  gt,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   db,
   withTenantContext,
@@ -471,15 +483,39 @@ export async function rotationTick(now: Date = new Date()): Promise<void> {
   try {
     // Cross-tenant discovery only: RLS hides rotations from a worker with no tenant context, so
     // this one read goes through the sweeper role. Everything after runs tenant-scoped.
+    const horizon = new Date(now.getTime() + ROTATION_NOTICE_LEAD_MS);
     const rotations = await db.transaction(async (tx) => {
       await setOncallRotationSweeperRole(tx);
+      // Due (the next window starts within the lead) or has a live window starting within the lead.
+      // The second half keeps a failed notice retried: generating a window moves next_starts_at a
+      // full cycle ahead, so next_starts_at alone would drop the rotation while its notice is unsent.
       return tx
         .select({
           id: onCallRotations.id,
           tenantId: onCallRotations.tenantId,
         })
         .from(onCallRotations)
-        .where(eq(onCallRotations.status, "active"));
+        .where(
+          and(
+            eq(onCallRotations.status, "active"),
+            or(
+              lte(onCallRotations.nextStartsAt, horizon),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(onCallSchedules)
+                  .where(
+                    and(
+                      eq(onCallSchedules.rotationId, onCallRotations.id),
+                      isNull(onCallSchedules.deletedAt),
+                      gt(onCallSchedules.startsAt, now),
+                      lte(onCallSchedules.startsAt, horizon),
+                    ),
+                  ),
+              ),
+            ),
+          ),
+        );
     });
 
     const eligibility = new Map<string, boolean>();
