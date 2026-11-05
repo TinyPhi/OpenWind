@@ -3,6 +3,13 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — i18n extraction for record and workflow screens (#200)]
+
+### Added
+
+- Extracted all user-facing strings across Record Details (`record-detail.tsx`), Record Creation (`record-create.tsx`), Workflow Builder (`workflow-canvas.tsx`), and Workflow Kanban / Records (`workflow-records.tsx`) into `common` i18n namespace keys (#200).
+- Mirrored all newly added keys across all 11 supported locales (`bn`, `de`, `en`, `es`, `fr`, `hi`, `it`, `kn`, `mr`, `ta`, `te`) with 100% key parity.
+
 ## [Unreleased — organisation login link and branding]
 
 ### Added

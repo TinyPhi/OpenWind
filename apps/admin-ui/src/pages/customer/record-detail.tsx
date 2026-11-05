@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import { useTranslation, Trans } from "react-i18next";
+import type { TFunction } from "i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared } from "../../lib/use-users.js";
 import { CoverageGapBadge } from "../../components/coverage-gap-badge.js";
@@ -197,6 +199,7 @@ function FieldValue({
   attachments?: AttachmentFile[];
   onPreviewFile?: (file: AttachmentFile) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   if (value === null || value === undefined)
     return <span className="rcd-muted">—</span>;
   if (fieldType === "file" || fieldType === "files") {
@@ -226,7 +229,7 @@ function FieldValue({
     const bv = Boolean(value);
     return (
       <span className={`portal-bool-badge ${bv ? "yes" : "no"}`}>
-        {bv ? "Yes" : "No"}
+        {bv ? t("recordDetail.yes") : t("recordDetail.no")}
       </span>
     );
   }
@@ -397,15 +400,15 @@ function HistoryIcon({
 /* ── Comment composer with @mention + file attachments ──────── */
 // A validation failure's message is the generic "Request validation failed"; the reason is in
 // its per-field list, so show that when there is one.
-function commentErrorMessage(err: unknown): string {
-  if (!(err instanceof Error)) return "The comment could not be posted";
+function commentErrorMessage(err: unknown, t: TFunction): string {
+  if (!(err instanceof Error)) return t("recordDetail.commentPostFailed");
   const fields = (err as Error & { fields?: Array<{ message?: string }> })
     .fields;
   const reasons = (fields ?? [])
     .map((f) => f.message)
     .filter((m): m is string => typeof m === "string" && m !== "");
   if (reasons.length > 0) return reasons.join("; ");
-  return err.message || "The comment could not be posted";
+  return err.message || t("recordDetail.commentPostFailed");
 }
 // The API's limit on a comment (apps/api/src/routes/entities/add-comment.ts). The composer
 // sends the trimmed text, so the count here trims too.
@@ -437,6 +440,7 @@ function CommentComposer({
   entityId: string;
   moduleSlug: string;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -547,7 +551,7 @@ function CommentComposer({
       clearFiles();
     } catch (err) {
       // Keep the text so it can be fixed and posted again; before this the failure was silent.
-      setSubmitError(commentErrorMessage(err));
+      setSubmitError(commentErrorMessage(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -570,7 +574,7 @@ function CommentComposer({
             <polyline points="9 14 4 9 9 4" />
             <path d="M20 20v-7a4 4 0 00-4-4H4" />
           </svg>
-          Replying to{" "}
+          {t("recordDetail.replyingTo")}{" "}
           <strong>
             {replyTo.actorDisplayName ?? replyTo.actorId.slice(0, 8) + "…"}
           </strong>
@@ -612,10 +616,7 @@ function CommentComposer({
               backdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
             }
           }}
-          placeholder={
-            placeholder ??
-            "Add a comment… Use @ to mention someone (Ctrl+Enter to post)"
-          }
+          placeholder={placeholder ?? t("recordDetail.commentPlaceholder")}
           value={text}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
@@ -671,17 +672,20 @@ function CommentComposer({
       <div className="cmt-composer-footer">
         {overLimit ? (
           <span className="cmt-counter cmt-counter-over" role="status">
-            Remove {-remaining} character{remaining === -1 ? "" : "s"} to post
+            {t("recordDetail.removeChars", { count: -remaining })}
           </span>
         ) : remaining <= COMMENT_COUNTER_FROM ? (
           <span className="cmt-counter" role="status">
-            {remaining} character{remaining === 1 ? "" : "s"} left
+            {t("recordDetail.charsLeft", { count: remaining })}
           </span>
         ) : (
-          <span className="cmt-hint">@ mention · Ctrl+Enter to post</span>
+          <span className="cmt-hint">{t("recordDetail.commentHint")}</span>
         )}
         <div className="cmt-footer-actions">
-          <label className="cmt-attach-btn" title="Attach files">
+          <label
+            className="cmt-attach-btn"
+            title={t("recordDetail.attachFiles")}
+          >
             <svg
               width="13"
               height="13"
@@ -694,7 +698,7 @@ function CommentComposer({
             >
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
             </svg>
-            <span>Attach</span>
+            <span>{t("recordDetail.attach")}</span>
             <input
               type="file"
               multiple
@@ -717,15 +721,17 @@ function CommentComposer({
             }
             title={
               pendingCount > 0
-                ? "Waiting for file scan…"
+                ? t("recordDetail.waitingForScan")
                 : overLimit
-                  ? `Comments can be at most ${COMMENT_MAX_LENGTH} characters`
+                  ? t("recordDetail.commentTooLong", {
+                      max: COMMENT_MAX_LENGTH,
+                    })
                   : undefined
             }
             onClick={() => void handleSubmit()}
           >
             {submitting ? (
-              "Posting…"
+              t("recordDetail.posting")
             ) : (
               <>
                 <svg
@@ -741,7 +747,7 @@ function CommentComposer({
                   <line x1="22" y1="2" x2="11" y2="13" />
                   <polygon points="22 2 15 22 11 13 2 9 22 2" />
                 </svg>
-                Post
+                {t("recordDetail.post")}
               </>
             )}
           </button>
@@ -768,6 +774,7 @@ function AssignDropdown({
   /** What the trigger shows with no user picked, e.g. the ticket's team. */
   emptyLabel?: string;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -829,7 +836,7 @@ function AssignDropdown({
           <>
             <span className="asgn-avatar asgn-avatar-empty">?</span>
             <span className="asgn-name asgn-unassigned">
-              {emptyLabel ?? "Unassigned"}
+              {emptyLabel ?? t("recordDetail.unassigned")}
             </span>
           </>
         )}
@@ -867,7 +874,7 @@ function AssignDropdown({
             <input
               ref={searchRef}
               className="asgn-search"
-              placeholder="Search people…"
+              placeholder={t("recordDetail.searchPeople")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -882,7 +889,9 @@ function AssignDropdown({
             >
               <span className="asgn-avatar asgn-avatar-empty">?</span>
               <span className="asgn-option-info">
-                <span className="asgn-option-name">Unassigned</span>
+                <span className="asgn-option-name">
+                  {t("recordDetail.unassigned")}
+                </span>
               </span>
               {!value && (
                 <svg
@@ -901,7 +910,7 @@ function AssignDropdown({
               )}
             </button>
             {filtered.length === 0 && (
-              <div className="asgn-empty">No results</div>
+              <div className="asgn-empty">{t("recordDetail.noResults")}</div>
             )}
             {filtered.map((u) => (
               <button
@@ -957,12 +966,13 @@ function StateDropdown({
   disabled?: boolean;
   onTransition: (transition: Transition) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const stateObj = allStates.find((s) => s.name === current);
   const color = stateObj?.color ?? null;
-  const available = transitions.filter((t) => t.fromState === current);
+  const available = transitions.filter((tr) => tr.fromState === current);
 
   useEffect(() => {
     if (!open) return;
@@ -988,7 +998,9 @@ function StateDropdown({
         disabled={disabled === true || available.length === 0}
         onClick={() => setOpen((v) => !v)}
         title={
-          available.length === 0 ? "No transitions available" : "Change state"
+          available.length === 0
+            ? t("recordDetail.noTransitions")
+            : t("recordDetail.changeState")
         }
       >
         <span
@@ -1015,19 +1027,19 @@ function StateDropdown({
 
       {open && available.length > 0 && (
         <div className="asgn-menu">
-          <div className="asgn-menu-label">Move to…</div>
+          <div className="asgn-menu-label">{t("recordDetail.moveTo")}</div>
           <div className="asgn-options">
-            {available.map((t) => {
-              const toState = allStates.find((s) => s.name === t.toState);
+            {available.map((tr) => {
+              const toState = allStates.find((s) => s.name === tr.toState);
               const toColor = toState?.color ?? null;
               return (
                 <button
-                  key={t.id}
+                  key={tr.id}
                   type="button"
                   className="asgn-option"
                   onClick={() => {
                     setOpen(false);
-                    onTransition(t);
+                    onTransition(tr);
                   }}
                 >
                   <span
@@ -1036,11 +1048,13 @@ function StateDropdown({
                   />
                   <span className="asgn-option-info">
                     <span className="asgn-option-name">
-                      {t.label !== "" ? t.label : (toState?.label ?? t.toState)}
+                      {tr.label !== ""
+                        ? tr.label
+                        : (toState?.label ?? tr.toState)}
                     </span>
-                    {t.requiresComment && (
+                    {tr.requiresComment && (
                       <span className="asgn-option-email">
-                        Comment required
+                        {t("recordDetail.commentRequired")}
                       </span>
                     )}
                   </span>
@@ -1157,33 +1171,34 @@ function AccessUserRow({
     isCreator: boolean;
   }) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const name = user.displayName ?? user.email;
   const userInitials = initials(name);
   const isCreator = user.tag === "creator";
   const isAssigned = user.tag === "assigned";
 
   // Badge text + colors
-  let badgeLabel = "Access";
+  let badgeLabel = t("recordDetail.badgeAccess");
   let badgeBg = "#f3f4f6";
   let badgeColor = "var(--text-muted, #6b7280)";
   let badgeBorder = "#e5e7eb";
   if (isCreator) {
-    badgeLabel = "Creator";
+    badgeLabel = t("recordDetail.badgeCreator");
     badgeBg = "#ede9fe";
     badgeColor = "#7c3aed";
     badgeBorder = "#c4b5fd";
   } else if (isAssigned) {
-    badgeLabel = "Assigned";
+    badgeLabel = t("recordDetail.badgeAssigned");
     badgeBg = "var(--accent-color, #6366f1)18";
     badgeColor = "var(--accent-color, #6366f1)";
     badgeBorder = "var(--accent-color, #6366f1)40";
   } else if (user.level === "read_comment") {
-    badgeLabel = "Comment";
+    badgeLabel = t("recordDetail.badgeComment");
     badgeBg = "#eff6ff";
     badgeColor = "#2563eb";
     badgeBorder = "#bfdbfe";
   } else if (user.level === "read_only") {
-    badgeLabel = "Read Only";
+    badgeLabel = t("recordDetail.badgeReadOnly");
     badgeBg = "#f9fafb";
     badgeColor = "#6b7280";
     badgeBorder = "#d1d5db";
@@ -1269,7 +1284,7 @@ function AccessUserRow({
       {isAdminOrAgent && !isRecordDeleted && !isCreator && !isAssigned && (
         <button
           type="button"
-          title="Change access"
+          title={t("recordDetail.changeAccess")}
           onClick={() =>
             onChangeAccess({
               userId: user.userId,
@@ -1313,6 +1328,7 @@ function AccessUserRow({
 
 /* ══════════════════════════════════════════════════════════════ */
 export function CustomerRecordDetail(): React.ReactElement {
+  const { t } = useTranslation();
   const { typeSlug, id } = useParams<{ typeSlug: string; id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1716,21 +1732,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     {
       id: "child-open",
       name: "open",
-      label: "Open",
+      label: t("recordDetail.childStateOpen"),
       color: "#6366f1",
       isTerminal: false,
     },
     {
       id: "child-in-progress",
       name: "in-progress",
-      label: "In Progress",
+      label: t("recordDetail.childStateInProgress"),
       color: "#f59e0b",
       isTerminal: false,
     },
     {
       id: "child-closed",
       name: "closed",
-      label: "Closed",
+      label: t("recordDetail.childStateClosed"),
       color: "#10b981",
       isTerminal: true,
     },
@@ -1773,42 +1789,42 @@ export function CustomerRecordDetail(): React.ReactElement {
       id: "ct-open-inprogress",
       fromState: "open",
       toState: "in-progress",
-      label: "Start",
+      label: t("recordDetail.childActionStart"),
       requiresComment: false,
     },
     {
       id: "ct-open-closed",
       fromState: "open",
       toState: "closed",
-      label: "Close",
+      label: t("recordDetail.childActionClose"),
       requiresComment: false,
     },
     {
       id: "ct-inprogress-open",
       fromState: "in-progress",
       toState: "open",
-      label: "Reopen",
+      label: t("recordDetail.childActionReopen"),
       requiresComment: false,
     },
     {
       id: "ct-inprogress-closed",
       fromState: "in-progress",
       toState: "closed",
-      label: "Close",
+      label: t("recordDetail.childActionClose"),
       requiresComment: false,
     },
     {
       id: "ct-closed-open",
       fromState: "closed",
       toState: "open",
-      label: "Reopen",
+      label: t("recordDetail.childActionReopen"),
       requiresComment: false,
     },
     {
       id: "ct-closed-inprogress",
       fromState: "closed",
       toState: "in-progress",
-      label: "Restart",
+      label: t("recordDetail.childActionRestart"),
       requiresComment: false,
     },
   ];
@@ -1894,14 +1910,15 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   const getFieldLabel = (fieldName: string): string => {
-    if (fieldName === "state" || fieldName === "currentState") return "State";
-    if (fieldName === "assignedTo") return "Assigned To";
+    if (fieldName === "state" || fieldName === "currentState")
+      return t("recordDetail.fieldState");
+    if (fieldName === "assignedTo") return t("recordDetail.fieldAssignedTo");
     const found = fields.find((f) => f.name === fieldName);
     return found ? found.label : fieldName;
   };
 
   const getActorName = (actorId: string | null): string => {
-    if (!actorId) return "System";
+    if (!actorId) return t("recordDetail.actorSystem");
     const u = users.find((user) => user.userId === actorId);
     if (!u) return actorId.slice(0, 8) + "…";
     // If displayName is the raw userId (UUID), fall through to email/loginName
@@ -1922,7 +1939,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       return actorDisplayName;
     // If local users list has a real name, prefer that over the truncated ID.
     if (fromList && !fromList.endsWith("…")) return fromList;
-    return actorDisplayName ?? fromList ?? "Unknown";
+    return actorDisplayName ?? fromList ?? t("recordDetail.actorUnknown");
   };
 
   function loadRecord(targetId: string | undefined = id): Promise<boolean> {
@@ -1997,7 +2014,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         if (recordFetchFailed && status === 404) {
           setNoAccess(true);
         } else {
-          setError(err instanceof Error ? err.message : "Failed to load");
+          setError(
+            err instanceof Error ? err.message : t("recordDetail.failedToLoad"),
+          );
         }
         return false;
       })
@@ -2308,15 +2327,15 @@ export function CustomerRecordDetail(): React.ReactElement {
         };
       };
       const all = [...res.data.parentTickets, ...res.data.childTickets].filter(
-        (t) => t.id !== id,
+        (tk) => tk.id !== id,
       );
       const byWorkflow: Record<string, LinkCandidate[]> = {};
-      for (const t of all) {
-        if (!t.workflowId) continue;
-        (byWorkflow[t.workflowId] ??= []).push({
-          id: t.id,
-          workflowId: t.workflowId,
-          title: deriveTitle(t),
+      for (const tk of all) {
+        if (!tk.workflowId) continue;
+        (byWorkflow[tk.workflowId] ??= []).push({
+          id: tk.id,
+          workflowId: tk.workflowId,
+          title: deriveTitle(tk),
           typeSlug: null,
         });
       }
@@ -2349,7 +2368,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadLinkedTickets();
     } catch (err) {
       setLinkError(
-        err instanceof Error ? err.message : "Failed to create link",
+        err instanceof Error
+          ? err.message
+          : t("recordDetail.failedToCreateLink"),
       );
     } finally {
       setLinkSubmitting(false);
@@ -2505,7 +2526,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       // already see — only surface it for the explicit/foreground load.
       if (!options.silent) {
         setAlertsError(
-          err instanceof Error ? err.message : "Failed to load alerts",
+          err instanceof Error
+            ? err.message
+            : t("recordDetail.failedToLoadAlerts"),
         );
       }
     } finally {
@@ -2583,7 +2606,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       await loadAlerts();
     } catch (err) {
       setAlertsError(
-        err instanceof Error ? err.message : "Failed to save alert",
+        err instanceof Error
+          ? err.message
+          : t("recordDetail.failedToSaveAlert"),
       );
     } finally {
       setAlertSaving(false);
@@ -2592,7 +2617,7 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   async function cancelAlert(alertId: string): Promise<void> {
     if (!id) return;
-    if (!(await showConfirm("Cancel this alert?"))) return;
+    if (!(await showConfirm(t("recordDetail.cancelAlertConfirm")))) return;
     setAlertsError(null);
     try {
       await fetchWithAuth(`${API_URL}/entities/${id}/alerts/${alertId}`, {
@@ -2602,7 +2627,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       await loadAlerts();
     } catch (err) {
       setAlertsError(
-        err instanceof Error ? err.message : "Failed to cancel alert",
+        err instanceof Error
+          ? err.message
+          : t("recordDetail.failedToCancelAlert"),
       );
     }
   }
@@ -2612,18 +2639,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     // docs/specs/mandatory-ticket-fields.md R4: a sub-task needs the same four mandatory
     // values as a full ticket; the assignee is optional.
     const missing = [
-      !newChildTitle.trim() && "Title",
-      !newChildDueDate && "Due date",
-      !newChildRemark.trim() && "Remark",
+      !newChildTitle.trim() && t("recordDetail.missingTitle"),
+      !newChildDueDate && t("recordDetail.missingDueDate"),
+      !newChildRemark.trim() && t("recordDetail.missingRemark"),
     ].filter((m): m is string => typeof m === "string");
     if (missing.length > 0) {
       setCreateChildError(
-        `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required.`,
+        t("recordDetail.fieldsRequired", {
+          count: missing.length,
+          fields: missing.join(", "),
+        }),
       );
       return;
     }
     if (new Date(newChildDueDate).getTime() <= Date.now()) {
-      setCreateChildError("Due date must be in the future.");
+      setCreateChildError(t("recordDetail.dueDateFuture"));
       return;
     }
     setCreatingChild(true);
@@ -2658,13 +2688,15 @@ export function CustomerRecordDetail(): React.ReactElement {
       const warnings = (created as { warnings?: unknown } | null)?.warnings;
       setChildNotice(
         Array.isArray(warnings) && warnings.includes("remark_comment_failed")
-          ? "The sub-task was created, but its remark could not be added as the first comment. The remark is saved on the sub-task."
+          ? t("recordDetail.subtaskRemarkCommentFailed")
           : null,
       );
       void loadChildren();
     } catch (err) {
       setCreateChildError(
-        err instanceof Error ? err.message : "Failed to create sub-task",
+        err instanceof Error
+          ? err.message
+          : t("recordDetail.failedToCreateSubtask"),
       );
     } finally {
       setCreatingChild(false);
@@ -2707,7 +2739,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         void loadRecord();
       }
     } catch (err) {
-      setTransError(err instanceof Error ? err.message : "Archive failed");
+      setTransError(
+        err instanceof Error ? err.message : t("recordDetail.archiveFailed"),
+      );
     } finally {
       setArchiving(false);
     }
@@ -2722,7 +2756,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       });
       void loadRecord();
     } catch (err) {
-      setTransError(err instanceof Error ? err.message : "Restore failed");
+      setTransError(
+        err instanceof Error ? err.message : t("recordDetail.restoreFailed"),
+      );
     } finally {
       setRestoring(false);
     }
@@ -2998,10 +3034,13 @@ export function CustomerRecordDetail(): React.ReactElement {
         );
       })
       .map((f) => f.label);
-    if (!editDueDate) missing.push("Due date");
+    if (!editDueDate) missing.push(t("recordDetail.missingDueDate"));
     if (missing.length > 0) {
       setSaveError(
-        `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required.`,
+        t("recordDetail.fieldsRequired", {
+          count: missing.length,
+          fields: missing.join(", "),
+        }),
       );
       return;
     }
@@ -3009,7 +3048,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     const dueDateChanged =
       editDueDate !== (record.dueDate ? toLocalInputValue(record.dueDate) : "");
     if (dueDateChanged && new Date(editDueDate).getTime() <= Date.now()) {
-      setSaveError("Due date must be in the future.");
+      setSaveError(t("recordDetail.dueDateFuture"));
       return;
     }
     // Only a severity the user actually changed is sent: an older ticket with none shows
@@ -3045,7 +3084,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       // resolving against the pre-edit list until a full page reload.
       void Promise.all([loadRecord(), refreshAttachments()]);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
+      setSaveError(
+        err instanceof Error ? err.message : t("recordDetail.saveFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -3111,7 +3152,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       setNewTagText("");
       setTagModalOpen(false);
     } catch (err) {
-      setTagError(err instanceof Error ? err.message : "Failed to add tag");
+      setTagError(
+        err instanceof Error ? err.message : t("recordDetail.failedToAddTag"),
+      );
     } finally {
       setAddingTag(false);
     }
@@ -3124,7 +3167,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       await fetchWithAuth(`${API_URL}/entities/${id}/tags/${tagId}`, {
         method: "DELETE",
       });
-      setTags((prev) => prev.filter((t) => t.id !== tagId));
+      setTags((prev) => prev.filter((tg) => tg.id !== tagId));
     } finally {
       setRemovingTagId(null);
     }
@@ -3162,7 +3205,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
     if (new Date(value).getTime() <= Date.now()) {
       debouncedQuickSetDueDate.cancel();
-      setDueDateInputError("Due date must be in the future.");
+      setDueDateInputError(t("recordDetail.dueDateFuture"));
       return;
     }
     setDueDateInputError(null);
@@ -3182,18 +3225,18 @@ export function CustomerRecordDetail(): React.ReactElement {
     if (!id) return;
     const reason = overrideReason.trim();
     if (!overrideTarget) {
-      setOverrideError("Choose the step to move this record to.");
+      setOverrideError(t("recordDetail.overrideChooseStep"));
       return;
     }
     if (reason.length < OVERRIDE_REASON_MIN) {
       setOverrideError(
-        `Give a reason of at least ${OVERRIDE_REASON_MIN} characters. It is recorded with the change.`,
+        t("recordDetail.overrideReasonMin", { min: OVERRIDE_REASON_MIN }),
       );
       return;
     }
     if (reason.length > OVERRIDE_REASON_MAX) {
       setOverrideError(
-        `The reason can be at most ${OVERRIDE_REASON_MAX} characters.`,
+        t("recordDetail.overrideReasonMax", { max: OVERRIDE_REASON_MAX }),
       );
       return;
     }
@@ -3210,7 +3253,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadRecord();
     } catch (err) {
       setOverrideError(
-        err instanceof Error ? err.message : "Failed to override the state",
+        err instanceof Error
+          ? err.message
+          : t("recordDetail.failedToOverrideState"),
       );
     } finally {
       setOverriding(false);
@@ -3245,7 +3290,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       setLoading(true);
       void loadRecord();
     } catch (err) {
-      setTransError(err instanceof Error ? err.message : "Transition failed");
+      setTransError(
+        err instanceof Error ? err.message : t("recordDetail.transitionFailed"),
+      );
     } finally {
       setTransitioning(null);
     }
@@ -3263,14 +3310,12 @@ export function CustomerRecordDetail(): React.ReactElement {
       <div className="rcd-page">
         <div className="rd-no-access">
           <h2 className="rd-no-access-title">
-            You don't have access to this record
+            {t("recordDetail.noAccessTitle")}
           </h2>
-          <p className="rd-muted">
-            Ask an admin or agent to grant you access, or request it below.
-          </p>
+          <p className="rd-muted">{t("recordDetail.noAccessDesc")}</p>
           {accessRequestState === "sent" ? (
             <div className="portal-alert-success" style={{ marginTop: "12px" }}>
-              Access request sent — you'll be notified once it's reviewed.
+              {t("recordDetail.accessRequestSent")}
             </div>
           ) : (
             <button
@@ -3281,13 +3326,13 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => void requestRecordAccess()}
             >
               {accessRequestState === "submitting"
-                ? "Requesting…"
-                : "Request Access"}
+                ? t("recordDetail.requesting")
+                : t("recordDetail.requestAccess")}
             </button>
           )}
           {accessRequestState === "error" && (
             <div className="portal-alert-error" style={{ marginTop: "12px" }}>
-              Failed to send request. Try again.
+              {t("recordDetail.requestFailed")}
             </div>
           )}
           {/* Explicit destination, not navigate(-1) — a direct-URL or
@@ -3301,7 +3346,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             style={{ marginTop: "16px" }}
             onClick={() => void navigate("/records")}
           >
-            ← Back to Records
+            ← {t("recordDetail.backToRecords")}
           </button>
         </div>
       </div>
@@ -3311,7 +3356,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   if (error || !record) {
     return (
       <div className="rcd-page">
-        <div className="portal-alert-error">{error ?? "Record not found"}</div>
+        <div className="portal-alert-error">
+          {error ?? t("recordDetail.recordNotFound")}
+        </div>
         <button
           type="button"
           className="portal-back-link"
@@ -3325,7 +3372,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           }}
           onClick={() => void navigate(-1)}
         >
-          ← Back
+          ← {t("recordDetail.back")}
         </button>
       </div>
     );
@@ -3369,7 +3416,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const recordTitle =
     titleField && String(record.fields[titleField.name] ?? "").trim()
       ? String(record.fields[titleField.name])
-      : (entityType?.name ?? "Record");
+      : (entityType?.name ?? t("recordDetail.record"));
 
   const createdByEvent = historyEvents.find(
     (e) => e.metadata?.type === "create",
@@ -3429,7 +3476,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   setReplyTo(event);
                   setActiveTab("comments");
                 }}
-                title="Reply"
+                title={t("recordDetail.reply")}
               >
                 <svg
                   width="11"
@@ -3444,7 +3491,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <polyline points="9 14 4 9 9 4" />
                   <path d="M20 20v-7a4 4 0 00-4-4H4" />
                 </svg>
-                Reply
+                {t("recordDetail.reply")}
               </button>
             )}
           </div>
@@ -3497,8 +3544,8 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => toggleThread(event.id)}
               title={
                 collapsed
-                  ? `Show ${children.length} repl${children.length === 1 ? "y" : "ies"}`
-                  : "Collapse replies"
+                  ? t("recordDetail.showReplies", { count: children.length })
+                  : t("recordDetail.collapseReplies")
               }
             >
               <svg
@@ -3543,7 +3590,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             >
               <polyline points="6 9 12 15 18 9" />
             </svg>
-            {children.length} repl{children.length === 1 ? "y" : "ies"} hidden
+            {t("recordDetail.repliesHidden", { count: children.length })}
           </div>
         )}
       </div>
@@ -3591,11 +3638,13 @@ export function CustomerRecordDetail(): React.ReactElement {
       const targetId = (meta as Record<string, unknown>)["targetUserId"] as
         | string
         | undefined;
-      const target = targetId ? getActorName(targetId) : "someone";
+      const target = targetId
+        ? getActorName(targetId)
+        : t("recordDetail.someone");
       const levelMap: Record<string, string> = {
-        read_only: "Read Only",
-        read_comment: "Comment",
-        read_write: "Full Access",
+        read_only: t("recordDetail.levelReadOnly"),
+        read_comment: t("recordDetail.levelComment"),
+        read_write: t("recordDetail.levelFullAccess"),
       };
       const level =
         levelMap[String((meta as Record<string, unknown>)["level"] ?? "")] ??
@@ -3624,31 +3673,52 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong>{" "}
               {isAccessGrant && (
-                <>
-                  granted <strong>{target}</strong> access
-                  {level ? ` (${level})` : ""}
-                </>
+                <Trans
+                  i18nKey={
+                    level
+                      ? "recordDetail.feedAccessGrantedLevel"
+                      : "recordDetail.feedAccessGranted"
+                  }
+                  values={{ actor, target, level }}
+                  components={{ strong: <strong /> }}
+                />
               )}
               {isAccessUpdate && (
-                <>
-                  changed <strong>{target}</strong>'s access
-                  {level ? ` to ${level}` : ""}
-                </>
+                <Trans
+                  i18nKey={
+                    level
+                      ? "recordDetail.feedAccessUpdatedLevel"
+                      : "recordDetail.feedAccessUpdated"
+                  }
+                  values={{ actor, target, level }}
+                  components={{ strong: <strong /> }}
+                />
               )}
               {isAccessRevoke && (
-                <>
-                  removed <strong>{target}</strong>'s access
-                </>
+                <Trans
+                  i18nKey="recordDetail.feedAccessRevoked"
+                  values={{ actor, target }}
+                  components={{ strong: <strong /> }}
+                />
               )}
               {isAccessReject && (
-                <>
-                  rejected <strong>{target}</strong>'s access request
-                </>
+                <Trans
+                  i18nKey="recordDetail.feedAccessRejected"
+                  values={{ actor, target }}
+                  components={{ strong: <strong /> }}
+                />
               )}
               {isAccessRequestSubmitted && (
-                <>requested access{level ? ` (${level})` : ""}</>
+                <Trans
+                  i18nKey={
+                    level
+                      ? "recordDetail.feedAccessRequestedLevel"
+                      : "recordDetail.feedAccessRequested"
+                  }
+                  values={{ actor, level }}
+                  components={{ strong: <strong /> }}
+                />
               )}
             </span>
             <div className="rcd-feed-event-time">
@@ -3668,13 +3738,14 @@ export function CustomerRecordDetail(): React.ReactElement {
     if (isFileAttached || isFileDeleted || isFileDownloaded) {
       const actor = resolveActorName(event.actorDisplayName, event.actorId);
       const fileName = String(
-        (meta as Record<string, unknown>)["originalName"] ?? "a file",
+        (meta as Record<string, unknown>)["originalName"] ??
+          t("recordDetail.aFile"),
       );
-      const fileVerb = isFileDeleted
-        ? "deleted"
+      const fileKey = isFileDeleted
+        ? "recordDetail.feedFileDeleted"
         : isFileDownloaded
-          ? "downloaded"
-          : "attached";
+          ? "recordDetail.feedFileDownloaded"
+          : "recordDetail.feedFileAttached";
       return (
         <div key={event.id} className="rcd-feed-event">
           <div className="rcd-feed-event-icon-wrap">
@@ -3717,7 +3788,11 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong> {fileVerb} <strong>{fileName}</strong>
+              <Trans
+                i18nKey={fileKey}
+                values={{ actor, file: fileName }}
+                components={{ strong: <strong /> }}
+              />
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3746,15 +3821,23 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong> changed severity{" "}
-              {prev && (
-                <>
-                  from <SeverityBadge severity={prev as Severity} compact />{" "}
-                  to{" "}
-                </>
-              )}
-              {!prev && "to "}
-              <SeverityBadge severity={next as Severity} compact />
+              <Trans
+                i18nKey={
+                  prev
+                    ? "recordDetail.feedSeverityFromTo"
+                    : "recordDetail.feedSeverityTo"
+                }
+                values={{ actor }}
+                components={{
+                  strong: <strong />,
+                  prev: prev ? (
+                    <SeverityBadge severity={prev as Severity} compact />
+                  ) : (
+                    <span />
+                  ),
+                  next: <SeverityBadge severity={next as Severity} compact />,
+                }}
+              />
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3782,9 +3865,18 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong>{" "}
-              {isTagAdded ? "added tag" : "removed tag"}{" "}
-              <span className="rcd-tl-state">{tagText}</span>
+              <Trans
+                i18nKey={
+                  isTagAdded
+                    ? "recordDetail.feedTagAdded"
+                    : "recordDetail.feedTagRemoved"
+                }
+                values={{ actor }}
+                components={{
+                  strong: <strong />,
+                  tag: <span className="rcd-tl-state">{tagText}</span>,
+                }}
+              />
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3807,7 +3899,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       );
       const counterpartLabel = counterpartId
         ? `#${counterpartId.slice(0, 8)}`
-        : "another ticket";
+        : t("recordDetail.anotherTicket");
       return (
         <div key={event.id} className="rcd-feed-event">
           <div className="rcd-feed-event-icon-wrap">
@@ -3832,9 +3924,15 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong>{" "}
-              {isLinkRemoved ? "removed the link to" : "linked"}{" "}
-              <strong>{counterpartLabel}</strong>
+              <Trans
+                i18nKey={
+                  isLinkRemoved
+                    ? "recordDetail.feedLinkRemoved"
+                    : "recordDetail.feedLinkCreated"
+                }
+                values={{ actor, target: counterpartLabel }}
+                components={{ strong: <strong /> }}
+              />
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3860,18 +3958,30 @@ export function CustomerRecordDetail(): React.ReactElement {
         <div className="rcd-feed-event-body">
           {isCreate ? (
             <span className="rcd-feed-event-text">
-              <strong>
-                {resolveActorName(event.actorDisplayName, event.actorId)}
-              </strong>{" "}
-              created this record
+              <Trans
+                i18nKey="recordDetail.feedCreated"
+                values={{
+                  actor: resolveActorName(
+                    event.actorDisplayName,
+                    event.actorId,
+                  ),
+                }}
+                components={{ strong: <strong /> }}
+              />
             </span>
           ) : isUpdate ? (
             <div>
               <span className="rcd-feed-event-text">
-                <strong>
-                  {resolveActorName(event.actorDisplayName, event.actorId)}
-                </strong>{" "}
-                updated the record
+                <Trans
+                  i18nKey="recordDetail.feedUpdated"
+                  values={{
+                    actor: resolveActorName(
+                      event.actorDisplayName,
+                      event.actorId,
+                    ),
+                  }}
+                  components={{ strong: <strong /> }}
+                />
               </span>
               {"changed" in (meta as Record<string, unknown>) &&
                 typeof (meta as Record<string, unknown>)["changed"] ===
@@ -3917,19 +4027,28 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           ) : (
             <div className="rcd-feed-event-text">
-              <strong>
-                {resolveActorName(event.actorDisplayName, event.actorId)}
-              </strong>{" "}
-              moved{" "}
-              {event.fromState && (
-                <>
-                  <span className="rcd-tl-state">{event.fromState}</span>
-                  {" → "}
-                </>
-              )}
-              <span className="rcd-tl-state rcd-tl-state-to">
-                {event.toState}
-              </span>
+              <Trans
+                i18nKey={
+                  event.fromState
+                    ? "recordDetail.feedMovedFromTo"
+                    : "recordDetail.feedMovedTo"
+                }
+                values={{
+                  actor: resolveActorName(
+                    event.actorDisplayName,
+                    event.actorId,
+                  ),
+                }}
+                components={{
+                  strong: <strong />,
+                  from: <span className="rcd-tl-state">{event.fromState}</span>,
+                  to: (
+                    <span className="rcd-tl-state rcd-tl-state-to">
+                      {event.toState}
+                    </span>
+                  ),
+                }}
+              />
               {event.comment && (
                 <div className="rcd-tl-comment" style={{ marginTop: "6px" }}>
                   "{event.comment}"
@@ -3972,19 +4091,18 @@ export function CustomerRecordDetail(): React.ReactElement {
               className="rcd-access-title"
               tabIndex={-1}
             >
-              Access Restricted
+              {t("recordDetail.accessRestricted")}
             </h3>
             <p id="access-restricted-description" className="rcd-access-body">
-              You don't have access to this ticket. You can request access from
-              the ticket owner.
+              {t("recordDetail.accessRestrictedDesc")}
             </p>
             {myAccessReqStatus === "pending" ? (
               <div className="rcd-access-req-sent">
-                Access request sent — waiting for owner approval.
+                {t("recordDetail.accessRequestWaiting")}
               </div>
             ) : myAccessReqStatus === "rejected" ? (
               <div className="rcd-access-req-rejected">
-                Your access request was declined. You may request again.
+                {t("recordDetail.accessRequestDeclined")}
               </div>
             ) : null}
             <div className="rcd-access-modal-actions">
@@ -3993,7 +4111,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 className="portal-btn-secondary"
                 onClick={() => void navigate("/records")}
               >
-                Go Back
+                {t("recordDetail.goBack")}
               </button>
               {myAccessReqStatus !== "pending" && (
                 <button
@@ -4003,8 +4121,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   onClick={() => setConfirmReqLevel("read_only")}
                 >
                   {myAccessReqStatus === "rejected"
-                    ? "Request Again"
-                    : "Request Access"}
+                    ? t("recordDetail.requestAgain")
+                    : t("recordDetail.requestAccess")}
                 </button>
               )}
             </div>
@@ -4032,7 +4150,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           >
             <polyline points="15 18 9 12 15 6" />
           </svg>
-          {entityType?.plural ?? "Records"}
+          {entityType?.plural ?? t("recordDetail.records")}
         </button>
         <span className="rcd-bc-sep">/</span>
         <span className="rcd-bc-current">{recordTitle}</span>
@@ -4040,7 +4158,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           type="button"
           className="rcd-refresh-btn"
           disabled={manualRefreshing}
-          title="Refresh"
+          title={t("recordDetail.refresh")}
           onClick={() => void refreshAll()}
         >
           <svg
@@ -4088,7 +4206,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           <span>{recordNotice}</span>
           <button
             type="button"
-            aria-label="Dismiss notice"
+            aria-label={t("recordDetail.dismissNotice")}
             onClick={() => setRecordNotice(null)}
             className="rcd-error-close"
           >
@@ -4141,7 +4259,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     setOverrideOpen(true);
                   }}
                 >
-                  Override state…
+                  {t("recordDetail.overrideState")}
                 </button>
               )}
               {!editing && isAdminOrAgent && record.deletedAt && (
@@ -4165,7 +4283,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                     <path d="M3 3v5h5" />
                   </svg>
-                  {restoring ? "Restoring…" : "Restore"}
+                  {restoring
+                    ? t("recordDetail.restoring")
+                    : t("recordDetail.restore")}
                 </button>
               )}
               {/* Archive button hidden for now (per request) — see git history
@@ -4176,7 +4296,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <button
                     type="button"
                     className="rcd-kebab-btn"
-                    aria-label="More actions"
+                    aria-label={t("recordDetail.moreActions")}
                     aria-expanded={kebabMenuOpen}
                     onClick={() => setKebabMenuOpen((v) => !v)}
                   >
@@ -4221,7 +4341,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                               setDetailsExpanded(true);
                             }}
                           >
-                            Edit
+                            {t("recordDetail.edit")}
                           </button>
                         )}
                         <button
@@ -4229,7 +4349,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                           className="rcd-kebab-menu-item"
                           onClick={openAlertsModal}
                         >
-                          Set Alert
+                          {t("recordDetail.setAlert")}
                         </button>
                         {canAddTag && (
                           <button
@@ -4242,7 +4362,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                               setTagModalOpen(true);
                             }}
                           >
-                            Add Tag
+                            {t("recordDetail.addTag")}
                           </button>
                         )}
                       </div>
@@ -4258,7 +4378,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                   if (editing) setEditing(false);
                 }}
                 aria-expanded={detailsExpanded}
-                title={detailsExpanded ? "Collapse details" : "Expand details"}
+                title={
+                  detailsExpanded
+                    ? t("recordDetail.collapseDetails")
+                    : t("recordDetail.expandDetails")
+                }
               >
                 <svg
                   width="14"
@@ -4281,18 +4405,20 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="rcd-info-strip">
             {/* State */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">State</span>
+              <span className="rcd-info-lbl">
+                {t("recordDetail.fieldState")}
+              </span>
               <div className="rcd-info-val">
                 <StateDropdown
                   currentState={record.currentState}
                   allStates={effectiveStates}
                   transitions={effectiveTransitions}
                   disabled={!!transitioning || !canChangeState}
-                  onTransition={(t) => {
-                    if (t.requiresComment) {
-                      setStateModal(t);
+                  onTransition={(tr) => {
+                    if (tr.requiresComment) {
+                      setStateModal(tr);
                     } else {
-                      void executeTransition(t);
+                      void executeTransition(tr);
                     }
                   }}
                 />
@@ -4303,7 +4429,7 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {/* Severity — docs/specs/ticket-severity-and-tags.md R2/R3 */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">Severity</span>
+              <span className="rcd-info-lbl">{t("recordDetail.severity")}</span>
               <div className="rcd-info-val">
                 <SeverityDropdown
                   value={record.severity ?? null}
@@ -4318,7 +4444,9 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {/* Assigned to */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">Assigned to</span>
+              <span className="rcd-info-lbl">
+                {t("recordDetail.infoAssignedTo")}
+              </span>
               <div className="rcd-info-val">
                 <AssignDropdown
                   value={record.assignedTo ?? ""}
@@ -4326,7 +4454,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                   disabled={quickAssigning || !canChangeAssignedTo}
                   onChange={(userId) => void quickAssign(userId)}
                   {...(record.teamName
-                    ? { emptyLabel: `Team: ${record.teamName}` }
+                    ? {
+                        emptyLabel: t("recordDetail.teamPrefix", {
+                          name: record.teamName,
+                        }),
+                      }
                     : {})}
                 />
               </div>
@@ -4336,12 +4468,14 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {/* Due date — system field, independent of workflow state/SLA */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">Due date</span>
+              <span className="rcd-info-lbl">
+                {t("recordDetail.infoDueDate")}
+              </span>
               <div className="rcd-info-val">
                 <input
                   type="datetime-local"
                   className="portal-input"
-                  aria-label="Sidebar due date"
+                  aria-label={t("recordDetail.sidebarDueDate")}
                   value={dueDateInput}
                   disabled={!canChangeDueDate}
                   onChange={(e) => handleDueDateInputChange(e.target.value)}
@@ -4359,7 +4493,9 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {/* Created */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">Created</span>
+              <span className="rcd-info-lbl">
+                {t("recordDetail.infoCreated")}
+              </span>
               <span className="rcd-info-val">
                 {new Date(record.createdAt).toLocaleDateString(undefined, {
                   month: "short",
@@ -4369,11 +4505,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                 {createdByEvent && (
                   <span className="rcd-info-by">
                     {" "}
-                    by{" "}
-                    {resolveActorName(
-                      createdByEvent.actorDisplayName,
-                      createdByEvent.actorId,
-                    )}
+                    {t("recordDetail.createdBy", {
+                      name: resolveActorName(
+                        createdByEvent.actorDisplayName,
+                        createdByEvent.actorId,
+                      ),
+                    })}
                   </span>
                 )}
               </span>
@@ -4383,7 +4520,9 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {/* Last updated */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">Last updated</span>
+              <span className="rcd-info-lbl">
+                {t("recordDetail.infoLastUpdated")}
+              </span>
               <span className="rcd-info-val">
                 {new Date(record.updatedAt).toLocaleDateString(undefined, {
                   month: "short",
@@ -4397,7 +4536,7 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {/* Type */}
             <div className="rcd-info-item">
-              <span className="rcd-info-lbl">Type</span>
+              <span className="rcd-info-lbl">{t("recordDetail.infoType")}</span>
               <span className="rcd-info-val">{entityType?.name ?? "—"}</span>
             </div>
           </div>
@@ -4405,7 +4544,9 @@ export function CustomerRecordDetail(): React.ReactElement {
           {/* Parent ticket chip — only for admin/agent; general users may not have access to parent */}
           {parentRecord && isAdminOrAgent && (
             <div className="rcd-parent-row">
-              <span className="rcd-parent-label">Parent</span>
+              <span className="rcd-parent-label">
+                {t("recordDetail.parent")}
+              </span>
               <Link
                 to={`/records/${parentRecord.typeSlug}/${parentRecord.id}`}
                 className="rcd-parent-chip"
@@ -4428,7 +4569,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               <button
                 type="button"
                 className="rcd-detach-btn"
-                title="Detach from parent"
+                title={t("recordDetail.detachFromParent")}
                 onClick={() => void detachParent()}
               >
                 ×
@@ -4442,7 +4583,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               inline input here. */}
           {(!tagsLoading && tags.length > 0) || canAddTag ? (
             <div className="rcd-parent-row" style={{ flexWrap: "wrap" }}>
-              <span className="rcd-parent-label">Tags</span>
+              <span className="rcd-parent-label">{t("recordDetail.tags")}</span>
               {!tagsLoading &&
                 tags.map((tag) => {
                   const color = tagColor(tag.tagText);
@@ -4460,7 +4601,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <button
                           type="button"
                           className="rcd-tag-remove-btn"
-                          title="Remove tag"
+                          title={t("recordDetail.removeTag")}
                           disabled={removingTagId === tag.id}
                           onClick={() => void removeTag(tag.id)}
                           style={{ color: color.fg }}
@@ -4486,7 +4627,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     setTagModalOpen(true);
                   }}
                 >
-                  + Add tag
+                  {t("recordDetail.addTagInline")}
                 </button>
               )}
             </div>
@@ -4510,7 +4651,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <div className="portal-edit-grid">
                     {effectiveStates.length > 0 && (
                       <div className="portal-field-group portal-field-full">
-                        <label className="portal-field-label">State</label>
+                        <label className="portal-field-label">
+                          {t("recordDetail.fieldState")}
+                        </label>
                         <select
                           className="portal-input"
                           value={currentState}
@@ -4525,7 +4668,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </div>
                     )}
                     <div className="portal-field-group portal-field-full">
-                      <label className="portal-field-label">Assigned To</label>
+                      <label className="portal-field-label">
+                        {t("recordDetail.fieldAssignedTo")}
+                      </label>
                       <select
                         className="portal-input"
                         value={editAssignedTo}
@@ -4533,8 +4678,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                       >
                         <option value="">
                           {record.teamName && !record.assignedTo
-                            ? `Team: ${record.teamName}`
-                            : "Unassigned"}
+                            ? t("recordDetail.teamPrefix", {
+                                name: record.teamName,
+                              })
+                            : t("recordDetail.unassigned")}
                         </option>
                         {users.map((u) => (
                           <option key={u.userId} value={u.userId}>
@@ -4545,7 +4692,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                     </div>
                     <div className="portal-field-group portal-field-full">
                       <label className="portal-field-label">
-                        Due Date<span className="portal-required">*</span>
+                        {t("recordDetail.dueDateLabel")}
+                        <span className="portal-required">*</span>
                       </label>
                       <input
                         type="datetime-local"
@@ -4558,11 +4706,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                     </div>
                     <div className="portal-field-group portal-field-full">
                       <label className="portal-field-label">
-                        Severity<span className="portal-required">*</span>
+                        {t("recordDetail.severity")}
+                        <span className="portal-required">*</span>
                       </label>
                       <select
                         className="portal-input"
-                        aria-label="Severity"
+                        aria-label={t("recordDetail.severity")}
                         value={editSeverity}
                         disabled={!canChangeSeverity}
                         onChange={(e) =>
@@ -4622,14 +4771,16 @@ export function CustomerRecordDetail(): React.ReactElement {
                       }}
                       disabled={saving}
                     >
-                      Cancel
+                      {t("recordDetail.cancel")}
                     </button>
                     <button
                       className="portal-btn-primary"
                       onClick={() => void saveEdit()}
                       disabled={saving}
                     >
-                      {saving ? "Saving…" : "Save changes"}
+                      {saving
+                        ? t("recordDetail.saving")
+                        : t("recordDetail.saveChanges")}
                     </button>
                   </div>
                 </>
@@ -4656,8 +4807,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                         style={{ padding: "0", gridColumn: "1/-1" }}
                       >
                         {isChildTicket
-                          ? "No details set."
-                          : "No custom fields defined."}
+                          ? t("recordDetail.noDetails")
+                          : t("recordDetail.noCustomFields")}
                       </p>
                     )}
                   </div>
@@ -4667,7 +4818,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <div className="rcd-expand-attachments">
                     <div className="rcd-expand-attachments-hdr">
                       <span className="rcd-expand-attachments-title">
-                        Attachments
+                        {t("recordDetail.attachments")}
                         {attachments.filter((a) => a.scanStatus !== "deleted")
                           .length > 0 && (
                           <span className="rcd-sidebar-count">
@@ -4681,7 +4832,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </span>
                     </div>
                     {attachmentsLoading ? (
-                      <p className="rcd-sidebar-hint">Loading…</p>
+                      <p className="rcd-sidebar-hint">
+                        {t("recordDetail.loading")}
+                      </p>
                     ) : attachments.filter((a) => a.scanStatus !== "deleted")
                         .length > 0 ? (
                       <FileCardRow
@@ -4711,7 +4864,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                               setTransError(
                                 err instanceof Error
                                   ? err.message
-                                  : "Delete failed",
+                                  : t("recordDetail.deleteFailed"),
                               );
                             }
                           })();
@@ -4780,7 +4933,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 file.size < 1024
                               ) {
                                 showAlert(
-                                  `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click → "Always keep on this device", wait for it to download, then try again.`,
+                                  t("recordDetail.cloudPlaceholder", {
+                                    name: file.name,
+                                    size: file.size,
+                                  }),
                                 );
                                 continue;
                               }
@@ -4829,7 +4985,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                               }
                             } catch (err) {
                               setTransError(
-                                `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+                                t("recordDetail.uploadFailed", {
+                                  error:
+                                    err instanceof Error
+                                      ? err.message
+                                      : t("recordDetail.unknownError"),
+                                }),
                               );
                             }
                           }
@@ -4878,7 +5039,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               >
                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
               </svg>
-              Comments
+              {t("recordDetail.tabComments")}
               {commentEvents.length > 0 && (
                 <span className="rcd-tab-count">{commentEvents.length}</span>
               )}
@@ -4905,7 +5066,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />
               </svg>
-              History
+              {t("recordDetail.tabHistory")}
               {historyLoaded && timelineEvents.length > 0 && (
                 <span className="rcd-tab-count">{timelineEvents.length}</span>
               )}
@@ -4930,7 +5091,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <path d="M9 11l3 3L22 4" />
                   <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
                 </svg>
-                Sub-tasks
+                {t("recordDetail.tabSubtasks")}
                 {children.length > 0 && (
                   <span className="rcd-tab-count">{children.length}</span>
                 )}
@@ -4955,7 +5116,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
                 <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
               </svg>
-              Linked
+              {t("recordDetail.tabLinked")}
               {linkedTickets.length > 0 && (
                 <span className="rcd-tab-count">{linkedTickets.length}</span>
               )}
@@ -4985,7 +5146,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   <line x1="19" y1="8" x2="19" y2="14" />
                   <line x1="22" y1="11" x2="16" y2="11" />
                 </svg>
-                Access Requests
+                {t("recordDetail.tabAccessRequests")}
                 {accessReqList.filter((r) => r.status === "pending").length >
                   0 && (
                   <span className="rcd-tab-count rcd-tab-count-warn">
@@ -5006,7 +5167,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 >
                   {topLevelComments.length === 0 ? (
                     <p className="rcd-empty-hint rcd-empty-hint-feed">
-                      No comments yet. Be the first to comment.
+                      {t("recordDetail.noComments")}
                     </p>
                   ) : (
                     <div className="rcd-feed-list">
@@ -5058,11 +5219,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <path d="M7 11V7a5 5 0 0110 0v4" />
                       </svg>
                       <span style={{ flex: 1 }}>
-                        You have read-only access and cannot post comments.
+                        {t("recordDetail.readOnlyNotice")}
                         {myAccessReqStatus === "pending"
-                          ? " Comment access request sent — pending approval."
+                          ? ` ${t("recordDetail.commentAccessPending")}`
                           : myAccessReqStatus === "rejected"
-                            ? " Your comment access request was declined."
+                            ? ` ${t("recordDetail.commentAccessDeclined")}`
                             : ""}
                       </span>
                       {myAccessReqStatus !== "pending" && (
@@ -5073,8 +5234,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                           onClick={() => setConfirmReqLevel("read_comment")}
                         >
                           {myAccessReqStatus === "rejected"
-                            ? "Request Again"
-                            : "Request Comment Access"}
+                            ? t("recordDetail.requestAgain")
+                            : t("recordDetail.requestCommentAccess")}
                         </button>
                       )}
                     </div>
@@ -5089,11 +5250,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </div>
                 ) : !historyLoaded ? (
                   <p className="rcd-empty-hint rcd-empty-hint-feed">
-                    Loading history…
+                    {t("recordDetail.loadingHistory")}
                   </p>
                 ) : timelineEvents.length === 0 ? (
                   <p className="rcd-empty-hint rcd-empty-hint-feed">
-                    No history yet.
+                    {t("recordDetail.noHistory")}
                   </p>
                 ) : (
                   <div className="rcd-feed-list">
@@ -5134,7 +5295,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <span>{childNotice}</span>
                     <button
                       type="button"
-                      aria-label="Dismiss notice"
+                      aria-label={t("recordDetail.dismissNotice")}
                       onClick={() => setChildNotice(null)}
                     >
                       ×
@@ -5146,8 +5307,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <button
                       type="button"
                       className="rcd-tab-action-icon-btn"
-                      title="Add sub-task"
-                      aria-label="Add sub-task"
+                      title={t("recordDetail.addSubtask")}
+                      aria-label={t("recordDetail.addSubtask")}
                       onClick={() => {
                         setShowCreateChild(true);
                         setNewChildTitle("");
@@ -5172,10 +5333,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </div>
                 )}
                 {childrenLoading ? (
-                  <p className="rcd-empty-hint rcd-empty-hint-feed">Loading…</p>
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">
+                    {t("recordDetail.loading")}
+                  </p>
                 ) : children.length === 0 ? (
                   <p className="rcd-empty-hint rcd-empty-hint-feed">
-                    No sub-tasks yet.
+                    {t("recordDetail.noSubtasks")}
                   </p>
                 ) : (
                   <>
@@ -5188,7 +5351,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                       return (
                         <div
                           className="rcd-subtasks-progress-wrap"
-                          title={`${closed} of ${children.length} closed`}
+                          title={t("recordDetail.subtasksClosed", {
+                            closed,
+                            total: children.length,
+                          })}
                         >
                           <div className="rcd-subtasks-progress-bar">
                             <div
@@ -5206,11 +5372,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                       <table className="rcd-table">
                         <thead>
                           <tr>
-                            <th>Ticket</th>
-                            <th>State</th>
-                            <th>Due date</th>
-                            <th>Assignee</th>
-                            <th>Created</th>
+                            <th>{t("recordDetail.colTicket")}</th>
+                            <th>{t("recordDetail.fieldState")}</th>
+                            <th>{t("recordDetail.infoDueDate")}</th>
+                            <th>{t("recordDetail.colAssignee")}</th>
+                            <th>{t("recordDetail.infoCreated")}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -5261,9 +5427,13 @@ export function CustomerRecordDetail(): React.ReactElement {
                               : null;
                             const dueDateLabel = (() => {
                               if (!dueDateStr || isClosed) return dueDateStr;
-                              if (isPastDue) return `Overdue · ${dueDateStr}`;
-                              if (isDueToday) return `Due today`;
-                              if (isDueSoon) return `Due tomorrow`;
+                              if (isPastDue)
+                                return t("recordDetail.overdue", {
+                                  date: dueDateStr,
+                                });
+                              if (isDueToday) return t("recordDetail.dueToday");
+                              if (isDueSoon)
+                                return t("recordDetail.dueTomorrow");
                               return dueDateStr;
                             })();
 
@@ -5354,7 +5524,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                     </div>
                                   ) : (
                                     <span className="rcd-child-card-assignee-name rcd-child-unassigned">
-                                      Unassigned
+                                      {t("recordDetail.unassigned")}
                                     </span>
                                   )}
                                 </td>
@@ -5379,8 +5549,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <button
                       type="button"
                       className="rcd-tab-action-icon-btn"
-                      title="Link a ticket"
-                      aria-label="Link a ticket"
+                      title={t("recordDetail.linkTicket")}
+                      aria-label={t("recordDetail.linkTicket")}
                       onClick={() => void openLinkModal()}
                     >
                       <svg
@@ -5401,21 +5571,25 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </div>
                 )}
                 {linkedTicketsLoading ? (
-                  <p className="rcd-empty-hint rcd-empty-hint-feed">Loading…</p>
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">
+                    {t("recordDetail.loading")}
+                  </p>
                 ) : linkedTickets.length === 0 ? (
                   <p className="rcd-empty-hint rcd-empty-hint-feed">
-                    No linked tickets yet.
+                    {t("recordDetail.noLinkedTickets")}
                   </p>
                 ) : (
                   <div className="rcd-table-wrap">
                     <table className="rcd-table">
                       <thead>
                         <tr>
-                          <th>Ticket</th>
-                          <th>Workflow</th>
-                          <th>Linked</th>
-                          <th>Created by</th>
-                          <th className="rcd-table-actions-col">Actions</th>
+                          <th>{t("recordDetail.colTicket")}</th>
+                          <th>{t("recordDetail.colWorkflow")}</th>
+                          <th>{t("recordDetail.tabLinked")}</th>
+                          <th>{t("recordDetail.colCreatedBy")}</th>
+                          <th className="rcd-table-actions-col">
+                            {t("recordDetail.colActions")}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -5441,7 +5615,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 <div className="rcd-table-ticket">
                                   <span className="rcd-table-ticket-title">
                                     {isDeleted
-                                      ? "Linked ticket (deleted)"
+                                      ? t("recordDetail.linkedTicketDeleted")
                                       : lt.title}
                                   </span>
                                   {!isDeleted && (
@@ -5479,7 +5653,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                     setUnlinkConfirm(lt.relationId);
                                   }}
                                 >
-                                  Unlink
+                                  {t("recordDetail.unlink")}
                                 </button>
                               </td>
                             </tr>
@@ -5498,7 +5672,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </div>
                 ) : accessReqList.length === 0 ? (
                   <p className="rcd-empty-hint rcd-empty-hint-feed">
-                    No access requests yet.
+                    {t("recordDetail.noAccessRequests")}
                   </p>
                 ) : (
                   <div className="rcd-areq-list">
@@ -5517,19 +5691,19 @@ export function CustomerRecordDetail(): React.ReactElement {
                             </span>
                             <span className="rcd-areq-level">
                               {req.requestedLevel === "read_only"
-                                ? "View only"
+                                ? t("recordDetail.reqViewOnly")
                                 : req.requestedLevel === "read_comment"
-                                  ? "View + comment"
-                                  : "Full access"}
+                                  ? t("recordDetail.reqViewComment")
+                                  : t("recordDetail.reqFullAccess")}
                             </span>
                             <span
                               className={`rcd-areq-status rcd-areq-status--${req.status}`}
                             >
                               {req.status === "pending"
-                                ? "Pending"
+                                ? t("recordDetail.statusPending")
                                 : req.status === "approved"
-                                  ? "Approved"
-                                  : "Rejected"}
+                                  ? t("recordDetail.statusApproved")
+                                  : t("recordDetail.statusRejected")}
                             </span>
                           </div>
                           <button
@@ -5544,7 +5718,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                               });
                             }}
                           >
-                            {req.status === "pending" ? "Review" : "Change"}
+                            {req.status === "pending"
+                              ? t("recordDetail.review")
+                              : t("recordDetail.change")}
                           </button>
                         </div>
                       );
@@ -5563,7 +5739,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="rcd-sidebar-section">
             <div className="rcd-sidebar-hdr">
               <span className="rcd-sidebar-hdr-title">
-                Access
+                {t("recordDetail.sidebarAccess")}
                 {accessUsers.length > 0 && (
                   <span className="rcd-sidebar-count">
                     {accessUsers.length}
@@ -5574,7 +5750,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             <div className="rcd-sidebar-body">
               {accessUsers.length === 0 ? (
                 <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                  No one has access yet.
+                  {t("recordDetail.noOneHasAccess")}
                 </p>
               ) : (
                 <div
@@ -5621,11 +5797,17 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="modal-header">
             <DialogTitle asChild>
               <h3 className="modal-title">
-                Change access — {accessChangeModal?.displayName}
+                {t("recordDetail.changeAccessTitle", {
+                  name: accessChangeModal?.displayName ?? "",
+                })}
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -5640,11 +5822,14 @@ export function CustomerRecordDetail(): React.ReactElement {
               }}
             >
               {(["read_only", "read_comment"] as const).map((level) => {
-                const label = level === "read_only" ? "Read Only" : "Comment";
+                const label =
+                  level === "read_only"
+                    ? t("recordDetail.levelReadOnly")
+                    : t("recordDetail.levelComment");
                 const desc =
                   level === "read_only"
-                    ? "Can view this ticket"
-                    : "Can view and post comments";
+                    ? t("recordDetail.levelReadOnlyDesc")
+                    : t("recordDetail.levelCommentDesc");
                 const selected = accessChangeSelection === level;
                 return (
                   <label
@@ -5728,7 +5913,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                           : "var(--text-primary, #f1f5f9)",
                     }}
                   >
-                    Remove access
+                    {t("recordDetail.removeAccess")}
                   </span>
                   <span
                     style={{
@@ -5737,8 +5922,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                     }}
                   >
                     {accessChangeModal?.isAssigned
-                      ? "Will also unassign this user from the ticket"
-                      : "Remove all access to this ticket"}
+                      ? t("recordDetail.removeAccessAssignedDesc")
+                      : t("recordDetail.removeAccessDesc")}
                   </span>
                 </span>
               </label>
@@ -5750,7 +5935,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => setAccessChangeModal(null)}
               disabled={accessChangeSaving}
             >
-              Cancel
+              {t("recordDetail.cancel")}
             </Button>
             <button
               style={{
@@ -5771,10 +5956,10 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => void handleAccessChange()}
             >
               {accessChangeSaving
-                ? "Saving…"
+                ? t("recordDetail.saving")
                 : accessChangeSelection === "remove"
-                  ? "Remove access"
-                  : "Save changes"}
+                  ? t("recordDetail.removeAccess")
+                  : t("recordDetail.saveChanges")}
             </button>
           </div>
         </DialogContent>
@@ -5794,10 +5979,16 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Grant ticket access</h3>
+              <h3 className="modal-title">
+                {t("recordDetail.grantAccessTitle")}
+              </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -5838,11 +6029,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                     .map((u) => u.displayName ?? u.email)
                     .join(", ")}
                 </strong>{" "}
-                {(pendingMentionGrant?.newUsers.length ?? 0) === 1
-                  ? "doesn't"
-                  : "don't"}{" "}
-                have access to this ticket yet. Choose what they can do before
-                posting.
+                {t("recordDetail.mentionNoAccess", {
+                  count: pendingMentionGrant?.newUsers.length ?? 0,
+                })}
               </div>
             </div>
             {/* Level picker */}
@@ -5851,8 +6040,16 @@ export function CustomerRecordDetail(): React.ReactElement {
             >
               {(
                 [
-                  ["read_only", "Read Only", "Can view this ticket"],
-                  ["read_comment", "Comment", "Can view and post comments"],
+                  [
+                    "read_only",
+                    t("recordDetail.levelReadOnly"),
+                    t("recordDetail.levelReadOnlyDesc"),
+                  ],
+                  [
+                    "read_comment",
+                    t("recordDetail.levelComment"),
+                    t("recordDetail.levelCommentDesc"),
+                  ],
                 ] as const
               ).map(([level, label, desc]) => {
                 const selected = pendingMentionGrant?.selectedLevel === level;
@@ -5903,7 +6100,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                               fontSize: "12px",
                             }}
                           >
-                            recommended
+                            {t("recordDetail.recommended")}
                           </span>
                         )}
                       </span>
@@ -5923,7 +6120,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="modal-footer">
             <Button variant="secondary" onClick={cancelMentionGrant}>
-              Cancel
+              {t("recordDetail.cancel")}
             </Button>
             <Button
               variant="primary"
@@ -5953,7 +6150,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 );
               }}
             >
-              Grant &amp; post
+              {t("recordDetail.grantAndPost")}
             </Button>
           </div>
         </DialogContent>
@@ -5969,25 +6166,23 @@ export function CustomerRecordDetail(): React.ReactElement {
         <AlertDialogContent className="modal" style={DIALOG_CONTENT_RESET}>
           <div className="modal-header">
             <AlertDialogTitle asChild>
-              <h3 className="modal-title">Archive this record?</h3>
+              <h3 className="modal-title">{t("recordDetail.archiveTitle")}</h3>
             </AlertDialogTitle>
           </div>
           <div className="modal-body">
             <AlertDialogDescription asChild>
               <p className="rcd-modal-desc">
-                This record has{" "}
-                <strong>
-                  {archiveConfirm?.childCount ?? 0} sub-task
-                  {(archiveConfirm?.childCount ?? 0) !== 1 ? "s" : ""}
-                </strong>
-                . Archiving will also archive all of them. This can be undone
-                with Restore.
+                <Trans
+                  i18nKey="recordDetail.archiveDesc"
+                  count={archiveConfirm?.childCount ?? 0}
+                  components={{ strong: <strong /> }}
+                />
               </p>
             </AlertDialogDescription>
           </div>
           <AlertDialogFooter className="modal-footer">
             <AlertDialogCancel asChild>
-              <Button variant="secondary">Cancel</Button>
+              <Button variant="secondary">{t("recordDetail.cancel")}</Button>
             </AlertDialogCancel>
             <AlertDialogAction asChild>
               <Button
@@ -6000,8 +6195,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                 }}
               >
                 {archiving
-                  ? "Archiving…"
-                  : `Archive all ${(archiveConfirm?.childCount ?? 0) + 1}`}
+                  ? t("recordDetail.archiving")
+                  : t("recordDetail.archiveAll", {
+                      count: (archiveConfirm?.childCount ?? 0) + 1,
+                    })}
               </Button>
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -6029,10 +6226,14 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">New sub-task</h3>
+              <h3 className="modal-title">{t("recordDetail.newSubtask")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -6047,18 +6248,20 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Title *</label>
+              <label className="form-label">
+                {t("recordDetail.titleRequired")}
+              </label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="Sub-task title…"
+                placeholder={t("recordDetail.subtaskTitlePlaceholder")}
                 value={newChildTitle}
                 onChange={(e) => setNewChildTitle(e.target.value)}
                 autoFocus
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Assign to</label>
+              <label className="form-label">{t("recordDetail.assignTo")}</label>
               <AssignDropdown
                 value={newChildAssignedTo}
                 users={users}
@@ -6068,7 +6271,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="new-child-due">
-                Due date *
+                {t("recordDetail.dueDateRequired")}
               </label>
               <input
                 id="new-child-due"
@@ -6080,7 +6283,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="new-child-severity">
-                Severity *
+                {t("recordDetail.severityRequired")}
               </label>
               <select
                 id="new-child-severity"
@@ -6100,24 +6303,26 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="new-child-remark">
-                Remark *
+                {t("recordDetail.remarkRequired")}
               </label>
               <textarea
                 id="new-child-remark"
                 className="form-input"
                 rows={2}
-                placeholder="Why this sub-task exists…"
+                placeholder={t("recordDetail.subtaskRemarkPlaceholder")}
                 value={newChildRemark}
                 onChange={(e) => setNewChildRemark(e.target.value)}
                 style={{ resize: "vertical" }}
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Description</label>
+              <label className="form-label">
+                {t("recordDetail.description")}
+              </label>
               <textarea
                 className="form-input"
                 rows={3}
-                placeholder="What needs to be done…"
+                placeholder={t("recordDetail.subtaskDescriptionPlaceholder")}
                 value={newChildDescription}
                 onChange={(e) => setNewChildDescription(e.target.value)}
                 style={{ resize: "vertical" }}
@@ -6138,14 +6343,16 @@ export function CustomerRecordDetail(): React.ReactElement {
                 setCreateChildError(null);
               }}
             >
-              Cancel
+              {t("recordDetail.cancel")}
             </Button>
             <Button
               variant="primary"
               disabled={creatingChild}
               onClick={() => void createChild()}
             >
-              {creatingChild ? "Creating…" : "Create sub-task"}
+              {creatingChild
+                ? t("recordDetail.creating")
+                : t("recordDetail.createSubtask")}
             </Button>
           </div>
         </DialogContent>
@@ -6170,19 +6377,23 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Override state</h3>
+              <h3 className="modal-title">
+                {t("recordDetail.overrideStateTitle")}
+              </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
           </div>
           <div className="modal-body">
             <p className="rd-muted" style={{ marginBottom: "12px" }}>
-              Moves this record outside its workflow's transitions. It skips the
-              transition rules, runs automations bound to the new step, and is
-              recorded with your name and the reason below.
+              {t("recordDetail.overrideDesc")}
             </p>
             {overrideError && (
               <div
@@ -6194,7 +6405,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             )}
             <div className="form-group">
               <label className="form-label" htmlFor="override-target">
-                Move to *
+                {t("recordDetail.moveToRequired")}
               </label>
               <select
                 id="override-target"
@@ -6203,7 +6414,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 disabled={overriding}
                 onChange={(e) => setOverrideTarget(e.target.value)}
               >
-                <option value="">Select a step</option>
+                <option value="">{t("recordDetail.selectStep")}</option>
                 {allStates
                   .filter((st) => st.name !== record.currentState)
                   .map((st) => (
@@ -6215,7 +6426,7 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="override-reason">
-                Reason *
+                {t("recordDetail.reasonRequired")}
               </label>
               <textarea
                 id="override-reason"
@@ -6237,14 +6448,16 @@ export function CustomerRecordDetail(): React.ReactElement {
                 setOverrideError(null);
               }}
             >
-              Cancel
+              {t("recordDetail.cancel")}
             </Button>
             <Button
               variant="primary"
               disabled={overriding}
               onClick={() => void submitOverride()}
             >
-              {overriding ? "Overriding…" : "Override state"}
+              {overriding
+                ? t("recordDetail.overriding")
+                : t("recordDetail.overrideStateTitle")}
             </Button>
           </div>
         </DialogContent>
@@ -6268,10 +6481,14 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Add tag</h3>
+              <h3 className="modal-title">{t("recordDetail.addTagTitle")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -6286,11 +6503,11 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Tag</label>
+              <label className="form-label">{t("recordDetail.tag")}</label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="e.g. railways"
+                placeholder={t("recordDetail.tagPlaceholder")}
                 value={newTagText}
                 disabled={addingTag}
                 onChange={(e) => setNewTagText(e.target.value)}
@@ -6306,14 +6523,14 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="modal-footer">
             <Button variant="secondary" onClick={() => setTagModalOpen(false)}>
-              Cancel
+              {t("recordDetail.cancel")}
             </Button>
             <Button
               variant="primary"
               disabled={addingTag || !newTagText.trim()}
               onClick={() => void addTag()}
             >
-              {addingTag ? "Adding…" : "Add"}
+              {addingTag ? t("recordDetail.adding") : t("recordDetail.add")}
             </Button>
           </div>
         </DialogContent>
@@ -6347,8 +6564,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </button>
                 )}
                 {linkStep === "workflows"
-                  ? "Link ticket — choose a workflow"
-                  : `Link ticket — ${selectedLinkWorkflow?.workflowName ?? ""}`}
+                  ? t("recordDetail.linkChooseWorkflow")
+                  : t("recordDetail.linkTitleWorkflow", {
+                      workflow: selectedLinkWorkflow?.workflowName ?? "",
+                    })}
               </h3>
               <button
                 className="modal-close"
@@ -6371,11 +6590,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                 </div>
               )}
               {linkCandidatesLoading ? (
-                <p className="rcd-sidebar-hint">Loading…</p>
+                <p className="rcd-sidebar-hint">{t("recordDetail.loading")}</p>
               ) : linkStep === "workflows" ? (
                 linkWorkflows.length === 0 ? (
                   <p className="rcd-sidebar-hint">
-                    No workflows with accessible tickets found.
+                    {t("recordDetail.noLinkWorkflows")}
                   </p>
                 ) : (
                   <div className="rcd-sidebar-children">
@@ -6411,12 +6630,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <>
                   <div className="form-group">
                     <label className="form-label">
-                      Search tickets in {selectedLinkWorkflow?.workflowName}
+                      {t("recordDetail.searchTicketsIn", {
+                        workflow: selectedLinkWorkflow?.workflowName ?? "",
+                      })}
                     </label>
                     <input
                       className="form-input"
                       type="text"
-                      placeholder="Search by title…"
+                      placeholder={t("recordDetail.searchByTitle")}
                       value={linkQuery}
                       onChange={(e) => setLinkQuery(e.target.value)}
                       autoFocus
@@ -6438,7 +6659,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     if (matches.length === 0) {
                       return (
                         <p className="rcd-sidebar-hint">
-                          No matching tickets found in this workflow.
+                          {t("recordDetail.noMatchingTickets")}
                         </p>
                       );
                     }
@@ -6484,7 +6705,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Link this ticket?</h3>
+              <h3 className="modal-title">
+                {t("recordDetail.linkConfirmTitle")}
+              </h3>
               <button
                 className="modal-close"
                 onClick={() => setPendingLinkTarget(null)}
@@ -6495,10 +6718,14 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="modal-body">
               <p>
-                Link to <strong>{pendingLinkTarget.title}</strong> in{" "}
-                {selectedLinkWorkflow?.workflowName}? This only creates a
-                reference — neither ticket's workflow, state, or history is
-                affected.
+                <Trans
+                  i18nKey="recordDetail.linkConfirmDesc"
+                  values={{
+                    title: pendingLinkTarget.title,
+                    workflow: selectedLinkWorkflow?.workflowName ?? "",
+                  }}
+                  components={{ strong: <strong /> }}
+                />
               </p>
             </div>
             <div className="modal-footer">
@@ -6507,14 +6734,16 @@ export function CustomerRecordDetail(): React.ReactElement {
                 onClick={() => setPendingLinkTarget(null)}
                 disabled={linkSubmitting}
               >
-                Cancel
+                {t("recordDetail.cancel")}
               </button>
               <button
                 className="btn-primary"
                 disabled={linkSubmitting}
                 onClick={() => void submitLink(pendingLinkTarget.id)}
               >
-                {linkSubmitting ? "Linking…" : "Link ticket"}
+                {linkSubmitting
+                  ? t("recordDetail.linking")
+                  : t("recordDetail.linkTicket")}
               </button>
             </div>
           </div>
@@ -6526,7 +6755,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         <div className="modal-overlay" onClick={() => setUnlinkConfirm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Remove link?</h3>
+              <h3 className="modal-title">
+                {t("recordDetail.removeLinkTitle")}
+              </h3>
               <button
                 className="modal-close"
                 onClick={() => setUnlinkConfirm(null)}
@@ -6535,23 +6766,20 @@ export function CustomerRecordDetail(): React.ReactElement {
               </button>
             </div>
             <div className="modal-body">
-              <p>
-                This only removes the reference between the two tickets —
-                neither ticket's workflow, state, or history is affected.
-              </p>
+              <p>{t("recordDetail.removeLinkDesc")}</p>
             </div>
             <div className="modal-footer">
               <button
                 className="btn-secondary"
                 onClick={() => setUnlinkConfirm(null)}
               >
-                Cancel
+                {t("recordDetail.cancel")}
               </button>
               <button
                 className="btn-primary"
                 onClick={() => void unlinkTicket(unlinkConfirm)}
               >
-                Remove link
+                {t("recordDetail.removeLink")}
               </button>
             </div>
           </div>
@@ -6576,30 +6804,43 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="modal-header">
             <DialogTitle asChild>
               <h3 className="modal-title">
-                Move to "
-                {(stateModal?.label ?? "") || (stateModal?.toState ?? "")}"
+                {t("recordDetail.moveToTitle", {
+                  name:
+                    (stateModal?.label ?? "") || (stateModal?.toState ?? ""),
+                })}
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
           </div>
           <div className="modal-body">
             <p className="rcd-modal-desc">
-              This will transition the record from{" "}
-              <strong>{record.currentState}</strong> to{" "}
-              <strong>{stateModal?.toState}</strong>.
+              <Trans
+                i18nKey="recordDetail.transitionDesc"
+                values={{
+                  from: record.currentState,
+                  to: stateModal?.toState,
+                }}
+                components={{ strong: <strong /> }}
+              />
             </p>
             <div className="form-group">
               <label className="form-label">
-                Comment {stateModal?.requiresComment ? "*" : "(optional)"}
+                {stateModal?.requiresComment
+                  ? t("recordDetail.commentLabelRequired")
+                  : t("recordDetail.commentLabelOptional")}
               </label>
               <textarea
                 className="form-input portal-textarea"
                 rows={3}
-                placeholder="Add a note about this transition…"
+                placeholder={t("recordDetail.transitionNotePlaceholder")}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 autoFocus
@@ -6614,7 +6855,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 setComment("");
               }}
             >
-              Cancel
+              {t("recordDetail.cancel")}
             </Button>
             <Button
               variant="primary"
@@ -6627,7 +6868,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                 void executeTransition(stateModal, comment || undefined);
               }}
             >
-              {transitioning === stateModal?.id ? "Moving…" : "Confirm"}
+              {transitioning === stateModal?.id
+                ? t("recordDetail.moving")
+                : t("recordDetail.confirm")}
             </Button>
           </div>
         </DialogContent>
@@ -6651,10 +6894,16 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <span className="modal-title">Request access?</span>
+              <span className="modal-title">
+                {t("recordDetail.requestAccessTitle")}
+              </span>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ×
               </button>
             </DialogClose>
@@ -6668,8 +6917,8 @@ export function CustomerRecordDetail(): React.ReactElement {
               }}
             >
               {confirmReqLevel === "read_comment"
-                ? "This will send a request to the ticket owner for comment access. They will be able to approve or decline."
-                : "This will send a request to the ticket owner for view access. They will be able to approve or decline."}
+                ? t("recordDetail.requestCommentAccessDesc")
+                : t("recordDetail.requestViewAccessDesc")}
             </p>
             <div className="rcd-access-modal-actions">
               <button
@@ -6677,7 +6926,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 className="portal-btn-secondary"
                 onClick={() => setConfirmReqLevel(null)}
               >
-                Cancel
+                {t("recordDetail.cancel")}
               </button>
               <button
                 type="button"
@@ -6690,7 +6939,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                   void submitAccessRequest(lvl);
                 }}
               >
-                {requestingAccess ? "Sending…" : "Send Request"}
+                {requestingAccess
+                  ? t("recordDetail.sending")
+                  : t("recordDetail.sendRequest")}
               </button>
             </div>
           </div>
@@ -6711,10 +6962,16 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Review access request</h3>
+              <h3 className="modal-title">
+                {t("recordDetail.reviewAccessRequest")}
+              </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ✕
               </button>
             </DialogClose>
@@ -6727,36 +6984,41 @@ export function CustomerRecordDetail(): React.ReactElement {
                 marginBottom: "14px",
               }}
             >
-              {users.find((u) => u.userId === resolveModal?.requesterId)
-                ?.displayName ?? resolveModal?.requesterId}{" "}
-              requested{" "}
-              <strong>
-                {resolveModal?.currentRequestedLevel === "read_only"
-                  ? "view-only"
-                  : resolveModal?.currentRequestedLevel === "read_comment"
-                    ? "view + comment"
-                    : "full"}{" "}
-                access
-              </strong>
-              . Select the level to grant:
+              <Trans
+                i18nKey="recordDetail.resolveRequested"
+                values={{
+                  name:
+                    users.find((u) => u.userId === resolveModal?.requesterId)
+                      ?.displayName ??
+                    resolveModal?.requesterId ??
+                    "",
+                  level:
+                    resolveModal?.currentRequestedLevel === "read_only"
+                      ? t("recordDetail.levelViewOnlyShort")
+                      : resolveModal?.currentRequestedLevel === "read_comment"
+                        ? t("recordDetail.reqViewComment")
+                        : t("recordDetail.levelFullShort"),
+                }}
+                components={{ strong: <strong /> }}
+              />
             </p>
             <div className="modal-access-opts">
               {(
                 [
                   {
                     value: "read_only",
-                    label: "View only",
-                    desc: "Can read the ticket but not comment",
+                    label: t("recordDetail.reqViewOnly"),
+                    desc: t("recordDetail.resolveViewOnlyDesc"),
                   },
                   {
                     value: "read_comment",
-                    label: "View + comment",
-                    desc: "Can read and post comments",
+                    label: t("recordDetail.reqViewComment"),
+                    desc: t("recordDetail.resolveViewCommentDesc"),
                   },
                   {
                     value: "read_write",
-                    label: "Full access",
-                    desc: "Can edit fields and transition state",
+                    label: t("recordDetail.reqFullAccess"),
+                    desc: t("recordDetail.resolveFullAccessDesc"),
                   },
                 ] as { value: AccessLevel; label: string; desc: string }[]
               ).map((opt) => (
@@ -6791,7 +7053,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 );
               }}
             >
-              Reject
+              {t("recordDetail.reject")}
             </button>
             <button
               type="button"
@@ -6806,7 +7068,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                 );
               }}
             >
-              {resolveSaving ? "Saving…" : "Approve"}
+              {resolveSaving
+                ? t("recordDetail.saving")
+                : t("recordDetail.approve")}
             </button>
           </div>
         </DialogContent>
@@ -6824,10 +7088,14 @@ export function CustomerRecordDetail(): React.ReactElement {
         >
           <div className="modal-header">
             <DialogTitle asChild>
-              <h3 className="modal-title">Alerts</h3>
+              <h3 className="modal-title">{t("recordDetail.alerts")}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close" aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={t("recordDetail.close")}
+              >
                 ✕
               </button>
             </DialogClose>
@@ -6847,11 +7115,11 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             {alertsLoading ? (
               <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                Loading…
+                {t("recordDetail.loading")}
               </p>
             ) : alerts.length === 0 ? (
               <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                No alerts on this ticket yet.
+                {t("recordDetail.noAlerts")}
               </p>
             ) : (
               <div className="alerts-list">
@@ -6864,20 +7132,20 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <span className="alert-row-meta">
                           {new Date(alert.fireAt).toLocaleString()} ·{" "}
                           {alert.scope === "all"
-                            ? "Everyone with access"
-                            : "Just me"}
-                          {!isOwn && " (shared)"}
+                            ? t("recordDetail.alertEveryone")
+                            : t("recordDetail.alertJustMe")}
+                          {!isOwn && ` ${t("recordDetail.alertShared")}`}
                         </span>
                       </div>
                       <div className="alert-row-status">
                         {alert.status === "pending" && (
                           <span className="alert-badge alert-badge-pending">
-                            pending
+                            {t("recordDetail.alertPending")}
                           </span>
                         )}
                         {alert.status === "fired" && (
                           <span className="alert-badge alert-badge-fired">
-                            fired
+                            {t("recordDetail.alertFired")}
                             {alert.firedAt
                               ? ` · ${new Date(alert.firedAt).toLocaleString()}`
                               : ""}
@@ -6885,7 +7153,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         )}
                         {alert.status === "cancelled" && (
                           <span className="alert-badge alert-badge-cancelled">
-                            cancelled
+                            {t("recordDetail.alertCancelled")}
                           </span>
                         )}
                       </div>
@@ -6894,7 +7162,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                           <button
                             type="button"
                             className="alert-row-action-btn"
-                            aria-label="Edit alert"
+                            aria-label={t("recordDetail.editAlert")}
                             onClick={() => startEditAlert(alert)}
                           >
                             ✎
@@ -6902,7 +7170,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                           <button
                             type="button"
                             className="alert-row-action-btn"
-                            aria-label="Cancel alert"
+                            aria-label={t("recordDetail.cancelAlert")}
                             onClick={() => void cancelAlert(alert.id)}
                           >
                             ✕
@@ -6917,12 +7185,14 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             <div className="alert-form">
               <div className="alert-form-title">
-                {editingAlertId ? "Edit Alert" : "Add Alert"}
+                {editingAlertId
+                  ? t("recordDetail.editAlertTitle")
+                  : t("recordDetail.addAlertTitle")}
               </div>
               <input
                 className="portal-input"
                 type="text"
-                placeholder="Note"
+                placeholder={t("recordDetail.notePlaceholder")}
                 value={alertFormNote}
                 onChange={(e) => setAlertFormNote(e.target.value)}
                 maxLength={2000}
@@ -6941,7 +7211,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     checked={alertFormScope === "me"}
                     onChange={() => setAlertFormScope("me")}
                   />{" "}
-                  Just me
+                  {t("recordDetail.alertJustMe")}
                 </label>
                 <label>
                   <input
@@ -6950,7 +7220,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     checked={alertFormScope === "all"}
                     onChange={() => setAlertFormScope("all")}
                   />{" "}
-                  Everyone with access
+                  {t("recordDetail.alertEveryone")}
                 </label>
               </div>
               <div className="alert-form-actions">
@@ -6961,7 +7231,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     disabled={alertSaving}
                     onClick={resetAlertForm}
                   >
-                    Cancel edit
+                    {t("recordDetail.cancelEdit")}
                   </button>
                 )}
                 <button
@@ -6973,10 +7243,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                   onClick={() => void saveAlert()}
                 >
                   {alertSaving
-                    ? "Saving…"
+                    ? t("recordDetail.saving")
                     : editingAlertId
-                      ? "Update alert"
-                      : "Save alert"}
+                      ? t("recordDetail.updateAlert")
+                      : t("recordDetail.saveAlert")}
                 </button>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
@@ -35,6 +36,7 @@ function UnassignedRow({
 }: {
   onSelect: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <div
       onClick={onSelect}
@@ -50,7 +52,7 @@ function UnassignedRow({
         borderBottom: "1px solid var(--border-primary)",
       }}
     >
-      Unassigned
+      {t("recordCreate.unassigned")}
     </div>
   );
 }
@@ -149,6 +151,7 @@ function UserPicker({
   value: string;
   onChange: (userId: string) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -273,13 +276,15 @@ function UserPicker({
                 padding: "2px 4px",
                 borderRadius: "3px",
               }}
-              title="Clear"
+              title={t("recordCreate.clear")}
             >
               ×
             </span>
           </>
         ) : (
-          <span style={{ color: "var(--text-tertiary)" }}>Unassigned</span>
+          <span style={{ color: "var(--text-tertiary)" }}>
+            {t("recordCreate.unassigned")}
+          </span>
         )}
       </button>
 
@@ -307,7 +312,7 @@ function UserPicker({
             <input
               ref={inputRef}
               type="text"
-              placeholder="Search by name or username…"
+              placeholder={t("recordCreate.searchUsersPlaceholder")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{
@@ -334,7 +339,7 @@ function UserPicker({
                   fontSize: "13px",
                 }}
               >
-                No users found
+                {t("recordCreate.noUsersFound")}
               </div>
             ) : (
               filtered.map((u) => (
@@ -365,9 +370,10 @@ function TeamPicker({
   value: string;
   onChange: (teamId: string) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const selected = teams.find((t) => t.id === value) ?? null;
+  const selected = teams.find((team) => team.id === value) ?? null;
 
   useOutsideClick(
     ref,
@@ -393,7 +399,7 @@ function TeamPicker({
           fontSize: "14px",
         }}
       >
-        {selected ? selected.name : "Select a team…"}
+        {selected ? selected.name : t("recordCreate.selectTeam")}
       </button>
 
       {open && (
@@ -422,14 +428,14 @@ function TeamPicker({
                 fontSize: "13px",
               }}
             >
-              No teams configured
+              {t("recordCreate.noTeams")}
             </div>
           ) : (
-            teams.map((t) => (
+            teams.map((team) => (
               <div
-                key={t.id}
+                key={team.id}
                 onClick={() => {
-                  onChange(t.id);
+                  onChange(team.id);
                   setOpen(false);
                 }}
                 style={{
@@ -439,7 +445,7 @@ function TeamPicker({
                   color: "var(--text-primary)",
                 }}
               >
-                {t.name}
+                {team.name}
               </div>
             ))
           )}
@@ -501,6 +507,7 @@ const INITIAL_FORM_DATA: RecordCreateFormData = {
 };
 
 export function CustomerRecordCreate(): React.ReactElement {
+  const { t } = useTranslation();
   const { typeSlug } = useParams<{ typeSlug: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -650,7 +657,9 @@ export function CustomerRecordCreate(): React.ReactElement {
       })
       .catch((err: unknown) => {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : "Failed to load");
+          setError(
+            err instanceof Error ? err.message : t("recordCreate.failedToLoad"),
+          );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -672,7 +681,7 @@ export function CustomerRecordCreate(): React.ReactElement {
     // The assignee is optional: an unassigned ticket stays on the records list under the
     // "Unassigned" filter (docs/specs/mandatory-ticket-fields.md, 2026-10-19).
     if (!dueDate || !remark.trim()) {
-      setError("Due Date and Remark are required.");
+      setError(t("recordCreate.dueDateRemarkRequired"));
       setActiveTab("mandate");
       return;
     }
@@ -716,7 +725,7 @@ export function CustomerRecordCreate(): React.ReactElement {
       const warnings = res.warnings;
       const notice =
         Array.isArray(warnings) && warnings.includes("remark_comment_failed")
-          ? "The ticket was created, but its remark could not be added as the first comment. The remark is saved on the ticket."
+          ? t("recordCreate.remarkCommentFailed")
           : undefined;
 
       // returnTo must be an in-app path: "//host" and "/\host" are read by browsers as another
@@ -733,7 +742,9 @@ export function CustomerRecordCreate(): React.ReactElement {
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create");
+      setError(
+        err instanceof Error ? err.message : t("recordCreate.failedToCreate"),
+      );
       setSaving(false);
     }
   }
@@ -752,12 +763,16 @@ export function CustomerRecordCreate(): React.ReactElement {
         className="portal-back-link"
         onClick={() => void navigate(-1)}
       >
-        ← {entityType?.plural ?? "Records"}
+        ← {entityType?.plural ?? t("recordCreate.records")}
       </button>
       <h1 className="portal-page-title">
         {currentWorkflowName
-          ? `Create New Ticket in '${currentWorkflowName}'`
-          : `New ${entityType?.plural ? singularize(entityType.plural) : (entityType?.name ?? "Ticket")}`}
+          ? t("recordCreate.titleInWorkflow", { workflow: currentWorkflowName })
+          : t("recordCreate.titleNew", {
+              name: entityType?.plural
+                ? singularize(entityType.plural)
+                : (entityType?.name ?? t("recordCreate.ticket")),
+            })}
       </h1>
       <form
         onSubmit={(e) => void handleSubmit(e)}
@@ -767,13 +782,15 @@ export function CustomerRecordCreate(): React.ReactElement {
         {error && <div className="portal-alert-error">{error}</div>}
         {workflows.length > 0 && (
           <div className="portal-field-group">
-            <label className="portal-field-label">Workflow</label>
+            <label className="portal-field-label">
+              {t("recordCreate.workflow")}
+            </label>
             <select
               className="portal-input"
               value={workflowId}
               onChange={(e) => updateFormField("workflowId", e.target.value)}
             >
-              <option value="">No workflow</option>
+              <option value="">{t("recordCreate.noWorkflow")}</option>
               {workflows.map((wf) => (
                 <option key={wf.id} value={wf.id}>
                   {wf.name}
@@ -810,7 +827,7 @@ export function CustomerRecordCreate(): React.ReactElement {
                   : "var(--text-muted)",
             }}
           >
-            Mandate
+            {t("recordCreate.tabMandate")}
           </button>
           <button
             type="button"
@@ -832,7 +849,7 @@ export function CustomerRecordCreate(): React.ReactElement {
                   : "var(--text-muted)",
             }}
           >
-            Other
+            {t("recordCreate.tabOther")}
           </button>
         </div>
         {activeTab === "mandate" && (
@@ -874,7 +891,9 @@ export function CustomerRecordCreate(): React.ReactElement {
               className="portal-field-group"
               style={{ margin: 0, gridColumn: "1 / -1" }}
             >
-              <label className="portal-field-label">Assign To</label>
+              <label className="portal-field-label">
+                {t("recordCreate.assignTo")}
+              </label>
               <div
                 style={{
                   display: "flex",
@@ -900,7 +919,7 @@ export function CustomerRecordCreate(): React.ReactElement {
                       assignMode === "user" ? "#fff" : "var(--text-primary)",
                   }}
                 >
-                  User
+                  {t("recordCreate.assignUser")}
                 </button>
                 <button
                   type="button"
@@ -920,7 +939,7 @@ export function CustomerRecordCreate(): React.ReactElement {
                       assignMode === "team" ? "#fff" : "var(--text-primary)",
                   }}
                 >
-                  Team
+                  {t("recordCreate.assignTeam")}
                 </button>
               </div>
               {assignMode === "user" ? (
@@ -939,7 +958,8 @@ export function CustomerRecordCreate(): React.ReactElement {
             </div>
             <div className="portal-field-group" style={{ margin: 0 }}>
               <label className="portal-field-label">
-                Due Date<span className="portal-required">*</span>
+                {t("recordCreate.dueDate")}
+                <span className="portal-required">*</span>
               </label>
               <input
                 type="datetime-local"
@@ -950,7 +970,8 @@ export function CustomerRecordCreate(): React.ReactElement {
             </div>
             <div className="portal-field-group" style={{ margin: 0 }}>
               <label className="portal-field-label">
-                Severity<span className="portal-required">*</span>
+                {t("recordCreate.severity")}
+                <span className="portal-required">*</span>
               </label>
               <SeverityDropdown
                 value={severity}
@@ -962,7 +983,8 @@ export function CustomerRecordCreate(): React.ReactElement {
               style={{ margin: 0, gridColumn: "1 / -1" }}
             >
               <label className="portal-field-label">
-                Remark<span className="portal-required">*</span>
+                {t("recordCreate.remark")}
+                <span className="portal-required">*</span>
               </label>
               <textarea
                 className="portal-input"
@@ -995,12 +1017,12 @@ export function CustomerRecordCreate(): React.ReactElement {
             </div>
           ))}
         {activeTab === "other" && otherFields.length === 0 && (
-          <p className="portal-text-muted">
-            No other fields defined for this entity type.
-          </p>
+          <p className="portal-text-muted">{t("recordCreate.noOtherFields")}</p>
         )}
         <div className="portal-field-group">
-          <label className="portal-field-label">Attachments</label>
+          <label className="portal-field-label">
+            {t("recordCreate.attachments")}
+          </label>
           {stagedFiles.length > 0 && (
             <div
               style={{
@@ -1023,15 +1045,19 @@ export function CustomerRecordCreate(): React.ReactElement {
             className="portal-btn-secondary"
             onClick={() => void navigate(-1)}
           >
-            Cancel
+            {t("recordCreate.cancel")}
           </button>
           <button
             type="submit"
             className="portal-btn-primary"
             disabled={saving || pendingCount > 0}
-            title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
+            title={
+              pendingCount > 0 ? t("recordCreate.waitingForScan") : undefined
+            }
           >
-            {saving ? "Creating…" : "Create Ticket"}
+            {saving
+              ? t("recordCreate.creating")
+              : t("recordCreate.createTicket")}
           </button>
         </div>
       </form>
