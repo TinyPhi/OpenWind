@@ -78,13 +78,13 @@ export function SandboxesTable({
           className="form-input"
           type="search"
           placeholder={t("platformAdmin.searchByNameOrId")}
-          aria-label="Search sandboxes"
+          aria-label={t("platformAdmin.searchSandboxes")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <select
           className="pa-select"
-          aria-label="Filter by trial status"
+          aria-label={t("platformAdmin.filterByTrialStatus")}
           value={trialFilter}
           // The <option> values below are exactly TrialFilter's members.
           onChange={(e) => setTrialFilter(e.target.value as TrialFilter)}
@@ -99,8 +99,8 @@ export function SandboxesTable({
       {rows.length === 0 ? (
         <p className="pa-muted">
           {sandboxes.length === 0
-            ? "No sandboxes yet."
-            : "No sandboxes match these filters."}
+            ? t("platformAdmin.noSandboxesYet")
+            : t("platformAdmin.noSandboxesMatch")}
         </p>
       ) : (
         <div className="pa-table-wrap">
@@ -113,7 +113,7 @@ export function SandboxesTable({
                     className="pa-sort-btn"
                     onClick={() => toggleSort("name")}
                   >
-                    Name {sortIndicator("name")}
+                    {t("platformAdmin.name")} {sortIndicator("name")}
                   </button>
                 </th>
                 <th>
@@ -122,7 +122,7 @@ export function SandboxesTable({
                     className="pa-sort-btn"
                     onClick={() => toggleSort("trialEndsAt")}
                   >
-                    Trial {sortIndicator("trialEndsAt")}
+                    {t("platformAdmin.trial")} {sortIndicator("trialEndsAt")}
                   </button>
                 </th>
                 <th>
@@ -131,10 +131,10 @@ export function SandboxesTable({
                     className="pa-sort-btn"
                     onClick={() => toggleSort("createdAt")}
                   >
-                    Created {sortIndicator("createdAt")}
+                    {t("platformAdmin.created")} {sortIndicator("createdAt")}
                   </button>
                 </th>
-                <th aria-label="Actions" />
+                <th aria-label={t("platformAdmin.actions")} />
               </tr>
             </thead>
             <tbody>
@@ -156,7 +156,7 @@ export function SandboxesTable({
                         className={`badge ${TRIAL_BADGE[s.trialStatus].cls}`}
                         style={{ alignSelf: "flex-start" }}
                       >
-                        {TRIAL_BADGE[s.trialStatus].label}
+                        {t(TRIAL_BADGE[s.trialStatus].labelKey)}
                       </span>
                       {s.trialEndsAt && (
                         <span
@@ -169,7 +169,7 @@ export function SandboxesTable({
                     </div>
                   </td>
                   <td title={new Date(s.createdAt).toLocaleString()}>
-                    {relativeTime(s.createdAt)}
+                    {relativeTime(t, s.createdAt)}
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="pa-row-actions">

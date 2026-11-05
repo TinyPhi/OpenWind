@@ -270,14 +270,13 @@ export function CreateSandboxModal({
               <h2 className="page-title">{t("platformAdmin.sandboxReady")}</h2>
             </DialogTitle>
             <p className="page-subtitle">
-              Copy these credentials now — they cannot be shown again.
+              {t("platformAdmin.copyCredentialsNow")}
             </p>
             <p style={{ fontWeight: 600, marginTop: 16 }}>
               {t("platformAdmin.seededAccounts")}
             </p>
             <p style={{ color: "var(--text-muted)", margin: "0 0 6px" }}>
-              Each account has its own password. Sign in with either the
-              username or the email.
+              {t("platformAdmin.eachAccountPassword")}
             </p>
             <div style={{ maxHeight: "60vh", overflow: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -310,7 +309,7 @@ export function CreateSandboxModal({
                 role="alert"
                 style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
               >
-                Could not create the CSV. Copy the credentials above instead.
+                {t("platformAdmin.csvFailed")}
               </p>
             )}
             {copyFailed && (
@@ -318,8 +317,7 @@ export function CreateSandboxModal({
                 role="alert"
                 style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
               >
-                Could not copy credentials. Use Download CSV or copy from the
-                table.
+                {t("platformAdmin.copyFailed")}
               </p>
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
@@ -336,7 +334,7 @@ export function CreateSandboxModal({
                   }
                 }}
               >
-                Download CSV
+                {t("platformAdmin.downloadCsv")}
               </Button>
               <Button
                 variant="secondary"
@@ -357,7 +355,7 @@ export function CreateSandboxModal({
                   resetForm();
                 }}
               >
-                Done
+                {t("platformAdmin.done")}
               </Button>
             </div>
           </>
@@ -383,9 +381,7 @@ export function CreateSandboxModal({
             )}
             {error && !handoverFailed && progress?.status !== "failed" && (
               <p style={{ color: "var(--text-muted)" }}>
-                The sandbox may still be created. Its credentials are shown only
-                once, so closing this now means you will not see them. Check the
-                sandbox list afterwards.
+                {t("platformAdmin.mayStillBeCreated")}
               </p>
             )}
             {(progress?.status === "failed" || error) && (
@@ -394,7 +390,7 @@ export function CreateSandboxModal({
                 style={{ marginTop: 16 }}
                 onClick={dismiss}
               >
-                Close
+                {t("platformAdmin.close")}
               </Button>
             )}
           </>
@@ -440,7 +436,9 @@ export function CreateSandboxModal({
                 disabled={!isValid || submitting}
                 style={{ marginTop: 16 }}
               >
-                {submitting ? t("platformAdmin.starting") : "Create sandbox"}
+                {submitting
+                  ? t("platformAdmin.starting")
+                  : t("platformAdmin.createSandbox")}
               </Button>
             </form>
           </>

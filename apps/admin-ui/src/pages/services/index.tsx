@@ -275,7 +275,7 @@ function ServiceFormModal({
           <DialogClose asChild>
             <button
               type="button"
-              aria-label="Close"
+              aria-label={t("services.close")}
               style={{
                 background: "none",
                 border: "none",

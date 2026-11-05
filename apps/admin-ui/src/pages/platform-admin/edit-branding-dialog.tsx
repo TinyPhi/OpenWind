@@ -113,12 +113,11 @@ export function EditBrandingDialog({
           </h2>
         </DialogTitle>
         <p style={{ color: "var(--text-secondary)", margin: "8px 0 16px" }}>
-          Shown to this sandbox&apos;s users at the top left of the app, in
-          place of the OpenWind logo.
+          {t("platformAdmin.brandingIntro")}
         </p>
 
         <div
-          aria-label="Header preview"
+          aria-label={t("platformAdmin.headerPreview")}
           style={{
             display: "flex",
             alignItems: "center",
@@ -138,7 +137,7 @@ export function EditBrandingDialog({
         </div>
 
         <label className="form-label" htmlFor="pa-brand-name">
-          Name
+          {t("platformAdmin.name")}
         </label>
         <input
           id="pa-brand-name"
@@ -152,7 +151,7 @@ export function EditBrandingDialog({
           <p
             style={{ color: "var(--danger)", fontSize: 13, margin: "6px 0 0" }}
           >
-            Enter a name of 1 to {MAX_NAME} characters.
+            {t("platformAdmin.enterNameLength", { max: MAX_NAME })}
           </p>
         )}
 
@@ -161,7 +160,7 @@ export function EditBrandingDialog({
           htmlFor="pa-brand-logo"
           style={{ marginTop: 14, display: "block" }}
         >
-          Logo
+          {t("platformAdmin.logo")}
         </label>
         <input
           id="pa-brand-logo"
@@ -171,8 +170,7 @@ export function EditBrandingDialog({
           onChange={(e) => void handleFile(e)}
         />
         <p className="pa-muted" style={{ marginTop: 6 }}>
-          PNG, JPEG or WebP, up to 100 KB. Without one, the initials of the name
-          are shown.
+          {t("platformAdmin.logoHint")}
         </p>
         {fileError && (
           <p
@@ -191,7 +189,7 @@ export function EditBrandingDialog({
             }}
             disabled={saving}
           >
-            Remove logo
+            {t("platformAdmin.removeLogo")}
           </Button>
         )}
         {logoDraft === null && logo !== null && (
@@ -200,7 +198,7 @@ export function EditBrandingDialog({
             onClick={() => setLogoDraft(undefined)}
             disabled={saving}
           >
-            Keep current logo
+            {t("platformAdmin.keepCurrentLogo")}
           </Button>
         )}
 
@@ -213,7 +211,7 @@ export function EditBrandingDialog({
           }}
         >
           <Button variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
+            {t("platformAdmin.cancel")}
           </Button>
           <Button
             variant="primary"

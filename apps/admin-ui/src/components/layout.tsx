@@ -370,13 +370,14 @@ function InitialsAvatar({
   className,
   style,
 }: InitialsAvatarProps): React.ReactElement {
+  const { t } = useTranslation();
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
 
   if (avatar && avatar !== failedAvatar) {
     return (
       <img
         src={avatar}
-        alt={name.trim() || "Avatar"}
+        alt={name.trim() || t("layout.avatarAlt")}
         onError={() => setFailedAvatar(avatar)}
         className={className}
         style={{
@@ -396,7 +397,9 @@ function InitialsAvatar({
     <div
       role="img"
       className={className}
-      aria-label={`${name.trim() || "User"} avatar`}
+      aria-label={t("layout.avatarLabel", {
+        name: name.trim() || t("layout.roleUser"),
+      })}
       style={{
         width: `${size}px`,
         height: `${size}px`,

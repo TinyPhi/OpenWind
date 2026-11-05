@@ -23,9 +23,9 @@ import { getSavedTheme } from "../lib/theme.js";
 
 type DashboardKey = "tenant" | "user";
 
-const TABS: { key: DashboardKey; label: string }[] = [
-  { key: "tenant", label: "My Organisation Overview" },
-  { key: "user", label: "My Performance" },
+const TABS: { key: DashboardKey; labelKey: string }[] = [
+  { key: "tenant", labelKey: "reporting.tabOrganisation" },
+  { key: "user", labelKey: "reporting.tabPerformance" },
 ];
 
 /**
@@ -138,7 +138,7 @@ export const ReportingPage: React.FC = () => {
   // they are not entitled to. Same pattern as analytics.tsx.
   const [rolesReady, setRolesReady] = useState(false);
   // Staff (admin/agent) get both tabs. Everyone else — "user"/"customer" — is
-  // a customer: they get only their own t("reporting.myTickets") dashboard, never the
+  // a customer: they get only their own "My Tickets" dashboard, never the
   // tenant-wide one. The API enforces the same split independently
   // (guest-token.ts), so a stale or forged client state here cannot widen
   // access, only mis-render.
@@ -162,12 +162,7 @@ export const ReportingPage: React.FC = () => {
     });
   }, []);
 
-  const tabs = isStaff
-    ? TABS
-    : TABS.filter((t) => t.key === "user").map((t) => ({
-        ...t,
-        label: "My Performance",
-      }));
+  const tabs = isStaff ? TABS : TABS.filter((tab) => tab.key === "user");
 
   /**
    * Hand the SDK a fresh pass whenever it asks for one.
@@ -209,7 +204,7 @@ export const ReportingPage: React.FC = () => {
           // decide, so the refresh is expiry-driven rather than a timer we pick
           // here — a hardcoded interval would drift from the real lifetime.
           fetchGuestToken: async () => (await fetchGuestToken(activeTab)).token,
-          // The ticket tables' t("reporting.open") link opens the ticket in a new tab. The
+          // The ticket tables' "Open" link opens the ticket in a new tab. The
           // SDK's own `allow-popups` lets the tab open, but the tab inherits
           // this iframe's sandbox, so OpenWind would load there sandboxed and
           // fail. Escaping the sandbox gives it a normal browsing context; it
@@ -361,7 +356,7 @@ export const ReportingPage: React.FC = () => {
                 dashboard this is — otherwise a customer gets an unlabelled page
                 and no clue that what they are looking at is only their own work. */}
             {tabs.length === 1 && tabs[0]
-              ? tabs[0].label
+              ? t(tabs[0].labelKey)
               : t("reporting.title")}
           </h1>
           {tabs.length > 1 && (
@@ -386,7 +381,7 @@ export const ReportingPage: React.FC = () => {
                     fontSize: 14,
                   }}
                 >
-                  {tab.label}
+                  {t(tab.labelKey)}
                 </button>
               ))}
             </div>
@@ -407,7 +402,7 @@ export const ReportingPage: React.FC = () => {
             >
               <span
                 role="img"
-                aria-label="Reporting Info"
+                aria-label={t("reporting.infoLabel")}
                 tabIndex={0}
                 style={{
                   display: "inline-flex",
@@ -447,7 +442,7 @@ export const ReportingPage: React.FC = () => {
                     pointerEvents: "none",
                   }}
                 >
-                  For more detailed analysis, open the full report in Superset.
+                  {t("reporting.infoTooltip")}
                 </div>
               )}
             </div>
@@ -458,7 +453,7 @@ export const ReportingPage: React.FC = () => {
                 href={supersetSiteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={t("reporting.exploreSuperset")}
+                title={t("reporting.exploreSupersetTitle")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -474,7 +469,7 @@ export const ReportingPage: React.FC = () => {
                   transition: "all 0.15s ease",
                 }}
               >
-                Explore Detailed Report →
+                {t("reporting.exploreReport")}
               </a>
             )}
           </div>
@@ -512,9 +507,7 @@ export const ReportingPage: React.FC = () => {
                 color: TOKENS.textMuted,
               }}
             >
-              <p style={{ margin: "0 0 12px" }}>
-                Reporting is not available right now.
-              </p>
+              <p style={{ margin: "0 0 12px" }}>{t("reporting.unavailable")}</p>
               <button
                 type="button"
                 onClick={() => setRetryCount((n) => n + 1)}
@@ -527,7 +520,7 @@ export const ReportingPage: React.FC = () => {
                   cursor: "pointer",
                 }}
               >
-                Try again
+                {t("reporting.tryAgain")}
               </button>
             </div>
           ) : (

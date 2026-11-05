@@ -1,5 +1,6 @@
 import React, { useState, lazy, Suspense } from "react";
 import { Button } from "@platform/ui";
+import { useTranslation } from "react-i18next";
 import { ApiKeys } from "./index.js";
 
 const ThirdPartyAccessLogsPage = lazy(() =>
@@ -19,6 +20,7 @@ type ApiKeysView = "keys" | "logs";
  * replacement for it.
  */
 export function ApiKeysPage(): React.ReactElement {
+  const { t } = useTranslation();
   const [view, setView] = useState<ApiKeysView>("keys");
 
   return (
@@ -29,14 +31,14 @@ export function ApiKeysPage(): React.ReactElement {
           variant={view === "keys" ? "primary" : "secondary"}
           onClick={() => setView("keys")}
         >
-          API Keys
+          {t("apiKeys.title")}
         </Button>
         <Button
           type="button"
           variant={view === "logs" ? "primary" : "secondary"}
           onClick={() => setView("logs")}
         >
-          API Access Logs
+          {t("apiKeys.accessLogsTab")}
         </Button>
       </div>
 
@@ -47,7 +49,9 @@ export function ApiKeysPage(): React.ReactElement {
           fallback={
             <div className="loading-center">
               <div className="spinner" />
-              <span className="loader-text">Loading access logs…</span>
+              <span className="loader-text">
+                {t("apiKeys.loadingAccessLogs")}
+              </span>
             </div>
           }
         >

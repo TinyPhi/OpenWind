@@ -1,3 +1,10 @@
+import type { TFunction } from "i18next";
+import { i18n } from "../../i18n.js";
+
+export type TranslateFn = TFunction;
+
+const defaultT: TranslateFn = i18n.t.bind(i18n);
+
 export type ApiKeyRow = {
   id: string;
   name: string;
@@ -51,16 +58,17 @@ export type ExpiryBadge = { level: "none" | "amber" | "red"; label: string };
 export function computeExpiryBadge(
   expiresAt: string | null,
   now: Date = new Date(),
+  t: TranslateFn = defaultT,
 ): ExpiryBadge {
   if (expiresAt === null) return { level: "none", label: "" };
   const expiry = new Date(expiresAt);
   const msRemaining = expiry.getTime() - now.getTime();
-  if (msRemaining <= 0) return { level: "red", label: "Expired" };
+  if (msRemaining <= 0) return { level: "red", label: t("apiKeys.expired") };
   if (msRemaining <= THIRTY_DAYS_MS) {
     const days = Math.max(1, Math.ceil(msRemaining / (24 * 60 * 60 * 1000)));
     return {
       level: "amber",
-      label: `Expires in ${days} day${days !== 1 ? "s" : ""}`,
+      label: t("apiKeys.expiresInDays", { count: days }),
     };
   }
   return { level: "none", label: "" };
@@ -69,6 +77,7 @@ export function computeExpiryBadge(
 export function summarizeScopes(
   scopes: readonly string[],
   scopesFormat: "role" | "action",
+  t: TranslateFn = defaultT,
 ): string {
   if (scopesFormat === "role") return scopes.join(", ") || "—";
   const READ_ONLY = ["entity:ticket:read"];
@@ -85,11 +94,11 @@ export function summarizeScopes(
     sorted.length === READ_ONLY.length &&
     sorted.every((s, i) => s === [...READ_ONLY].sort()[i])
   )
-    return "Read-only";
+    return t("apiKeys.readOnly");
   if (
     sorted.length === READ_WRITE.length &&
     sorted.every((s, i) => s === [...READ_WRITE].sort()[i])
   )
-    return "Read-write";
-  return `Custom (${scopes.length} scope${scopes.length !== 1 ? "s" : ""})`;
+    return t("apiKeys.readWrite");
+  return t("apiKeys.customScopes", { count: scopes.length });
 }

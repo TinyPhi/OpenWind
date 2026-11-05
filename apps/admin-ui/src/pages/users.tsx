@@ -208,7 +208,7 @@ function UserRow({
             href={zitadelUserUrl(user.userId)}
             target="_blank"
             rel="noreferrer"
-            title="Open in Zitadel"
+            title={t("users.openInZitadel")}
             className="user-icon-action"
             style={{
               display: "inline-flex",
@@ -333,7 +333,7 @@ export function UsersPage(): React.ReactElement {
             className="modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Org chart"
+            aria-label={t("users.orgChartAria")}
             style={{ maxWidth: "1200px" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -342,7 +342,7 @@ export function UsersPage(): React.ReactElement {
               <button
                 type="button"
                 className="modal-close"
-                aria-label="Close"
+                aria-label={t("users.close")}
                 onClick={() => setShowOrgChart(false)}
               >
                 ×

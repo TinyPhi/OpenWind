@@ -54,7 +54,7 @@ export function PlatformAdminLogin(): React.ReactElement {
         <div style={cardStyle}>
           <h1 style={titleStyle}>{t("platformAdmin.notAuthorized")}</h1>
           <p style={{ color: "var(--text-muted)" }}>
-            Your account does not have platform-admin access.
+            {t("platformAdmin.noAccess")}
           </p>
           <Button
             onClick={() => void handleSignIn(true)}
@@ -70,7 +70,7 @@ export function PlatformAdminLogin(): React.ReactElement {
               role="alert"
               style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
             >
-              Sign-in failed. Please try again.
+              {t("platformAdmin.signInFailed")}
             </p>
           )}
         </div>
@@ -83,7 +83,7 @@ export function PlatformAdminLogin(): React.ReactElement {
       <div style={cardStyle}>
         <h1 style={titleStyle}>{t("platformAdmin.title")}</h1>
         <p style={{ color: "var(--text-muted)", marginBottom: 20 }}>
-          Sign in with your platform-admin account.
+          {t("platformAdmin.signInPrompt")}
         </p>
         <Button onClick={() => void handleSignIn()} disabled={loading}>
           {loading ? t("platformAdmin.redirecting") : t("platformAdmin.signIn")}
@@ -93,7 +93,7 @@ export function PlatformAdminLogin(): React.ReactElement {
             role="alert"
             style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
           >
-            Sign-in failed. Please try again.
+            {t("platformAdmin.signInFailed")}
           </p>
         )}
       </div>
