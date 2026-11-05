@@ -66,6 +66,7 @@ export function SearchableMultiSelect({
         className="form-input"
         aria-label={ariaLabel}
         aria-expanded={open}
+        aria-haspopup="listbox"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
         style={{ textAlign: "left", cursor: "pointer" }}
@@ -92,7 +93,12 @@ export function SearchableMultiSelect({
             autoFocus
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
+          <div
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={`${ariaLabel} options`}
+            style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}
+          >
             {shown.length === 0 ? (
               <p className="page-subtitle" style={{ margin: 4 }}>
                 No matches
@@ -103,6 +109,8 @@ export function SearchableMultiSelect({
                 return (
                   <label
                     key={o.value}
+                    role="option"
+                    aria-selected={checked}
                     style={{
                       display: "flex",
                       gap: 8,

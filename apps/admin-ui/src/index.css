@@ -19,6 +19,16 @@
   --success: hsl(150, 75%, 45%);
   --warning: hsl(40, 90%, 55%);
 
+  /* CircleActionButton (components/action-icons.tsx); same in both themes */
+  --action-grey-bg: hsl(222, 10%, 42%);
+  --action-green-bg: hsl(145, 60%, 38%);
+  --action-yellow-bg: hsl(45, 95%, 52%);
+  --action-red-bg: hsl(0, 70%, 48%);
+  --action-grey-icon: #fff;
+  --action-green-icon: #fff;
+  --action-yellow-icon: #1a1a1a;
+  --action-red-icon: #fff;
+
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 20px;
