@@ -329,6 +329,29 @@ describe("generation (R5, R6)", () => {
   });
 });
 
+describe("the sweep only picks up rotations that need work (#1122)", () => {
+  it("leaves a rotation that is not due and has no window starting soon untouched", async () => {
+    const { teamId, rotationId } = await seed({
+      first: { from: -1, to: 20 },
+      nextDays: 20,
+    });
+    // processing a rotation whose team is gone records a blocked reason; skipping it does not
+    await db.update(teams).set({ deletedAt: NOW }).where(eq(teams.id, teamId));
+    await rotationTick(NOW);
+    expect((await rotation(rotationId)).blockedReason).toBeNull();
+  });
+
+  it("picks the same rotation up once it is due", async () => {
+    const { teamId, rotationId } = await seed({
+      first: { from: -1, to: 20 },
+      nextDays: 20,
+    });
+    await db.update(teams).set({ deletedAt: NOW }).where(eq(teams.id, teamId));
+    await rotationTick(at(19));
+    expect((await rotation(rotationId)).blockedReason).not.toBeNull();
+  });
+});
+
 describe("overlap (R6)", () => {
   it("blocks on a manual window, never overwrites it, and resumes when it is cleared", async () => {
     const { rotationId, teamId } = await seed({});
@@ -417,6 +440,22 @@ describe("advance notice (R8)", () => {
     expect(mockAdd).toHaveBeenCalled();
   });
 
+  it("still announces a window starting within the lead when the rotation's next cycle is far off (#1122)", async () => {
+    // next_starts_at is a full cycle away, so a sweep on it alone would skip this rotation and
+    // never retry or send the notice for the window that starts tomorrow
+    const { rotationId, firstId } = await seed({
+      first: { from: 1, to: 8 },
+      nextDays: 8,
+    });
+    await rotationTick(NOW);
+    const sent = await db
+      .select({ id: onCallScheduleNotices.id })
+      .from(onCallScheduleNotices)
+      .where(eq(onCallScheduleNotices.scheduleId, firstId!));
+    expect(sent).toHaveLength(3);
+    expect(await windows(rotationId)).toHaveLength(1);
+  });
+
   it("never announces a window that has already started", async () => {
     const { rotationId } = await seed({
       first: { from: -6, to: 1 },
@@ -482,6 +521,26 @@ describe("the sweeper role's reach (ADR-016 addendum A3, R10)", () => {
     const tenantsSeen = new Set(rows.map((r) => r.tenant_id));
     expect(tenantsSeen.has(TENANT)).toBe(true);
     expect(tenantsSeen.has(OTHER_TENANT)).toBe(true);
+  });
+
+  it("reads exactly three columns of on_call_schedules, to find windows starting soon (#1122)", async () => {
+    await expect(
+      asSweeper((tx) =>
+        tx.execute(
+          sql`SELECT rotation_id, starts_at, deleted_at FROM on_call_schedules LIMIT 1`,
+        ),
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      asSweeper((tx) =>
+        tx.execute(sql`SELECT primary_user_id FROM on_call_schedules LIMIT 1`),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asSweeper((tx) =>
+        tx.execute(sql`SELECT tenant_id FROM on_call_schedules LIMIT 1`),
+      ),
+    ).rejects.toThrow();
   });
 
   it("cannot read the people columns, other tables, or write anything", async () => {
