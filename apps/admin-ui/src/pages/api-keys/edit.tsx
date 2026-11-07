@@ -79,12 +79,13 @@ export function EditApiKeyModal({
         >
           <div>
             <DialogTitle asChild>
-              <h2 className="page-title">Edit {keyRow?.applicationName}</h2>
+              <h2 className="page-title">
+                {t("apiKeys.editTitle", {
+                  name: keyRow?.applicationName ?? "",
+                })}
+              </h2>
             </DialogTitle>
-            <p className="page-subtitle">
-              Only the description and contact email can be changed here —
-              permissions and identity are fixed for the life of the key.
-            </p>
+            <p className="page-subtitle">{t("apiKeys.editSubtitle")}</p>
           </div>
           <DialogClose asChild>
             <button
@@ -122,11 +123,13 @@ export function EditApiKeyModal({
           </div>
 
           <div className="form-group">
-            <label className="form-label">Application Contact Email *</label>
+            <label className="form-label">
+              {t("apiKeys.contactEmailLabel")}
+            </label>
             <input
               className="form-input"
               type="email"
-              placeholder="ops@example.com"
+              placeholder={t("apiKeys.contactEmailPlaceholder")}
               value={applicationContactEmail}
               onChange={(e) => setApplicationContactEmail(e.target.value)}
               required

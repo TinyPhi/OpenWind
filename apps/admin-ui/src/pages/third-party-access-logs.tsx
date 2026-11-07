@@ -24,10 +24,8 @@ export function ThirdPartyAccessLogsPage(): React.ReactElement {
           borderRadius: TOKENS.radiusSm,
         }}
       >
-        <strong>Known residual risk:</strong> the volume-spike misuse alert is
-        threshold-based, not behavioral — sustained abuse that stays just under
-        the threshold will not trigger a proactive alert. This log remains the
-        way to manually spot that pattern.
+        <strong>{t("logs.residualRiskLabel")}</strong>{" "}
+        {t("logs.residualRiskBody")}
       </div>
 
       <AccessLogsPanel />

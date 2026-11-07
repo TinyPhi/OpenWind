@@ -11,7 +11,6 @@ import { EditApiKeyModal } from "./edit.js";
 import { KeyRevealModal } from "./key-reveal.js";
 import {
   useApiKeyActions,
-  API_KEY_ACTION_CONFIRM_COPY,
   type ApiKeyActionKind,
 } from "../../hooks/use-api-key-actions.js";
 import {
@@ -21,6 +20,12 @@ import {
   type ApiKeyRow,
 } from "./status.js";
 import { groupKeysByApplication } from "./application-grouping.js";
+
+const ACTION_COPY_KEY: Record<ApiKeyActionKind, string> = {
+  revoke: "apiKeys.actions.revoke",
+  rotate: "apiKeys.actions.rotate",
+  "emergency-rotate": "apiKeys.actions.emergencyRotate",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   active: "apiKeys.active",
@@ -217,7 +222,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading application…</span>
+        <span className="loader-text">{t("apiKeys.loadingApplication")}</span>
       </div>
     );
   }
@@ -229,17 +234,14 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
   if (!application) {
     return (
       <div className="wfl-empty">
-        <h4>Application not found</h4>
-        <p>
-          It may have been fully removed, or its name changed since you
-          navigated here.
-        </p>
+        <h4>{t("apiKeys.applicationNotFound")}</h4>
+        <p>{t("apiKeys.applicationNotFoundDesc")}</p>
         <Button
           variant="secondary"
           style={{ marginTop: "16px" }}
           onClick={() => void navigate("/admin/api-keys")}
         >
-          Back to API Keys
+          {t("apiKeys.backToApiKeys")}
         </Button>
       </div>
     );
@@ -256,13 +258,11 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
             style={{ marginBottom: "12px" }}
             onClick={() => void navigate("/admin/api-keys")}
           >
-            ← All applications
+            {t("apiKeys.allApplications")}
           </Button>
           <h2 className="page-title">{application.displayName}</h2>
           <p className="page-subtitle">
-            {application.keys.length} key
-            {application.keys.length !== 1 ? "s" : ""} — created, expired,
-            revoked, and rotated, in full.
+            {t("apiKeys.detailSubtitle", { count: application.keys.length })}
           </p>
         </div>
       </div>
@@ -271,18 +271,18 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
         <table className="rcd-table" style={{ whiteSpace: "nowrap" }}>
           <thead>
             <tr>
-              <th>Created by</th>
-              <th>Created</th>
-              <th>Expires</th>
-              <th>Scopes</th>
-              <th>Status</th>
+              <th>{t("apiKeys.createdBy")}</th>
+              <th>{t("apiKeys.created")}</th>
+              <th>{t("apiKeys.expires")}</th>
+              <th>{t("apiKeys.scopes")}</th>
+              <th>{t("apiKeys.statusHeader")}</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {application.keys.map((key) => {
               const status = computeApiKeyStatus(key, keys);
-              const badge = computeExpiryBadge(key.expiresAt);
+              const badge = computeExpiryBadge(key.expiresAt, new Date(), t);
               const isBusy = busyKeyId === key.id;
               const isRevoked = status === "revoked";
               const menuOpen = openMenuId === key.id;
@@ -313,7 +313,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                       </span>
                     )}
                   </td>
-                  <td>{summarizeScopes(key.scopes, key.scopesFormat)}</td>
+                  <td>{summarizeScopes(key.scopes, key.scopesFormat, t)}</td>
                   <td>
                     <span
                       className={`wfl-status-badge ${status === "active" ? "wfl-status-active" : "wfl-status-inactive"}`}
@@ -338,7 +338,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                             setEditingKey(key);
                           }}
                         >
-                          Edit
+                          {t("apiKeys.edit")}
                         </button>
                         <button
                           type="button"
@@ -348,7 +348,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                             setConfirmState({ id: key.id, kind: "rotate" });
                           }}
                         >
-                          Rotate
+                          {t("apiKeys.rotate")}
                         </button>
                         <button
                           type="button"
@@ -361,7 +361,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                             });
                           }}
                         >
-                          Emergency Rotate
+                          {t("apiKeys.emergencyRotate")}
                         </button>
                         <button
                           type="button"
@@ -374,7 +374,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
                             setConfirmState({ id: key.id, kind: "revoke" });
                           }}
                         >
-                          Revoke
+                          {t("apiKeys.revoke")}
                         </button>
                       </RowActionsMenu>
                     )}
@@ -388,7 +388,7 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
 
       <div style={{ marginTop: "32px" }}>
         <h3 style={{ marginBottom: "12px" }}>
-          Access logs for this application
+          {t("apiKeys.accessLogsHeading")}
         </h3>
         <AccessLogsPanel lockedApplicationIds={applicationKeyIds} />
       </div>
@@ -396,21 +396,19 @@ export function ApiKeyApplicationDetail(): React.ReactElement {
       <ConfirmDeleteDialog
         open={confirmState !== null}
         {...(confirmState
-          ? { title: API_KEY_ACTION_CONFIRM_COPY[confirmState.kind].title }
+          ? { title: t(`${ACTION_COPY_KEY[confirmState.kind]}.title`) }
           : {})}
         message={
-          confirmState
-            ? API_KEY_ACTION_CONFIRM_COPY[confirmState.kind].message
-            : ""
+          confirmState ? t(`${ACTION_COPY_KEY[confirmState.kind]}.message`) : ""
         }
         confirmLabel={
           confirmState
-            ? API_KEY_ACTION_CONFIRM_COPY[confirmState.kind].confirmLabel
+            ? t(`${ACTION_COPY_KEY[confirmState.kind]}.confirmLabel`)
             : t("apiKeys.confirm")
         }
         busyLabel={
           confirmState
-            ? API_KEY_ACTION_CONFIRM_COPY[confirmState.kind].busyLabel
+            ? t(`${ACTION_COPY_KEY[confirmState.kind]}.busyLabel`)
             : t("apiKeys.working")
         }
         busy={confirmState !== null && busyKeyId === confirmState.id}

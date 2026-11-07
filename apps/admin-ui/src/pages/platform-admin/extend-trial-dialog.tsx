@@ -88,14 +88,18 @@ export function ExtendTrialDialog({
         <p style={{ color: "var(--text-secondary)", margin: "8px 0 16px" }}>
           <strong>{tenantName}</strong>:{" "}
           {currentEnd === null
-            ? "no trial end set."
+            ? t("platformAdmin.extendTrialNoEnd")
             : expired
-              ? `expired on ${formatDate(currentEnd)}.`
-              : `trial ends ${formatDate(currentEnd)}.`}
+              ? t("platformAdmin.extendTrialExpiredOn", {
+                  date: formatDate(currentEnd),
+                })
+              : t("platformAdmin.extendTrialEndsOn", {
+                  date: formatDate(currentEnd),
+                })}
         </p>
 
         <label className="form-label" htmlFor="pa-trial-days">
-          Extend by (days)
+          {t("platformAdmin.extendByDays")}
         </label>
         <input
           id="pa-trial-days"
@@ -109,13 +113,14 @@ export function ExtendTrialDialog({
 
         <p className="pa-muted" style={{ marginTop: 10 }} aria-live="polite">
           {valid
-            ? `New end: ${formatDate(base + parsed * DAY_MS)}`
-            : `Enter a whole number from 1 to ${MAX_DAYS}.`}
+            ? t("platformAdmin.newEnd", {
+                date: formatDate(base + parsed * DAY_MS),
+              })
+            : t("platformAdmin.enterWholeNumber", { max: MAX_DAYS })}
         </p>
         {expired && valid && (
           <p style={{ color: "var(--success)", fontSize: 13, margin: 0 }}>
-            This reactivates the sandbox: its users can sign in again straight
-            away.
+            {t("platformAdmin.reactivatesNote")}
           </p>
         )}
 
@@ -128,7 +133,7 @@ export function ExtendTrialDialog({
           }}
         >
           <Button variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
+            {t("platformAdmin.cancel")}
           </Button>
           <Button
             variant="primary"

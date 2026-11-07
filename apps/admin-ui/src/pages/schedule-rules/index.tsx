@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -35,8 +35,7 @@ import { useOutsideClick } from "../../hooks/use-outside-click.js";
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 type Severity = (typeof SEVERITIES)[number];
 type RuleStatus = "active" | "paused" | "archived";
-const DUE_DAYS_INTEGER_ERROR =
-  "Due after (days) must be a whole number between 0 and 3650.";
+const DUE_DAYS_ERROR_KEY = "scheduleRules.dueDaysIntegerError";
 
 // Cron expressions are still what the API stores and the worker reads
 // (docs/decisions/ADR-017-temporal-scheduler.md: "cron as canonical
@@ -56,35 +55,32 @@ type Frequency = "daily" | "weekly" | "monthly";
 const DEFAULT_TIMEZONE = "Asia/Kolkata";
 
 const TIMEZONE_OPTIONS = [
-  { value: "UTC", label: "UTC" },
-  { value: "Asia/Kolkata", label: "IST — India (Asia/Kolkata)" },
-  { value: "America/New_York", label: "ET — US Eastern (America/New_York)" },
-  { value: "America/Chicago", label: "CT — US Central (America/Chicago)" },
-  { value: "America/Denver", label: "MT — US Mountain (America/Denver)" },
+  { value: "UTC", labelKey: "scheduleRules.tz.UTC" },
+  { value: "Asia/Kolkata", labelKey: "scheduleRules.tz.Asia_Kolkata" },
+  { value: "America/New_York", labelKey: "scheduleRules.tz.America_New_York" },
+  { value: "America/Chicago", labelKey: "scheduleRules.tz.America_Chicago" },
+  { value: "America/Denver", labelKey: "scheduleRules.tz.America_Denver" },
   {
     value: "America/Los_Angeles",
-    label: "PT — US Pacific (America/Los_Angeles)",
+    labelKey: "scheduleRules.tz.America_Los_Angeles",
   },
-  { value: "Europe/London", label: "UK — London (Europe/London)" },
-  { value: "Europe/Paris", label: "CET — Paris/Berlin (Europe/Paris)" },
-  { value: "Asia/Dubai", label: "GST — Dubai (Asia/Dubai)" },
-  { value: "Asia/Singapore", label: "SGT — Singapore (Asia/Singapore)" },
-  { value: "Asia/Shanghai", label: "CST — China (Asia/Shanghai)" },
-  { value: "Asia/Tokyo", label: "JST — Japan (Asia/Tokyo)" },
-  {
-    value: "Australia/Sydney",
-    label: "AEST/AEDT — Sydney (Australia/Sydney)",
-  },
+  { value: "Europe/London", labelKey: "scheduleRules.tz.Europe_London" },
+  { value: "Europe/Paris", labelKey: "scheduleRules.tz.Europe_Paris" },
+  { value: "Asia/Dubai", labelKey: "scheduleRules.tz.Asia_Dubai" },
+  { value: "Asia/Singapore", labelKey: "scheduleRules.tz.Asia_Singapore" },
+  { value: "Asia/Shanghai", labelKey: "scheduleRules.tz.Asia_Shanghai" },
+  { value: "Asia/Tokyo", labelKey: "scheduleRules.tz.Asia_Tokyo" },
+  { value: "Australia/Sydney", labelKey: "scheduleRules.tz.Australia_Sydney" },
 ] as const;
 
 const WEEKDAY_OPTIONS = [
-  { value: 0, label: "Sunday" },
-  { value: 1, label: "Monday" },
-  { value: 2, label: "Tuesday" },
-  { value: 3, label: "Wednesday" },
-  { value: 4, label: "Thursday" },
-  { value: 5, label: "Friday" },
-  { value: 6, label: "Saturday" },
+  { value: 0, labelKey: "scheduleRules.weekdays.sunday" },
+  { value: 1, labelKey: "scheduleRules.weekdays.monday" },
+  { value: 2, labelKey: "scheduleRules.weekdays.tuesday" },
+  { value: 3, labelKey: "scheduleRules.weekdays.wednesday" },
+  { value: 4, labelKey: "scheduleRules.weekdays.thursday" },
+  { value: 5, labelKey: "scheduleRules.weekdays.friday" },
+  { value: 6, labelKey: "scheduleRules.weekdays.saturday" },
 ] as const;
 
 function pad2(n: number): string {
@@ -262,7 +258,7 @@ function SearchableSelect({
               cursor: "pointer",
               padding: "2px 4px",
             }}
-            title="Clear"
+            title={t("scheduleRules.clear")}
           >
             ×
           </span>
@@ -333,7 +329,7 @@ function SearchableSelect({
                   fontSize: 13,
                 }}
               >
-                No results
+                {t("scheduleRules.noResults")}
               </div>
             ) : (
               filtered.map((o) => (
@@ -449,7 +445,9 @@ export function ScheduleRulesPage(): React.ReactElement {
   }, [refresh]);
 
   const workflowName = (id: string | null): string =>
-    id ? (workflows.find((w) => w.id === id)?.name ?? "—") : "None";
+    id
+      ? (workflows.find((w) => w.id === id)?.name ?? "—")
+      : t("scheduleRules.none");
 
   async function handleTogglePause(rule: ScheduleRule): Promise<void> {
     const nextStatus = rule.status === "paused" ? "active" : "paused";
@@ -491,13 +489,11 @@ export function ScheduleRulesPage(): React.ReactElement {
       <div className="wfl-page-header">
         <div>
           <h2 className="page-title">{t("scheduleRules.title")}</h2>
-          <p className="page-subtitle">
-            Auto-create tickets on a recurring schedule.
-          </p>
+          <p className="page-subtitle">{t("scheduleRules.subtitle")}</p>
         </div>
         <div className="wfl-header-actions">
           <Button variant="primary" onClick={() => setCreating(true)}>
-            New Rule
+            {t("scheduleRules.newRule")}
           </Button>
         </div>
       </div>
@@ -533,7 +529,9 @@ export function ScheduleRulesPage(): React.ReactElement {
                   {rule.cronHuman ?? rule.cronExpr} ({rule.timezone})
                 </TableCell>
                 <TableCell>{workflowName(rule.workflowId)}</TableCell>
-                <TableCell>{rule.status}</TableCell>
+                <TableCell>
+                  {t(`scheduleRules.statusValue.${rule.status}`)}
+                </TableCell>
                 <TableCell>
                   {rule.nextFireAt
                     ? new Date(rule.nextFireAt).toLocaleString()
@@ -545,7 +543,9 @@ export function ScheduleRulesPage(): React.ReactElement {
                       size={30}
                       color={rule.status === "paused" ? "green" : "yellow"}
                       label={
-                        rule.status === "paused" ? "Resume rule" : "Pause rule"
+                        rule.status === "paused"
+                          ? t("scheduleRules.resumeRule")
+                          : t("scheduleRules.pauseRule")
                       }
                       icon={
                         rule.status === "paused" ? (
@@ -614,18 +614,25 @@ export function ScheduleRulesPage(): React.ReactElement {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Pause schedule rule?</AlertDialogTitle>
+          <AlertDialogTitle>{t("scheduleRules.pauseTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {pausing
-              ? `"${pausing.name}" will stop firing while it is paused. ${pausing.catchUp ? "Catch-up is on, so fire times that pass in the meantime are run when you resume it" : "Fire times that pass in the meantime are skipped, not made up, when you resume it"}. You can resume it at any time.`
+              ? t(
+                  pausing.catchUp
+                    ? "scheduleRules.pauseDescCatchUp"
+                    : "scheduleRules.pauseDescSkip",
+                  { name: pausing.name },
+                )
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep running</AlertDialogCancel>
+            <AlertDialogCancel>
+              {t("scheduleRules.keepRunning")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => pausing && void handleTogglePause(pausing)}
             >
-              Pause rule
+              {t("scheduleRules.pauseRule")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -641,15 +648,15 @@ export function ScheduleRulesPage(): React.ReactElement {
           <AlertDialogTitle>{t("scheduleRules.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {deleting
-              ? `"${deleting.name}" will stop firing and be removed from this list. Records it already created are not affected, and past executions stay visible in its history. This cannot be undone. To stop it for now and keep it, pause it instead.`
+              ? t("scheduleRules.deleteDesc", { name: deleting.name })
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("scheduleRules.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleting && void handleDelete(deleting)}
             >
-              Delete
+              {t("scheduleRules.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -769,8 +776,8 @@ function RuleFormModal({
     if (!assignValue || !formData.dueDays || !formData.remark.trim()) {
       setError(
         formData.assignMode === "user"
-          ? "Assignee, due date, and remark are required."
-          : "Team, due date, and remark are required.",
+          ? t("scheduleRules.assigneeRequired")
+          : t("scheduleRules.teamRequired"),
       );
       return;
     }
@@ -780,7 +787,7 @@ function RuleFormModal({
       dueDaysValue < 0 ||
       dueDaysValue > 3650
     ) {
-      setError(DUE_DAYS_INTEGER_ERROR);
+      setError(t(DUE_DAYS_ERROR_KEY));
       return;
     }
     setSaving(true);
@@ -832,7 +839,9 @@ function RuleFormModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save rule");
+      setError(
+        err instanceof Error ? err.message : t("scheduleRules.failedToSave"),
+      );
     } finally {
       setSaving(false);
     }
@@ -855,7 +864,9 @@ function RuleFormModal({
         >
           <DialogTitle asChild>
             <h2 className="page-title">
-              {rule ? "Edit Schedule Rule" : "New Schedule Rule"}
+              {rule
+                ? t("scheduleRules.editTitle")
+                : t("scheduleRules.newTitle")}
             </h2>
           </DialogTitle>
           <DialogClose asChild>
@@ -889,14 +900,18 @@ function RuleFormModal({
             {unsupportedCronExpr && (
               <div className="form-group">
                 <div className="alert alert-warning" role="alert">
-                  Your stored schedule (<code>{unsupportedCronExpr}</code>){" "}
-                  cannot be represented by this picker and will be replaced on
-                  save.
+                  <Trans
+                    i18nKey="scheduleRules.unsupportedCron"
+                    values={{ cron: unsupportedCronExpr }}
+                    components={{ code: <code /> }}
+                  />
                 </div>
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Name *</label>
+              <label className="form-label">
+                {t("scheduleRules.nameLabel")}
+              </label>
               <input
                 className="form-input"
                 placeholder={t("scheduleRules.namePlaceholder")}
@@ -917,19 +932,21 @@ function RuleFormModal({
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Workflow</label>
+              <label className="form-label">
+                {t("scheduleRules.workflow")}
+              </label>
               <SearchableSelect
                 options={workflows.map((w) => ({ id: w.id, label: w.name }))}
                 value={formData.workflowId}
                 onChange={(val) => updateField("workflowId", val)}
                 placeholder={t("scheduleRules.workflowPlaceholder")}
-                emptyLabel="None"
+                emptyLabel={t("scheduleRules.none")}
                 allowClear
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Repeats *</label>
+              <label className="form-label">{t("scheduleRules.repeats")}</label>
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                 {(["daily", "weekly", "monthly"] as const).map((f) => (
                   <button
@@ -951,7 +968,7 @@ function RuleFormModal({
                     }}
                     onClick={() => updateField("frequency", f)}
                   >
-                    {f}
+                    {t(`scheduleRules.frequencyValue.${f}`)}
                   </button>
                 ))}
               </div>
@@ -966,7 +983,7 @@ function RuleFormModal({
                 {formData.frequency === "weekly" && (
                   <div style={{ flex: 1, minWidth: 140 }}>
                     <label className="form-label" htmlFor="rule-day-of-week">
-                      Day
+                      {t("scheduleRules.day")}
                     </label>
                     <select
                       id="rule-day-of-week"
@@ -978,7 +995,7 @@ function RuleFormModal({
                     >
                       {WEEKDAY_OPTIONS.map((d) => (
                         <option key={d.value} value={d.value}>
-                          {d.label}
+                          {t(d.labelKey)}
                         </option>
                       ))}
                     </select>
@@ -987,7 +1004,7 @@ function RuleFormModal({
                 {formData.frequency === "monthly" && (
                   <div style={{ flex: 1, minWidth: 100 }}>
                     <label className="form-label" htmlFor="rule-day-of-month">
-                      Day of month
+                      {t("scheduleRules.dayOfMonth")}
                     </label>
                     <input
                       id="rule-day-of-month"
@@ -1004,7 +1021,7 @@ function RuleFormModal({
                 )}
                 <div style={{ flex: 1, minWidth: 120 }}>
                   <label className="form-label" htmlFor="rule-time-of-day">
-                    Time
+                    {t("scheduleRules.time")}
                   </label>
                   <input
                     id="rule-time-of-day"
@@ -1020,7 +1037,7 @@ function RuleFormModal({
 
             <div className="form-group">
               <label className="form-label" htmlFor="rule-timezone">
-                Timezone *
+                {t("scheduleRules.timezoneLabel")}
               </label>
               <select
                 id="rule-timezone"
@@ -1031,7 +1048,7 @@ function RuleFormModal({
               >
                 {TIMEZONE_OPTIONS.map((tz) => (
                   <option key={tz.value} value={tz.value}>
-                    {tz.label}
+                    {t(tz.labelKey)}
                   </option>
                 ))}
                 {!TIMEZONE_OPTIONS.some(
@@ -1055,7 +1072,7 @@ function RuleFormModal({
                   checked={formData.catchUp}
                   onChange={(e) => updateField("catchUp", e.target.checked)}
                 />
-                Catch up on missed fires (worker was down)
+                {t("scheduleRules.catchUp")}
               </label>
               {rule && !rule.catchUp && formData.catchUp && (
                 <div
@@ -1063,21 +1080,21 @@ function RuleFormModal({
                   className="alert alert-warning"
                   style={{ marginTop: 8 }}
                 >
-                  Catch-up will create one ticket for each missed fire since the
-                  rule was last active. For rules paused a long time, this can
-                  create many tickets at once.
+                  {t("scheduleRules.catchUpWarning")}
                 </div>
               )}
             </div>
 
             <Button type="submit" variant="primary" style={{ marginTop: 8 }}>
-              Next: Ticket template →
+              {t("scheduleRules.nextTemplate")}
             </Button>
           </form>
         ) : (
           <form onSubmit={(e) => void handleSubmit(e)}>
             <div className="form-group">
-              <label className="form-label">Title *</label>
+              <label className="form-label">
+                {t("scheduleRules.titleLabel")}
+              </label>
               <input
                 className="form-input"
                 placeholder={t("scheduleRules.titleTemplatePlaceholder")}
@@ -1088,7 +1105,9 @@ function RuleFormModal({
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Description</label>
+              <label className="form-label">
+                {t("scheduleRules.description")}
+              </label>
               <input
                 className="form-input"
                 value={formData.templateDescription}
@@ -1111,14 +1130,16 @@ function RuleFormModal({
                 <option value="">{t("scheduleRules.none")}</option>
                 {SEVERITIES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {t(`scheduleRules.severityValue.${s}`)}
                   </option>
                 ))}
               </select>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Assign To *</label>
+              <label className="form-label">
+                {t("scheduleRules.assignTo")}
+              </label>
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                 <button
                   type="button"
@@ -1137,7 +1158,7 @@ function RuleFormModal({
                   }}
                   onClick={() => updateField("assignMode", "user")}
                 >
-                  User
+                  {t("scheduleRules.user")}
                 </button>
                 <button
                   type="button"
@@ -1156,7 +1177,7 @@ function RuleFormModal({
                   }}
                   onClick={() => updateField("assignMode", "team")}
                 >
-                  Team
+                  {t("scheduleRules.team")}
                 </button>
               </div>
               {formData.assignMode === "user" ? (
@@ -1166,7 +1187,7 @@ function RuleFormModal({
                   onChange={(e) => updateField("assignedTo", e.target.value)}
                   required
                 >
-                  <option value="">Select a user…</option>
+                  <option value="">{t("scheduleRules.selectUser")}</option>
                   {users.map((u) => (
                     <option key={u.userId} value={u.userId}>
                       {u.displayName}
@@ -1180,25 +1201,24 @@ function RuleFormModal({
                   onChange={(e) => updateField("teamId", e.target.value)}
                   required
                 >
-                  <option value="">Select a team…</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
+                  <option value="">{t("scheduleRules.selectTeam")}</option>
+                  {teams.map((tm) => (
+                    <option key={tm.id} value={tm.id}>
+                      {tm.name}
                     </option>
                   ))}
                 </select>
               )}
               {formData.assignMode === "team" && (
                 <p className="page-subtitle" style={{ marginTop: 6 }}>
-                  Resolves to the team's on-call primary at fire time (falling
-                  back to backup, escalation manager, then workflow admin).
+                  {t("scheduleRules.teamResolveHint")}
                 </p>
               )}
             </div>
 
             <div className="form-group">
               <label className="form-label" htmlFor="rule-due-days">
-                Due — days after creation *
+                {t("scheduleRules.dueDaysLabel")}
               </label>
               <input
                 id="rule-due-days"
@@ -1218,8 +1238,8 @@ function RuleFormModal({
                       numericValue < 0 ||
                       numericValue > 3650)
                   ) {
-                    setError(DUE_DAYS_INTEGER_ERROR);
-                  } else if (error === DUE_DAYS_INTEGER_ERROR) {
+                    setError(t(DUE_DAYS_ERROR_KEY));
+                  } else if (error === t(DUE_DAYS_ERROR_KEY)) {
                     setError(null);
                   }
                 }}
@@ -1229,10 +1249,10 @@ function RuleFormModal({
 
             <div className="form-group">
               <label className="form-label" htmlFor="rule-remark">
-                Remark *
+                {t("scheduleRules.remarkLabel")}
               </label>
               <p className="page-subtitle" style={{ marginTop: 0 }}>
-                Posted as the created ticket's first comment.
+                {t("scheduleRules.remarkHint")}
               </p>
               <textarea
                 id="rule-remark"
@@ -1251,14 +1271,14 @@ function RuleFormModal({
                 variant="secondary"
                 onClick={() => updateField("step", 1)}
               >
-                ← Back
+                {t("scheduleRules.back")}
               </Button>
               <Button type="submit" variant="primary" disabled={saving}>
                 {saving
                   ? t("scheduleRules.saving")
                   : rule
-                    ? "Save changes"
-                    : "Create rule"}
+                    ? t("scheduleRules.saveChanges")
+                    : t("scheduleRules.createRuleButton")}
               </Button>
             </div>
           </form>
@@ -1269,9 +1289,10 @@ function RuleFormModal({
 }
 
 function StepIndicator({ step }: { step: 1 | 2 }): React.ReactElement {
+  const { t } = useTranslation();
   const steps: { n: 1 | 2; label: string }[] = [
-    { n: 1, label: "Scheduling" },
-    { n: 2, label: "Ticket template" },
+    { n: 1, label: t("scheduleRules.stepScheduling") },
+    { n: 2, label: t("scheduleRules.stepTemplate") },
   ];
   return (
     <div

@@ -152,9 +152,7 @@ export function CreateApiKeyModal({
             <DialogTitle asChild>
               <h2 className="page-title">{t("apiKeys.keyCreated2")}</h2>
             </DialogTitle>
-            <p className="page-subtitle">
-              Copy this key now — it cannot be shown again.
-            </p>
+            <p className="page-subtitle">{t("apiKeys.copyKeyNow")}</p>
             <pre
               style={{
                 padding: "12px",
@@ -174,7 +172,7 @@ export function CreateApiKeyModal({
                 resetForm();
               }}
             >
-              Done
+              {t("apiKeys.done")}
             </Button>
           </>
         ) : (
@@ -190,10 +188,7 @@ export function CreateApiKeyModal({
                 <DialogTitle asChild>
                   <h2 className="page-title">{t("apiKeys.newApiKey")}</h2>
                 </DialogTitle>
-                <p className="page-subtitle">
-                  Register a third-party application that can access tickets via
-                  API.
-                </p>
+                <p className="page-subtitle">{t("apiKeys.createSubtitle")}</p>
               </div>
               <DialogClose asChild>
                 <button
@@ -226,7 +221,7 @@ export function CreateApiKeyModal({
                 </label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Acme Helpdesk Sync"
+                  placeholder={t("apiKeys.applicationNamePlaceholder")}
                   value={applicationName}
                   autoFocus
                   onChange={(e) => setApplicationName(e.target.value)}
@@ -246,12 +241,12 @@ export function CreateApiKeyModal({
 
               <div className="form-group">
                 <label className="form-label">
-                  Application Contact Email *
+                  {t("apiKeys.contactEmailLabel")}
                 </label>
                 <input
                   className="form-input"
                   type="email"
-                  placeholder="ops@example.com"
+                  placeholder={t("apiKeys.contactEmailPlaceholder")}
                   value={applicationContactEmail}
                   onChange={(e) => setApplicationContactEmail(e.target.value)}
                   required
@@ -264,7 +259,7 @@ export function CreateApiKeyModal({
                 </label>
                 <input
                   className="form-input"
-                  placeholder="acme-helpdesk-sync-client"
+                  placeholder={t("apiKeys.oidcClientIdPlaceholder")}
                   value={oidcClientId}
                   onChange={(e) => setOidcClientId(e.target.value)}
                   required
@@ -283,7 +278,7 @@ export function CreateApiKeyModal({
                     }
                     onClick={() => setIdentityProviderMode("same")}
                   >
-                    Same auth provider
+                    {t("apiKeys.idpSame")}
                   </Button>
                   <Button
                     type="button"
@@ -294,7 +289,7 @@ export function CreateApiKeyModal({
                     }
                     onClick={() => setIdentityProviderMode("external")}
                   >
-                    External provider
+                    {t("apiKeys.idpExternal")}
                   </Button>
                 </div>
                 <p
@@ -303,20 +298,18 @@ export function CreateApiKeyModal({
                 >
                   {identityProviderMode === "same" ? (
                     <>
-                      This key&apos;s acting-person tokens will be verified
-                      against this platform&apos;s own identity provider — the
-                      default, and correct for almost every key.
+                      {t("apiKeys.idpSameDesc")}
                       {PRIMARY_ISSUER && (
                         <>
                           {" "}
-                          Currently:{" "}
+                          {t("apiKeys.idpCurrently")}{" "}
                           <code style={{ fontSize: 12 }}>{PRIMARY_ISSUER}</code>
                           .
                         </>
                       )}
                     </>
                   ) : (
-                    "Only choose this if the application's end users log in through a completely different identity provider than this platform's own — e.g. their own separate OIDC tenant."
+                    t("apiKeys.idpExternalDesc")
                   )}
                 </p>
                 {identityProviderMode === "external" && (
@@ -328,7 +321,7 @@ export function CreateApiKeyModal({
                       <input
                         className="form-input"
                         type="url"
-                        placeholder="https://auth.example.com"
+                        placeholder={t("apiKeys.issuerUrlPlaceholder")}
                         value={externalIssuer}
                         onChange={(e) => setExternalIssuer(e.target.value)}
                         required
@@ -340,7 +333,7 @@ export function CreateApiKeyModal({
                       </label>
                       <input
                         className="form-input"
-                        placeholder="the org id this application's users belong to on that issuer"
+                        placeholder={t("apiKeys.externalOrgIdPlaceholder")}
                         value={externalOrgId}
                         onChange={(e) => setExternalOrgId(e.target.value)}
                         required
@@ -360,7 +353,7 @@ export function CreateApiKeyModal({
                     }
                     onClick={() => setScopeMode("read-only")}
                   >
-                    Read-only
+                    {t("apiKeys.readOnly")}
                   </Button>
                   <Button
                     type="button"
@@ -369,14 +362,14 @@ export function CreateApiKeyModal({
                     }
                     onClick={() => setScopeMode("read-write")}
                   >
-                    Read-write
+                    {t("apiKeys.readWrite")}
                   </Button>
                   <Button
                     type="button"
                     variant={scopeMode === "custom" ? "primary" : "secondary"}
                     onClick={() => setScopeMode("custom")}
                   >
-                    Custom
+                    {t("apiKeys.custom")}
                   </Button>
                 </div>
                 {scopeMode === "custom" && (

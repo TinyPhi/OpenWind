@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import React from "react";
 import { createPortal } from "react-dom";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
@@ -89,35 +89,37 @@ export function SandboxRowActions({
     }
   > = {
     reset: {
-      title: "Reset this sandbox?",
+      title: t("platformAdmin.resetSandboxTitle"),
       message: (name) => (
-        <>
-          This wipes and re-seeds all module data in <strong>{name}</strong>.
-          The org chart, accounts, and credentials are untouched.
-        </>
+        <Trans
+          i18nKey="platformAdmin.resetSandboxMessage"
+          values={{ name }}
+          components={{ strong: <strong /> }}
+        />
       ),
-      confirmLabel: "Reset",
+      confirmLabel: t("platformAdmin.reset"),
     },
     delete: {
-      title: "Delete this sandbox?",
+      title: t("platformAdmin.deleteSandboxTitle"),
       message: (name) => (
-        <>
-          This removes the Zitadel organization and every seeded account for{" "}
-          <strong>{name}</strong>, and deletes all of its OpenWind data.
-        </>
+        <Trans
+          i18nKey="platformAdmin.deleteSandboxMessage"
+          values={{ name }}
+          components={{ strong: <strong /> }}
+        />
       ),
-      confirmLabel: "Delete",
+      confirmLabel: t("platformAdmin.delete"),
     },
     end_trial: {
-      title: "End this trial now?",
+      title: t("platformAdmin.endTrialTitle"),
       message: (name) => (
-        <>
-          The trial for <strong>{name}</strong> ends immediately: its users can
-          no longer sign in and its background jobs stop. No data is deleted,
-          and Extend trial reactivates it.
-        </>
+        <Trans
+          i18nKey="platformAdmin.endTrialMessage"
+          values={{ name }}
+          components={{ strong: <strong /> }}
+        />
       ),
-      confirmLabel: "End trial",
+      confirmLabel: t("platformAdmin.endTrial"),
     },
     seed_org_tree: {
       title: t("platformAdmin.seedOrgChartDialogTitle"),
@@ -231,7 +233,7 @@ export function SandboxRowActions({
         ref={buttonRef}
         type="button"
         className="rcd-kebab-btn"
-        aria-label={`Actions for ${tenantName}`}
+        aria-label={t("platformAdmin.actionsFor", { name: tenantName })}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         disabled={busy}
@@ -265,7 +267,7 @@ export function SandboxRowActions({
                 className="rcd-kebab-menu-item"
                 onClick={() => choose(() => setConfirming("reset"))}
               >
-                Reset
+                {t("platformAdmin.reset")}
               </button>
               <button
                 type="button"
@@ -281,7 +283,7 @@ export function SandboxRowActions({
                 className="rcd-kebab-menu-item"
                 onClick={() => choose(() => setTrialOpen(true))}
               >
-                Extend trial
+                {t("platformAdmin.extendTrial")}
               </button>
               <button
                 type="button"
@@ -289,7 +291,7 @@ export function SandboxRowActions({
                 className="rcd-kebab-menu-item"
                 onClick={() => choose(() => setBrandingOpen(true))}
               >
-                Edit branding
+                {t("platformAdmin.editBranding")}
               </button>
               {trialActive && (
                 <button
@@ -298,7 +300,7 @@ export function SandboxRowActions({
                   className="rcd-kebab-menu-item"
                   onClick={() => choose(() => setConfirming("end_trial"))}
                 >
-                  End trial
+                  {t("platformAdmin.endTrial")}
                 </button>
               )}
               <button
@@ -308,7 +310,7 @@ export function SandboxRowActions({
                 style={{ color: "var(--danger)" }}
                 onClick={() => choose(() => setConfirming("delete"))}
               >
-                Delete
+                {t("platformAdmin.delete")}
               </button>
             </div>
           </>,

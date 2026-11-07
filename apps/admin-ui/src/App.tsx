@@ -140,30 +140,38 @@ export function App(): React.ReactElement {
           {
             name: "dashboard",
             list: "/dashboard",
-            meta: { label: "Dashboard" },
+            meta: { label: t("nav.dashboard") },
           },
           {
             name: "analytics",
             list: "/analytics",
-            meta: { label: "Analytics" },
+            meta: { label: t("nav.analytics") },
           },
-          { name: "modules", list: "/modules", meta: { label: "Templates" } },
-          { name: "plugins", list: "/plugins", meta: { label: "Plugins" } },
+          {
+            name: "modules",
+            list: "/modules",
+            meta: { label: t("nav.templates") },
+          },
+          {
+            name: "plugins",
+            list: "/plugins",
+            meta: { label: t("nav.plugins") },
+          },
           {
             name: "records",
             list: "/records",
-            meta: { label: "Records" },
+            meta: { label: t("nav.records") },
           },
           {
             name: "workflows",
             list: "/workflows",
             show: "/workflows/:id",
-            meta: { label: "Workflows" },
+            meta: { label: t("nav.workflows") },
           },
           {
             name: "org-directory",
             list: "/org-directory",
-            meta: { label: "Org Chart" },
+            meta: { label: t("nav.orgChart") },
           },
         ]}
       >
