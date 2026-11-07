@@ -1,6 +1,11 @@
 import React, { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+const mockReport = vi.hoisted(() => vi.fn());
+vi.mock("../lib/report-client-error.js", () => ({
+  reportClientError: mockReport,
+}));
+
 import { RouteErrorBoundary } from "./route-error-boundary.js";
 
 interface CrashingChildProps {
@@ -28,6 +33,7 @@ describe("RouteErrorBoundary", () => {
   const originalLocation = window.location;
 
   beforeEach(() => {
+    mockReport.mockClear();
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -145,38 +151,17 @@ describe("RouteErrorBoundary", () => {
     expect(screen.getByText("Recovered content")).toBeDefined();
   });
 
-  it("logs caught errors and errorInfo to console.error via componentDidCatch", () => {
-    let loggedMessage: string | null = null;
-    let loggedError: Error | null = null;
-    let loggedStack: string | null = null;
-
-    vi.spyOn(console, "error").mockImplementation(
-      (
-        message?: string | Error | { componentStack?: string },
-        error?: string | Error | { componentStack?: string },
-        errorInfo?: { componentStack?: string },
-      ) => {
-        if (message === "RouteErrorBoundary caught error:") {
-          loggedMessage = message;
-          if (error instanceof Error) {
-            loggedError = error;
-          }
-          if (errorInfo && typeof errorInfo.componentStack === "string") {
-            loggedStack = errorInfo.componentStack;
-          }
-        }
-      },
-    );
-
+  it("reports caught errors and the component stack to the telemetry reporter via componentDidCatch", () => {
     render(
       <RouteErrorBoundary resetKey="/log-test">
         <CrashingChild shouldThrow={true} />
       </RouteErrorBoundary>,
     );
 
-    expect(loggedMessage).toBe("RouteErrorBoundary caught error:");
-    expect(loggedError).toBeInstanceOf(Error);
-    expect(typeof loggedStack).toBe("string");
+    expect(mockReport).toHaveBeenCalledTimes(1);
+    const [error, componentStack] = mockReport.mock.calls[0] as [Error, string];
+    expect(error).toBeInstanceOf(Error);
+    expect(typeof componentStack).toBe("string");
   });
 
   it("resets error state when resetKey changes upon navigating to another route", () => {

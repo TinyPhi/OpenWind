@@ -1,4 +1,5 @@
 import React from "react";
+import { reportClientError } from "../lib/report-client-error.js";
 
 type State = { error: Error | null };
 
@@ -27,7 +28,7 @@ export class RouteErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    console.error("RouteErrorBoundary caught error:", error, errorInfo);
+    void reportClientError(error, errorInfo.componentStack);
   }
 
   componentDidUpdate(prev: { resetKey?: string }): void {
