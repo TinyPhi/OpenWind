@@ -28,6 +28,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "@dagrejs/dagre";
+import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
 import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
 import { useModal } from "../hooks/use-modal.js";
@@ -137,6 +138,7 @@ function applyDagreLayout(
 // ── Custom state node ────────────────────────────────────────────────────────
 
 function StateNode({ data }: NodeProps<StateNodeData>): React.ReactElement {
+  const { t } = useTranslation();
   const { state, isInitial, isAdmin, onDoubleClick, onContextMenu } = data;
   const accent = state.color ?? "#6366f1";
 
@@ -179,7 +181,7 @@ function StateNode({ data }: NodeProps<StateNodeData>): React.ReactElement {
             letterSpacing: "0.4px",
           }}
         >
-          START
+          {t("workflowCanvas.start")}
         </span>
       )}
       {state.isTerminal && (
@@ -196,7 +198,7 @@ function StateNode({ data }: NodeProps<StateNodeData>): React.ReactElement {
             letterSpacing: "0.4px",
           }}
         >
-          END
+          {t("workflowCanvas.end")}
         </span>
       )}
       <div
@@ -236,7 +238,7 @@ function StateNode({ data }: NodeProps<StateNodeData>): React.ReactElement {
             padding: "1px 5px",
           }}
         >
-          SLA {state.slaHours}h
+          {t("workflowCanvas.slaHours", { hours: state.slaHours })}
         </div>
       )}
       {/* ReactFlow handles — visible in edit mode */}
@@ -407,6 +409,7 @@ function AddStateDialog({
   onConfirm: (f: AddStateForm) => void;
   onCancel: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [form, setForm] = useState<AddStateForm>({ name: "", label: "" });
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -434,32 +437,32 @@ function AddStateDialog({
     >
       <DialogContent style={overlayCardStyle}>
         <DialogTitle asChild>
-          <div style={overlayTitleStyle}>Add State</div>
+          <div style={overlayTitleStyle}>{t("workflowCanvas.addState")}</div>
         </DialogTitle>
         <form onSubmit={submit}>
-          <label style={labelStyle}>Name (slug, auto-formatted)</label>
+          <label style={labelStyle}>{t("workflowCanvas.nameSlugLabel")}</label>
           <input
             ref={nameRef}
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="e.g. in_review"
+            placeholder={t("workflowCanvas.namePlaceholder")}
             style={inputStyle}
             required
           />
-          <label style={labelStyle}>Display label</label>
+          <label style={labelStyle}>{t("workflowCanvas.displayLabel")}</label>
           <input
             value={form.label}
             onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-            placeholder="e.g. In Review"
+            placeholder={t("workflowCanvas.labelPlaceholder")}
             style={inputStyle}
             required
           />
           <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
             <button type="submit" style={btnPrimaryStyle}>
-              Add
+              {t("workflowCanvas.add")}
             </button>
             <button type="button" onClick={onCancel} style={btnSecondaryStyle}>
-              Cancel
+              {t("workflowCanvas.cancel")}
             </button>
           </div>
         </form>
@@ -486,6 +489,7 @@ function EditStateDialog({
   onCancel: () => void;
   onDelete: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [form, setForm] = useState<EditStateForm>({
     label: state.label,
     color: state.color ?? "",
@@ -508,10 +512,12 @@ function EditStateDialog({
     >
       <DialogContent style={overlayCardStyle}>
         <DialogTitle asChild>
-          <div style={overlayTitleStyle}>Edit State — {state.name}</div>
+          <div style={overlayTitleStyle}>
+            {t("workflowCanvas.editState", { name: state.name })}
+          </div>
         </DialogTitle>
         <form onSubmit={submit}>
-          <label style={labelStyle}>Display label</label>
+          <label style={labelStyle}>{t("workflowCanvas.displayLabel")}</label>
           <input
             value={form.label}
             onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
@@ -519,14 +525,14 @@ function EditStateDialog({
             required
             autoFocus
           />
-          <label style={labelStyle}>Color (hex, optional)</label>
+          <label style={labelStyle}>{t("workflowCanvas.colorLabel")}</label>
           <input
             value={form.color}
             onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
             placeholder="#6366f1"
             style={inputStyle}
           />
-          <label style={labelStyle}>SLA hours (optional)</label>
+          <label style={labelStyle}>{t("workflowCanvas.slaHoursLabel")}</label>
           <input
             type="number"
             min={1}
@@ -534,7 +540,7 @@ function EditStateDialog({
             onChange={(e) =>
               setForm((f) => ({ ...f, slaHours: e.target.value }))
             }
-            placeholder="e.g. 24"
+            placeholder={t("workflowCanvas.slaPlaceholder")}
             style={inputStyle}
           />
           <label
@@ -552,14 +558,14 @@ function EditStateDialog({
                 setForm((f) => ({ ...f, isTerminal: e.target.checked }))
               }
             />
-            Terminal state
+            {t("workflowCanvas.terminalState")}
           </label>
           <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
             <button type="submit" style={btnPrimaryStyle}>
-              Save
+              {t("workflowCanvas.save")}
             </button>
             <button type="button" onClick={onCancel} style={btnSecondaryStyle}>
-              Cancel
+              {t("workflowCanvas.cancel")}
             </button>
             <button
               type="button"
@@ -570,7 +576,7 @@ function EditStateDialog({
                 borderColor: "#ef4444",
               }}
             >
-              Delete
+              {t("workflowCanvas.delete")}
             </button>
           </div>
         </form>
@@ -600,6 +606,7 @@ export function TransitionPanel({
   onCancel: () => void;
   onDelete?: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [form, setForm] = useState(data);
   const titleId = useId();
   const labelInputId = useId();
@@ -632,7 +639,9 @@ export function TransitionPanel({
       }}
     >
       <h2 id={titleId} style={{ ...overlayTitleStyle, marginBottom: 0 }}>
-        {form.mode === "new" ? "New Transition" : "Edit Transition"}
+        {form.mode === "new"
+          ? t("workflowCanvas.newTransition")
+          : t("workflowCanvas.editTransition")}
       </h2>
       <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
         {form.fromState} → {form.toState}
@@ -643,20 +652,20 @@ export function TransitionPanel({
       >
         <div>
           <label htmlFor={labelInputId} style={labelStyle}>
-            Label
+            {t("workflowCanvas.label")}
           </label>
           <input
             id={labelInputId}
             value={form.label}
             onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-            placeholder="e.g. Approve"
+            placeholder={t("workflowCanvas.transitionLabelPlaceholder")}
             style={inputStyle}
             autoFocus
           />
         </div>
         <div>
           <label htmlFor={rolesInputId} style={labelStyle}>
-            Allowed roles (comma-separated)
+            {t("workflowCanvas.allowedRolesLabel")}
           </label>
           <input
             id={rolesInputId}
@@ -664,7 +673,7 @@ export function TransitionPanel({
             onChange={(e) =>
               setForm((f) => ({ ...f, allowedRoles: e.target.value }))
             }
-            placeholder="e.g. admin, manager"
+            placeholder={t("workflowCanvas.allowedRolesPlaceholder")}
             style={inputStyle}
           />
         </div>
@@ -683,14 +692,16 @@ export function TransitionPanel({
               setForm((f) => ({ ...f, requiresComment: e.target.checked }))
             }
           />
-          Requires comment
+          {t("workflowCanvas.requiresComment")}
         </label>
         <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
           <button type="submit" style={btnPrimaryStyle}>
-            {form.mode === "new" ? "Add" : "Save"}
+            {form.mode === "new"
+              ? t("workflowCanvas.add")
+              : t("workflowCanvas.save")}
           </button>
           <button type="button" onClick={onCancel} style={btnSecondaryStyle}>
-            Cancel
+            {t("workflowCanvas.cancel")}
           </button>
           {onDelete && (
             <button
@@ -702,7 +713,7 @@ export function TransitionPanel({
                 borderColor: "#ef4444",
               }}
             >
-              Delete
+              {t("workflowCanvas.delete")}
             </button>
           )}
         </div>
@@ -782,6 +793,7 @@ export function WorkflowCanvas({
   onSave,
   onDirtyChange,
 }: CanvasProps): React.ReactElement {
+  const { t } = useTranslation();
   // Per-instance counter for temporary IDs — useRef avoids module-level mutable state
   // which would cause ID collisions between React 18 StrictMode double-renders and
   // between multiple canvas instances mounted on the same page.
@@ -808,7 +820,7 @@ export function WorkflowCanvas({
       setDirty(false);
       onDirtyChange?.(false);
     },
-    { errorMessageFallback: "Save failed" },
+    { errorMessageFallback: t("workflowCanvas.saveFailed") },
   );
 
   // Reset draft when workflowId changes (navigating to different workflow)
@@ -985,7 +997,10 @@ export function WorkflowCanvas({
         );
         if (affectedTransitions.length > 0) {
           openConfirmDeleteModal({
-            message: `Delete "${state.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
+            message: t("workflowCanvas.confirmDeleteState", {
+              label: state.label,
+              count: affectedTransitions.length,
+            }),
             onConfirm: () => {
               deleteSelectedEdges();
               deleteState(nodeId);
@@ -1247,7 +1262,9 @@ export function WorkflowCanvas({
                 opacity: saving ? 0.7 : 1,
               }}
             >
-              {saving ? "Saving…" : "● Save"}
+              {saving
+                ? t("workflowCanvas.saving")
+                : t("workflowCanvas.saveDirty")}
             </button>
             <button
               onClick={handleDiscard}
@@ -1258,7 +1275,7 @@ export function WorkflowCanvas({
                 padding: "4px 10px",
               }}
             >
-              Discard
+              {t("workflowCanvas.discard")}
             </button>
           </>
         )}
@@ -1270,7 +1287,7 @@ export function WorkflowCanvas({
               fontStyle: "italic",
             }}
           >
-            Double-click canvas to add state
+            {t("workflowCanvas.doubleClickHint")}
           </span>
         )}
         <button
@@ -1286,7 +1303,7 @@ export function WorkflowCanvas({
             color: "var(--text-secondary, #555)",
           }}
         >
-          Reset layout
+          {t("workflowCanvas.resetLayout")}
         </button>
       </div>
 
@@ -1376,7 +1393,10 @@ export function WorkflowCanvas({
             };
             if (affectedTransitions.length > 0) {
               confirmDeleteModal.open({
-                message: `Delete "${currentItem.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
+                message: t("workflowCanvas.confirmDeleteState", {
+                  label: currentItem.label,
+                  count: affectedTransitions.length,
+                }),
                 onConfirm: doDelete,
               });
             } else {

@@ -8,6 +8,7 @@ import {
   fireEvent,
 } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
+import "../../i18n.js";
 
 // ui-feature-checklist-and-rules.md §2.9/§2.10 — an access request must
 // reach the ticket's admin/agent/workflow-admin viewers live (WebSocket push)
