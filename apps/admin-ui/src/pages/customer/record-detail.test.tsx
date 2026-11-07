@@ -2219,3 +2219,101 @@ describe("CustomerRecordDetail — comment length limit", () => {
     });
   });
 });
+
+describe("CustomerRecordDetail — only permitted transitions are offered (#1133)", () => {
+  beforeEach(() => {
+    mockProfileRoles = ["agent"];
+    mockUserId = ADMIN_USER;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  const workflowTransitions = [
+    {
+      id: "t-approve",
+      fromState: "open",
+      toState: "approved",
+      label: "Approve",
+      requiresComment: false,
+      allowedRoles: ["approver"],
+    },
+    {
+      id: "t-reject",
+      fromState: "open",
+      toState: "rejected",
+      label: "Reject",
+      requiresComment: false,
+      allowedRoles: ["approver"],
+    },
+  ];
+
+  function mockRoutes(permitted: "fail" | typeof workflowTransitions): void {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            workflowId: "wf-1",
+            currentState: "open",
+            assignedTo: null,
+          },
+        });
+      }
+      if (url === `/api/entities/${RECORD_ID}/transitions`) {
+        return permitted === "fail"
+          ? Promise.reject(new Error("boom"))
+          : Promise.resolve({ data: permitted });
+      }
+      if (url.startsWith("/api/workflows/wf-1")) {
+        return Promise.resolve({
+          data: {
+            states: ["open", "approved", "rejected"].map((name) => ({
+              id: name,
+              name,
+              label: name,
+              color: null,
+              isTerminal: name !== "open",
+            })),
+            transitions: workflowTransitions,
+            createdBy: OTHER_USER,
+            assignedTo: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+
+  async function openMenu(): Promise<void> {
+    fireEvent.click(await screen.findByTitle("Change state"));
+  }
+
+  it("lists only the transitions the role-aware endpoint returns", async () => {
+    const [approve] = workflowTransitions;
+    if (!approve) throw new Error("fixture");
+    mockRoutes([approve]);
+    renderRecordDetail();
+    await openMenu();
+    expect(await screen.findByText("Approve")).toBeTruthy();
+    expect(screen.queryByText("Reject")).toBeNull();
+  });
+
+  it("shows none when the viewer is permitted none", async () => {
+    mockRoutes([]);
+    renderRecordDetail();
+    expect(await screen.findByTitle("No transitions available")).toBeTruthy();
+  });
+
+  it("falls back to the workflow's list when the endpoint call fails", async () => {
+    mockRoutes("fail");
+    renderRecordDetail();
+    await openMenu();
+    expect(await screen.findByText("Approve")).toBeTruthy();
+    expect(screen.getByText("Reject")).toBeTruthy();
+  });
+});

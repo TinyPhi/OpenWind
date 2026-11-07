@@ -1361,6 +1361,12 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [overriding, setOverriding] = useState(false);
   const [overrideError, setOverrideError] = useState<string | null>(null);
   const [transitions, setTransitions] = useState<Transition[]>([]);
+  // What this viewer may do from the current state, from the role- and condition-aware
+  // endpoint. null until loaded (or if the call fails): the full workflow list is the fallback,
+  // and the server still refuses anything not permitted.
+  const [permittedTransitions, setPermittedTransitions] = useState<
+    Transition[] | null
+  >(null);
   const [_maxChildDepth, setMaxChildDepth] = useState<number>(1);
   const [workflowCreatedBy, setWorkflowCreatedBy] = useState<string | null>(
     null,
@@ -1808,7 +1814,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   ];
   const effectiveTransitions = isChildTicket
     ? CHILD_TICKET_TRANSITIONS
-    : transitions;
+    : (permittedTransitions ?? transitions);
 
   // Access control — derived from accessList (loaded upfront, no history needed)
   const creatorId = accessList.find((e) => e.tag === "creator")?.userId ?? null;
@@ -2957,6 +2963,26 @@ export function CustomerRecordDetail(): React.ReactElement {
         setAllStates([]);
       });
   }, [record?.workflowId, effectiveEntityTypeId]);
+
+  // Refetched on every state change so the list always matches the current state.
+  const permittedRecordId = record?.workflowId ? record.id : null;
+  const permittedState = record?.currentState;
+  useEffect(() => {
+    setPermittedTransitions(null);
+    if (!permittedRecordId) return;
+    let cancelled = false;
+    fetchWithAuth(`${API_URL}/entities/${permittedRecordId}/transitions`)
+      .then((res) => {
+        const data = (res as { data?: Transition[] }).data;
+        if (!cancelled && Array.isArray(data)) setPermittedTransitions(data);
+      })
+      .catch(() => {
+        // keep the workflow list; the server still enforces roles and conditions
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [permittedRecordId, permittedState]);
 
   async function saveEdit(): Promise<void> {
     if (!id || !record) return;
