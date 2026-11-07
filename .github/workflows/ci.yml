@@ -460,7 +460,62 @@ jobs:
         run: >-
           docker run --rm -v "${{ github.workspace }}/docker/superset:/t:ro"
           --entrypoint /app/.venv/bin/python openwind-superset:ci
-          -m unittest discover -s /t -p test_nullpool_guard.py
+          -m unittest discover -s /t -p test_*.py
+
+  superset-erasure-realdb:
+    name: Superset erasure (real database, advisory)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # Advisory first (#1143): not in ci-complete. Add it there after a week green.
+    continue-on-error: true
+    if: >-
+      always() &&
+      github.event.pull_request.draft != true &&
+      (github.event_name == 'push' || needs.changes.result == 'failure' || needs.changes.outputs.superset == 'true')
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: superset_test
+          POSTGRES_PASSWORD: superset_test_password
+          POSTGRES_DB: superset_erasetest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U superset_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Superset image
+        run: docker build -f docker/superset/Dockerfile -t openwind-superset:ci .
+      - name: Build Superset's schema, then run the erasure tests against it
+        run: |
+          set -o pipefail
+          docker run --rm --network host \
+            -v "${{ github.workspace }}/docker/superset:/t:ro" \
+            -e SUPERSET_CONFIG_PATH=/t/superset_config.py \
+            -e DATABASE_URL=postgresql://superset_test:superset_test_password@localhost:5432/superset_erasetest \
+            -e REDIS_URL=redis://localhost:6379/1 \
+            -e SUPERSET_SECRET_KEY=ci-secret-key \
+            -e SUPERSET_GUEST_TOKEN_SECRET=ci-guest-secret \
+            -e REPORTING_BINDING_SECRET=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz \
+            -e SUPERSET_ERASURE_TEST_DATABASE_URL=postgresql://superset_test:superset_test_password@localhost:5432/superset_erasetest \
+            -e SUPERSET_ERASURE_TEST_REDIS_URL=redis://localhost:6379/2 \
+            --entrypoint /bin/sh openwind-superset:ci -c '
+              set -e
+              /app/.venv/bin/superset db upgrade
+              /app/.venv/bin/python -m unittest discover -s /t -p "test_erasure_*.py" -v
+            ' 2>&1 | tee /tmp/erasure.log
+          # Until REQUIRE_REALDB exists, a skipped real-database test must still fail the job.
+          if grep -q "skipped=" /tmp/erasure.log; then
+            echo "A real-database test was skipped; the DB env did not reach it."
+            exit 1
+          fi
 
   runtime-images:
     name: Runtime images (build and structure check)
