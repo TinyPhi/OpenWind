@@ -123,7 +123,7 @@ class LoginAndStamp(unittest.TestCase):
         refused = {"error": "access_denied", "error_description": "access token invalid"}
         self.assertEqual(self.userinfo(401, refused), {})
 
-    def test_no_reply_status_is_treated_as_accepted(self):
+    def test_non_200_status_yields_no_identity(self):
         for status in (400, 403, 500, None):
             with self.subTest(status=status):
                 self.assertEqual(self.userinfo(status, {"sub": "1", "preferred_username": "x"}), {})

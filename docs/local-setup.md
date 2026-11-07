@@ -758,6 +758,16 @@ MIGRATION_DATABASE_URL=postgresql://migration_user:migration_user_dev_password@l
 
 If missing, it is in `.env.example` — copy it manually or re-run setup.
 
+### Sandbox provisioning fails with a username validation error
+
+Sandbox provisioning creates Zitadel users with a bare short username (for example `olivia.smith`,
+no `@domain` suffix). That only works while the Zitadel domain policy has
+`userLoginMustBeDomain = false`, which is the default. `userLoginMustBeDomain` is an
+instance-level setting (an organisation can override it), so a deployment that turns it on makes
+provisioning fail with an opaque Zitadel validation error. In the Zitadel Console, open
+Instance Settings → Login → Username and check that "Require the organisation domain in the
+username" is off (and that the sandbox org has no override).
+
 ### API exits at startup: module catalog is empty
 
 The API reads the `modules` catalog as `app_user` before it listens and exits non-zero if it has
