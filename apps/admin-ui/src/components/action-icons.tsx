@@ -69,20 +69,21 @@ export function EditIcon(props: IconProps): React.ReactElement {
   );
 }
 
+// Values live in index.css (--action-<colour>-bg / --action-<colour>-icon). The icon colour is a
+// fixed one per background, not the theme's text colour: that is near white in dark mode, which
+// is unreadable on the bright yellow. White passes on the other three.
 const CIRCLE_COLORS = {
-  grey: "hsl(222, 10%, 42%)",
-  green: "hsl(145, 60%, 38%)",
-  yellow: "hsl(45, 95%, 52%)",
-  red: "hsl(0, 70%, 48%)",
+  grey: "var(--action-grey-bg)",
+  green: "var(--action-green-bg)",
+  yellow: "var(--action-yellow-bg)",
+  red: "var(--action-red-bg)",
 } as const;
 
-// A fixed icon colour per background, not the theme's text colour: the theme's text colour is near
-// white in dark mode, which is unreadable on the bright yellow. White passes on the other three.
 const ICON_COLORS = {
-  grey: "#fff",
-  green: "#fff",
-  yellow: "#1a1a1a",
-  red: "#fff",
+  grey: "var(--action-grey-icon)",
+  green: "var(--action-green-icon)",
+  yellow: "var(--action-yellow-icon)",
+  red: "var(--action-red-icon)",
 } as const;
 
 export interface CircleActionButtonProps extends Omit<
