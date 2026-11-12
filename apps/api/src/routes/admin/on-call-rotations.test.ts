@@ -3,7 +3,12 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
+const {
+  mockAuth,
+  mockWriteAuditEntry,
+  mockLoadTeamMemberIdsBatch,
+  mockLoadPreviousHoldersBatch,
+} = vi.hoisted(() => ({
   mockAuth: {
     tenantId: "t-aaa",
     userId: "u-admin",
@@ -12,6 +17,8 @@ const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
     email: "test@example.com",
   },
   mockWriteAuditEntry: vi.fn(),
+  mockLoadTeamMemberIdsBatch: vi.fn(),
+  mockLoadPreviousHoldersBatch: vi.fn(),
 }));
 
 vi.mock("@platform/auth", () => ({
@@ -145,6 +152,10 @@ vi.mock("@platform/db", () => ({
 vi.mock("@platform/teams", () => ({
   loadTeamMemberIds: () => Promise.resolve(members),
   loadPreviousHolders: () => Promise.resolve({ primary: "u-1", backup: "u-2" }),
+  loadTeamMemberIdsBatch: (...args: unknown[]) =>
+    mockLoadTeamMemberIdsBatch(...args),
+  loadPreviousHoldersBatch: (...args: unknown[]) =>
+    mockLoadPreviousHoldersBatch(...args),
   projectWindows: (input: { count: number }) =>
     Array.from({ length: Math.min(input.count, 2) }, (_, i) => ({
       startsAt: new Date(Date.UTC(2026, 10, 9 + i * 7)),
@@ -206,6 +217,20 @@ beforeEach(() => {
   teamDeleted = false;
   updatedPatch = null;
   mockWriteAuditEntry.mockReset();
+  mockLoadTeamMemberIdsBatch.mockReset();
+  mockLoadPreviousHoldersBatch.mockReset();
+  mockLoadTeamMemberIdsBatch.mockImplementation(
+    (_tx: unknown, _tenantId: string, teamIds: string[]) =>
+      Promise.resolve(new Map(teamIds.map((id) => [id, members]))),
+  );
+  mockLoadPreviousHoldersBatch.mockImplementation(
+    (_tx: unknown, _tenantId: string, rotations: Array<{ id: string }>) =>
+      Promise.resolve(
+        new Map(
+          rotations.map((r) => [r.id, { primary: "u-1", backup: "u-2" }]),
+        ),
+      ),
+  );
 });
 
 describe("GET /admin/on-call-rotations", () => {
@@ -222,6 +247,22 @@ describe("GET /admin/on-call-rotations", () => {
       nextBackupUserId: "u-3",
       cycleDays: 7,
     });
+  });
+
+  it("batches member and holder lookups across distinct teams and rotations", async () => {
+    mockAuth.roles = ["agent"];
+    const res = await makeApp().request("/admin/on-call-rotations");
+    expect(res.status).toBe(200);
+    expect(mockLoadTeamMemberIdsBatch).toHaveBeenCalledWith(
+      expect.anything(),
+      "t-aaa",
+      [rotationRow.teamId],
+    );
+    expect(mockLoadPreviousHoldersBatch).toHaveBeenCalledWith(
+      expect.anything(),
+      "t-aaa",
+      expect.arrayContaining([expect.objectContaining({ id: ROTATION_ID })]),
+    );
   });
 
   it("reports an active rotation with a reason as blocked", async () => {

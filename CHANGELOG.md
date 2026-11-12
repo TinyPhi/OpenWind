@@ -3,6 +3,12 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — batch queries in on-call rotations list (#1163)]
+
+### Performance Improvements
+
+- Eliminated N+1 queries in `GET /admin/on-call-rotations` by batching `loadTeamMemberIdsBatch` and `loadPreviousHoldersBatch` across distinct teams and rotations (#1163).
+
 ## [Unreleased — i18n extraction for remaining admin-ui screens (#1119, #200)]
 
 ### Added
