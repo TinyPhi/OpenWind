@@ -29,6 +29,22 @@ function Harness({ max }: { max?: number }): React.ReactElement {
 afterEach(cleanup);
 
 describe("SearchableMultiSelect", () => {
+  it("exposes listbox and option semantics for screen readers (#1125)", () => {
+    render(<Harness />);
+    const trigger = screen.getByLabelText("Pick");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
+    fireEvent.click(trigger);
+    const list = screen.getByRole("listbox", { name: "Pick options" });
+    expect(list.getAttribute("aria-multiselectable")).toBe("true");
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(3);
+    expect(options[0]?.getAttribute("aria-selected")).toBe("false");
+    fireEvent.click(screen.getByLabelText("Asha Rao"));
+    expect(
+      screen.getAllByRole("option")[0]?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("filters by the search text", () => {
     render(<Harness />);
     fireEvent.click(screen.getByLabelText("Pick"));

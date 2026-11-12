@@ -162,3 +162,35 @@ export async function enforcePublicBrandingRateLimit(
     };
   }
 }
+
+const CLIENT_ERROR_RATE_LIMIT_PER_MIN = 20;
+const CLIENT_ERROR_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * Per-(tenant, user) cap on POST /client-errors (#810). A constant, not a setting: a person's
+ * browser reports a handful of distinct errors at most, and a looping client must not flood the
+ * error tracker. Keyed on the verified identity, so it runs after requireAuth. Fails open.
+ */
+export async function enforceClientErrorRateLimit(
+  tenantId: string,
+  userId: string,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  try {
+    return await checkRateLimit(
+      getRedis(),
+      `rl:client-error:${tenantId}:${userId}`,
+      CLIENT_ERROR_RATE_LIMIT_PER_MIN,
+      CLIENT_ERROR_RATE_LIMIT_WINDOW_SECONDS,
+    );
+  } catch (err) {
+    logger.warn(
+      { err, tenantId, userId },
+      "rate-limit-tiers: client-error check failed unexpectedly — failing open",
+    );
+    return {
+      allowed: true,
+      remaining: CLIENT_ERROR_RATE_LIMIT_PER_MIN,
+      resetAt: 0,
+    };
+  }
+}

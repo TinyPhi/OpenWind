@@ -83,6 +83,7 @@ const mockScheduleRow = {
 };
 
 let overlapConflict = false;
+let updateMatchesNoRow = false;
 let getReturnsRow = true;
 let teamMemberIds: string[] = [];
 let activeRotationExists = false;
@@ -181,7 +182,7 @@ vi.mock("@platform/db", () => ({
           };
           throw err;
         }
-        return Promise.resolve([mockScheduleRow]);
+        return Promise.resolve(updateMatchesNoRow ? [] : [mockScheduleRow]);
       },
       // Makes `await tx.select().from(tenantUsers).where(...)` resolve
       // directly (a chain that stops at .where() rather than continuing to
@@ -246,6 +247,7 @@ const validCreateBody = {
 beforeEach(() => {
   mockAuth.roles = ["admin"];
   overlapConflict = false;
+  updateMatchesNoRow = false;
   getReturnsRow = true;
   teamMemberIds = [];
   activeRotationExists = false;
@@ -597,6 +599,23 @@ describe("on-call schedule writes — roles come from the team's members (oncall
     expect(
       (await patch({ label: "Renamed", primaryUserId: "u-bbb" })).status,
     ).toBe(200);
+  });
+});
+
+describe("PATCH /admin/on-call-schedules/:id — deleted mid-transaction (#1121)", () => {
+  it("returns 404, not 200 {data:null}, when the UPDATE matches no row", async () => {
+    updateMatchesNoRow = true;
+    const res = await makeApp().request(
+      `/admin/on-call-schedules/${mockScheduleRow.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: "Renamed" }),
+      },
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("NOT_FOUND");
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 });
 

@@ -35,6 +35,7 @@ import { adminRouter } from "./routes/admin/index.js";
 import { preferencesRouter } from "./routes/preferences/index.js";
 import { meRouter } from "./routes/me/index.js";
 import { publicRouter } from "./routes/public/index.js";
+import { clientErrorsRouter } from "./routes/client-errors/index.js";
 import { accessRouter } from "./routes/access/index.js";
 import { savedViewsRouter } from "./routes/saved-views/index.js";
 import { reportingRouter } from "./routes/reporting/index.js";
@@ -195,6 +196,7 @@ export function createApp(): Hono<AppVars> {
   app.route("/preferences", preferencesRouter);
   app.route("/me", meRouter);
   app.route("/public", publicRouter);
+  app.route("/client-errors", clientErrorsRouter);
   app.route("/saved-views", savedViewsRouter);
   app.route("/superset", reportingRouter);
   app.route("/notifications", notificationsRouter);

@@ -817,35 +817,35 @@ router.patch(
             ),
           )
           .returning();
-        if (row?.rotationId && endChanges) {
+        // soft-deleted by another transaction between the peek above and this UPDATE
+        if (!row) return { status: "not_found" as const };
+        if (row.rotationId && endChanges) {
           await alignRotationCursor(tx, auth.tenantId, auth.userId, row);
         }
-        if (row) {
-          await writeAuditEntry(tx, {
-            tenantId: auth.tenantId,
-            actorId: auth.userId,
-            actorType: "user",
-            resourceType: "on_call_schedule",
-            resourceId: row.id,
-            action: "updated",
-            beforeSnapshot: {
-              label: existing.label,
-              startsAt: existing.startsAt,
-              endsAt: existing.endsAt,
-              primaryUserId: existing.primaryUserId,
-              backupUserId: existing.backupUserId,
-              escalationManagerUserId: existing.escalationManagerUserId,
-            },
-            afterSnapshot: {
-              label: row.label,
-              startsAt: row.startsAt,
-              endsAt: row.endsAt,
-              primaryUserId: row.primaryUserId,
-              backupUserId: row.backupUserId,
-              escalationManagerUserId: row.escalationManagerUserId,
-            },
-          });
-        }
+        await writeAuditEntry(tx, {
+          tenantId: auth.tenantId,
+          actorId: auth.userId,
+          actorType: "user",
+          resourceType: "on_call_schedule",
+          resourceId: row.id,
+          action: "updated",
+          beforeSnapshot: {
+            label: existing.label,
+            startsAt: existing.startsAt,
+            endsAt: existing.endsAt,
+            primaryUserId: existing.primaryUserId,
+            backupUserId: existing.backupUserId,
+            escalationManagerUserId: existing.escalationManagerUserId,
+          },
+          afterSnapshot: {
+            label: row.label,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+            primaryUserId: row.primaryUserId,
+            backupUserId: row.backupUserId,
+            escalationManagerUserId: row.escalationManagerUserId,
+          },
+        });
         return { status: "updated" as const, row };
       });
 
