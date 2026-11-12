@@ -186,7 +186,7 @@ export function Workflows(): React.ReactElement {
             </span>
             {recordCount > 0 && (
               <span className="wfl-record-count-badge">
-                {recordCount} record{recordCount !== 1 ? "s" : ""}
+                {t("workflows.recordCount", { count: recordCount })}
               </span>
             )}
             {needsSetup && (
@@ -211,9 +211,8 @@ export function Workflows(): React.ReactElement {
         <div className="wfl-row-right">
           <div className="wfl-row-stats">
             <span className="wfl-row-counts">
-              {states.length} step{states.length !== 1 ? "s" : ""} ·{" "}
-              {transitions.length} action
-              {transitions.length !== 1 ? "s" : ""}
+              {t("workflows.stepCount", { count: states.length })} ·{" "}
+              {t("workflows.actionCount", { count: transitions.length })}
             </span>
             <span className="wfl-row-date">
               {new Date(wf.createdAt).toLocaleDateString(undefined, {
@@ -341,7 +340,7 @@ export function Workflows(): React.ReactElement {
             <button
               className="wfl-search-clear"
               onClick={() => setSearch("")}
-              aria-label="Clear search"
+              aria-label={t("workflows.clearSearch")}
             >
               ×
             </button>
@@ -383,7 +382,7 @@ export function Workflows(): React.ReactElement {
         <div className="wfl-empty">
           <div className="wfl-empty-icon">🔍</div>
           <h4>{t("workflows.noMatches")}</h4>
-          <p>Try a different keyword.</p>
+          <p>{t("workflows.tryDifferentKeyword")}</p>
         </div>
       )}
 
