@@ -282,8 +282,10 @@ Effect: the "hide Approve/Reject from users without the role" behaviour in the m
 ("A user without the stage's department role doesn't see that stage's buttons") is not what the UI does. It is a
 usability and confusion issue, not an authorisation hole: the engine refuses with 403/422
 (`engine.ts:464-492`). The same is true for the requester, who is offered Approve and gets
-`CONDITION_NOT_MET`. Suggested fix direction (not done): have the record page call
-`GET /entities/:id/transitions` and render that.
+`CONDITION_NOT_MET`. **Fixed in #1133:** the record page now renders the list from
+`GET /entities/:id/transitions` (falling back to the workflow's full list only if that call fails), and the
+kanban drop target ignores transitions whose `allowedRoles` exclude the viewer's roles. Conditions on the
+kanban stay server-enforced, since they need the record and the actor.
 
 ### Gap 2 - segregation of duties: a workflow admin cannot clear an actor rule, but can route around it
 
