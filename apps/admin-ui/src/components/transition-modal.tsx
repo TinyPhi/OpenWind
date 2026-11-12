@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -57,6 +58,7 @@ export function TransitionModal({
   onConfirm,
   onCancel,
 }: TransitionModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [comment, setComment] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
@@ -102,7 +104,12 @@ export function TransitionModal({
           <div className="tm-header-left">
             <span className="tm-icon">→</span>
             <DialogTitle asChild>
-              <span className="tm-title">Move to {toStateLabel}</span>
+              <span className="tm-title">
+                {t("transitionModal.moveTo", {
+                  toState: toStateLabel,
+                  defaultValue: `Move to ${toStateLabel}`,
+                })}
+              </span>
             </DialogTitle>
           </div>
           <DialogClose asChild>
@@ -132,7 +139,7 @@ export function TransitionModal({
                   value={fieldValues[f.name] ?? ""}
                   onChange={(e) => handleFieldChange(f.name, e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value="">{t("transitionModal.select")}</option>
                   {(f.config.options ?? []).map((opt) => {
                     const val = typeof opt === "string" ? opt : opt.value;
                     const lbl = typeof opt === "string" ? opt : opt.label;
@@ -149,7 +156,10 @@ export function TransitionModal({
                   value={fieldValues[f.name] ?? ""}
                   onChange={(e) => handleFieldChange(f.name, e.target.value)}
                   rows={3}
-                  placeholder={`Enter ${f.label.toLowerCase()}…`}
+                  placeholder={t("transitionModal.fieldPlaceholder", {
+                    label: f.label.toLowerCase(),
+                    defaultValue: `Enter ${f.label.toLowerCase()}…`,
+                  })}
                 />
               ) : f.fieldType === "number" || f.fieldType === "currency" ? (
                 <input
@@ -157,7 +167,10 @@ export function TransitionModal({
                   className="tm-input"
                   value={fieldValues[f.name] ?? ""}
                   onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                  placeholder={`Enter ${f.label.toLowerCase()}…`}
+                  placeholder={t("transitionModal.fieldPlaceholder", {
+                    label: f.label.toLowerCase(),
+                    defaultValue: `Enter ${f.label.toLowerCase()}…`,
+                  })}
                 />
               ) : f.fieldType === "date" || f.fieldType === "datetime" ? (
                 <input
@@ -172,7 +185,10 @@ export function TransitionModal({
                   className="tm-input"
                   value={fieldValues[f.name] ?? ""}
                   onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                  placeholder={`Enter ${f.label.toLowerCase()}…`}
+                  placeholder={t("transitionModal.fieldPlaceholder", {
+                    label: f.label.toLowerCase(),
+                    defaultValue: `Enter ${f.label.toLowerCase()}…`,
+                  })}
                 />
               )}
             </div>
@@ -181,7 +197,7 @@ export function TransitionModal({
           {transition.requiresComment && (
             <div className="tm-field">
               <label className="tm-label">
-                Comment
+                {t("transitionModal.comment")}
                 <span className="tm-required">*</span>
               </label>
               <textarea
@@ -189,7 +205,7 @@ export function TransitionModal({
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 rows={3}
-                placeholder="Add a comment for this transition…"
+                placeholder={t("transitionModal.commentPlaceholder")}
                 autoFocus
               />
             </div>
@@ -198,14 +214,14 @@ export function TransitionModal({
 
         <div className="tm-footer">
           <button className="tm-btn-cancel" onClick={onCancel}>
-            Cancel
+            {t("transitionModal.cancel")}
           </button>
           <button
             className="tm-btn-confirm"
             onClick={handleSubmit}
             disabled={!isValid}
           >
-            Confirm
+            {t("transitionModal.confirm")}
           </button>
         </div>
       </DialogContent>

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useList } from "@refinedev/core";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -318,6 +319,7 @@ const PLAN_LABEL: Record<string, string> = {
 // ── main component ────────────────────────────────────────────────────────────
 
 export function Modules(): React.ReactElement {
+  const { t } = useTranslation();
   const {
     result: data,
     query: { isLoading },
@@ -351,7 +353,11 @@ export function Modules(): React.ReactElement {
 
   function openForkModal(mod: Module): void {
     setForkTarget(mod);
-    setForkName(MODULE_DEFAULT_NAMES[mod.slug] ?? mod.name);
+    setForkName(
+      t(`modules.defaultNames.${mod.slug}`, {
+        defaultValue: MODULE_DEFAULT_NAMES[mod.slug] ?? mod.name,
+      }),
+    );
     setActionError(null);
     void fetchWithAuth(`${API_URL}/workflows`).then((res) => {
       const wfs = (res as { data?: { name: string }[] }).data ?? [];
@@ -372,7 +378,10 @@ export function Modules(): React.ReactElement {
     if (!name) return;
     if (existingWorkflowNames.includes(name.toLowerCase())) {
       setActionError(
-        `A workflow named "${name}" already exists. Choose a different name.`,
+        t("modules.workflowAlreadyExists", {
+          name,
+          defaultValue: `A workflow named "${name}" already exists. Choose a different name.`,
+        }),
       );
       return;
     }
@@ -386,7 +395,9 @@ export function Modules(): React.ReactElement {
       });
       closeForkModal();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Fork failed");
+      setActionError(
+        err instanceof Error ? err.message : t("modules.forkFailed"),
+      );
     } finally {
       setForking(false);
     }
@@ -396,7 +407,7 @@ export function Modules(): React.ReactElement {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span className="loader-text">Loading templates…</span>
+        <span className="loader-text">{t("modules.loading")}</span>
       </div>
     );
   }
@@ -427,7 +438,7 @@ export function Modules(): React.ReactElement {
             marginBottom: "4px",
           }}
         >
-          Platform / Templates
+          {t("modules.breadcrumb")}
         </div>
         <h2
           style={{
@@ -437,12 +448,10 @@ export function Modules(): React.ReactElement {
             margin: "0 0 4px",
           }}
         >
-          Module Templates
+          {t("modules.title")}
         </h2>
         <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0 }}>
-          Pre-built blueprints for common business workflows. Copy any template
-          to create a named copy — entity types, fields, and state machine
-          included. Copy the same template multiple times with different names.
+          {t("modules.description")}
         </p>
       </div>
 
@@ -459,7 +468,7 @@ export function Modules(): React.ReactElement {
           className="mod-search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search templates…"
+          placeholder={t("modules.searchPlaceholder")}
           style={{ width: "100%", maxWidth: "320px" }}
         />
       </div>
@@ -468,14 +477,11 @@ export function Modules(): React.ReactElement {
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">⬡</div>
-          <h4>No templates found</h4>
+          <h4>{t("modules.emptyTitle")}</h4>
           {search ? (
-            <p>No templates match "{search}"</p>
+            <p>{t("modules.emptySearch", { search })}</p>
           ) : (
-            <p>
-              The template registry is empty. An administrator needs to run the
-              database migration step, which loads the built-in templates.
-            </p>
+            <p>{t("modules.emptyRegistry")}</p>
           )}
         </div>
       ) : (
@@ -495,7 +501,9 @@ export function Modules(): React.ReactElement {
                     margin: "0 0 12px",
                   }}
                 >
-                  {category === "core" ? "Core" : "Optional"}
+                  {category === "core"
+                    ? t("modules.categoryCore")
+                    : t("modules.categoryOptional")}
                 </h3>
                 <div className="mod-grid">
                   {group.map((mod) => {
@@ -589,13 +597,16 @@ export function Modules(): React.ReactElement {
                 }}
               >
                 {previewTarget?.description ??
-                  `Pre-built ${previewTarget?.name.toLowerCase() ?? ""} workflow template`}
+                  t("modules.defaultTemplateDescription", {
+                    name: previewTarget?.name.toLowerCase() ?? "",
+                    defaultValue: `Pre-built ${previewTarget?.name.toLowerCase() ?? ""} workflow template`,
+                  })}
               </div>
             </div>
             <DialogClose asChild>
               <button
                 type="button"
-                aria-label="Close"
+                aria-label={t("modules.close")}
                 style={{
                   background: "none",
                   border: "none",
@@ -624,7 +635,7 @@ export function Modules(): React.ReactElement {
           >
             {/* ── States ── */}
             <div>
-              <SectionLabel>Workflow States</SectionLabel>
+              <SectionLabel>{t("modules.workflowStates")}</SectionLabel>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                 {(MODULE_STATES[previewTarget?.slug ?? ""] ?? []).map(
                   (s, i) => {
@@ -667,7 +678,7 @@ export function Modules(): React.ReactElement {
                               fontWeight: 400,
                             }}
                           >
-                            END
+                            {t("modules.end")}
                           </span>
                         )}
                       </span>
@@ -681,7 +692,7 @@ export function Modules(): React.ReactElement {
             {(MODULE_TRANSITIONS[previewTarget?.slug ?? ""] ?? []).length >
               0 && (
               <div>
-                <SectionLabel>Transitions</SectionLabel>
+                <SectionLabel>{t("modules.transitions")}</SectionLabel>
                 <div
                   style={{
                     borderRadius: "var(--radius-sm)",
@@ -690,9 +701,9 @@ export function Modules(): React.ReactElement {
                   }}
                 >
                   {(MODULE_TRANSITIONS[previewTarget?.slug ?? ""] ?? []).map(
-                    (t, i) => (
+                    (tTransition, i) => (
                       <div
-                        key={`${t.from}-${t.to}`}
+                        key={`${tTransition.from}-${tTransition.to}`}
                         style={{
                           display: "flex",
                           alignItems: "center",
@@ -716,7 +727,7 @@ export function Modules(): React.ReactElement {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {t.from}
+                          {tTransition.from}
                         </span>
                         <span
                           style={{
@@ -730,7 +741,7 @@ export function Modules(): React.ReactElement {
                             flexShrink: 0,
                           }}
                         >
-                          {t.label}
+                          {tTransition.label}
                         </span>
                         <span
                           style={{
@@ -753,7 +764,7 @@ export function Modules(): React.ReactElement {
                             textAlign: "right",
                           }}
                         >
-                          {t.to}
+                          {tTransition.to}
                         </span>
                       </div>
                     ),
@@ -764,7 +775,7 @@ export function Modules(): React.ReactElement {
 
             {/* ── Fields ── */}
             <div>
-              <SectionLabel>Fields</SectionLabel>
+              <SectionLabel>{t("modules.fields")}</SectionLabel>
               <div
                 style={{
                   borderRadius: "var(--radius-sm)",
@@ -806,7 +817,11 @@ export function Modules(): React.ReactElement {
                           padding: "2px 7px",
                         }}
                       >
-                        {FIELD_TYPE_LABEL[f.type] ?? f.type}
+                        {FIELD_TYPE_LABEL[f.type]
+                          ? t(`modules.fieldTypes.${f.type}`, {
+                              defaultValue: FIELD_TYPE_LABEL[f.type],
+                            })
+                          : f.type}
                       </span>
                     </div>
                   ),
@@ -816,7 +831,7 @@ export function Modules(): React.ReactElement {
 
             {/* ── What's Included ── */}
             <div>
-              <SectionLabel>What's Included</SectionLabel>
+              <SectionLabel>{t("modules.whatsIncluded")}</SectionLabel>
               <div
                 style={{
                   display: "flex",
@@ -859,7 +874,7 @@ export function Modules(): React.ReactElement {
             }}
           >
             <Button variant="secondary" onClick={() => setPreviewTarget(null)}>
-              Close
+              {t("modules.close")}
             </Button>
             {previewTarget && !previewTarget.isSystem && (
               <Button
@@ -872,7 +887,7 @@ export function Modules(): React.ReactElement {
                   openForkModal(previewTarget);
                 }}
               >
-                Copy Template
+                {t("modules.copyTemplate")}
               </Button>
             )}
           </div>
@@ -933,7 +948,10 @@ export function Modules(): React.ReactElement {
                     color: "var(--text-primary)",
                   }}
                 >
-                  Copy "{forkTarget?.name}"
+                  {t("modules.copyModalTitle", {
+                    name: forkTarget?.name,
+                    defaultValue: `Copy "${forkTarget?.name}"`,
+                  })}
                 </div>
               </DialogTitle>
               <div
@@ -943,14 +961,13 @@ export function Modules(): React.ReactElement {
                   marginTop: "2px",
                 }}
               >
-                Creates a named copy — entity type, fields, and workflow ready
-                to use.
+                {t("modules.copyModalDescription")}
               </div>
             </div>
             <DialogClose asChild>
               <button
                 type="button"
-                aria-label="Close"
+                aria-label={t("modules.close")}
                 style={{
                   background: "none",
                   border: "none",
@@ -989,7 +1006,7 @@ export function Modules(): React.ReactElement {
                   marginBottom: "8px",
                 }}
               >
-                What gets created
+                {t("modules.whatGetsCreated")}
               </div>
               <div
                 style={{
@@ -1022,7 +1039,7 @@ export function Modules(): React.ReactElement {
 
             {/* workflow name input */}
             <div className="form-group">
-              <label className="form-label">Workflow Name</label>
+              <label className="form-label">{t("modules.workflowName")}</label>
               <input
                 type="text"
                 className="form-input"
@@ -1036,12 +1053,10 @@ export function Modules(): React.ReactElement {
                     void handleFork();
                   if (e.key === "Escape") closeForkModal();
                 }}
-                placeholder="e.g. Customer Support Tickets"
+                placeholder={t("modules.workflowNamePlaceholder")}
                 autoFocus
               />
-              <div className="form-hint">
-                Names the workflow created from this template. Must be unique.
-              </div>
+              <div className="form-hint">{t("modules.workflowNameHint")}</div>
               {nameConflict && (
                 <div
                   style={{
@@ -1050,7 +1065,7 @@ export function Modules(): React.ReactElement {
                     color: "var(--danger)",
                   }}
                 >
-                  ⚠ A workflow with this name already exists.
+                  ⚠ {t("modules.nameConflict")}
                 </div>
               )}
             </div>
@@ -1077,7 +1092,7 @@ export function Modules(): React.ReactElement {
               onClick={closeForkModal}
               disabled={forking}
             >
-              Cancel
+              {t("modules.cancel")}
             </Button>
             <Button
               variant="primary"
@@ -1085,7 +1100,7 @@ export function Modules(): React.ReactElement {
               disabled={forking || !forkName.trim() || nameConflict}
               style={{ minWidth: "120px" }}
             >
-              {forking ? "Copying…" : "Copy Template"}
+              {forking ? t("modules.copying") : t("modules.copyTemplate")}
             </Button>
           </div>
         </DialogContent>
@@ -1109,6 +1124,7 @@ function ModuleCard({
   onFork: (mod: Module) => void;
   onPreview: (mod: Module) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <div
       className="module-card-interactive"
@@ -1188,7 +1204,7 @@ function ModuleCard({
                 className="badge badge-primary"
                 style={{ fontSize: "10px" }}
               >
-                Core
+                {t("modules.badgeCore")}
               </span>
             )}
           </div>
@@ -1208,7 +1224,11 @@ function ModuleCard({
                 border: "1px solid var(--border-color)",
               }}
             >
-              {PLAN_LABEL[mod.minPlan] ?? mod.minPlan}
+              {PLAN_LABEL[mod.minPlan]
+                ? t(`modules.plans.${mod.minPlan}`, {
+                    defaultValue: PLAN_LABEL[mod.minPlan],
+                  })
+                : mod.minPlan}
             </span>
           </div>
         </div>
@@ -1225,7 +1245,10 @@ function ModuleCard({
           }}
         >
           {mod.description ??
-            `The ${mod.name} template provides pre-built entity types, state machine workflows, and field definitions ready to customise.`}
+            t("modules.defaultTemplateDescription", {
+              name: mod.name,
+              defaultValue: `The ${mod.name} template provides pre-built entity types, state machine workflows, and field definitions ready to customise.`,
+            })}
         </p>
 
         {features.length > 0 && (
@@ -1295,7 +1318,7 @@ function ModuleCard({
 
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <button
-            title="Preview template details"
+            title={t("modules.previewTitle")}
             onClick={() => onPreview(mod)}
             className="module-preview-btn"
             style={{
@@ -1335,7 +1358,7 @@ function ModuleCard({
                 boxShadow: `0 2px 8px ${accent}33`,
               }}
             >
-              Copy
+              {t("modules.copyButton")}
             </Button>
           )}
         </div>

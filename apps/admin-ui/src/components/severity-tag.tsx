@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { withAlpha } from "../lib/theme.js";
 
 // docs/specs/ticket-severity-and-tags.md §I — fixed, global, rank-ordered.
@@ -38,12 +39,16 @@ export function SeverityBadge({
   severity: Severity | null | undefined;
   compact?: boolean;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   if (!severity) return null;
   const color = SEVERITY_COLOR[severity];
+  const label = t(`severity.${severity}`, {
+    defaultValue: SEVERITY_LABEL[severity],
+  });
 
   return (
     <span
-      title={`Severity: ${SEVERITY_LABEL[severity]}`}
+      title={t("severity.tooltip", { level: label })}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -67,7 +72,7 @@ export function SeverityBadge({
           flexShrink: 0,
         }}
       />
-      {SEVERITY_LABEL[severity]}
+      {label}
     </span>
   );
 }
@@ -91,6 +96,7 @@ export function SeverityDropdown({
   required?: boolean;
   onChange: (severity: Severity) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -118,7 +124,9 @@ export function SeverityDropdown({
         className={`asgn-trigger asgn-trigger-state ${open ? "asgn-trigger-open" : ""}`}
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        title={isUnset ? "Severity is required" : "Change severity"}
+        title={
+          isUnset ? t("severity.requiredTooltip") : t("severity.changeTooltip")
+        }
         style={
           isUnset && required
             ? {
@@ -133,7 +141,9 @@ export function SeverityDropdown({
           style={color ? { background: color } : undefined}
         />
         <span className="asgn-name">
-          {value ? SEVERITY_LABEL[value] : "Select severity…"}
+          {value
+            ? t(`severity.${value}`, { defaultValue: SEVERITY_LABEL[value] })
+            : t("severity.selectSeverity")}
           {isUnset && required && (
             <span style={{ color: "var(--danger, #dc2626)" }}> *</span>
           )}
@@ -174,7 +184,9 @@ export function SeverityDropdown({
                   />
                   <span className="asgn-option-info">
                     <span className="asgn-option-name">
-                      {SEVERITY_LABEL[level]}
+                      {t(`severity.${level}`, {
+                        defaultValue: SEVERITY_LABEL[level],
+                      })}
                     </span>
                   </span>
                   {value === level && (
