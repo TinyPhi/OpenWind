@@ -178,6 +178,7 @@ export function SandboxesTable({
                         tenantName={s.name}
                         trialEndsAt={s.trialEndsAt}
                         logo={s.logo}
+                        loginKey={s.loginKey}
                         onDone={onActionDone}
                       />
                     </div>

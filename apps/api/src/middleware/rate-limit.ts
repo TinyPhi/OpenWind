@@ -47,7 +47,7 @@ function firstForwardedIp(header: string): string | null {
  * real clients over one connection to us without setting either header, but
  * that misconfiguration should be fixed at the proxy, not papered over here.
  */
-function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
+export function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
   let peerIp = "unknown";
   try {
     const info = getConnInfo(c);

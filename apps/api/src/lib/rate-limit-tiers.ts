@@ -133,6 +133,36 @@ export async function enforceSandboxProvisioningRateLimit(
   }
 }
 
+const PUBLIC_BRANDING_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * docs/specs/multi-org-sandbox.md R13 -- per-IP cap on GET /public/org-branding/:key, which has
+ * no identity to key on. Its own bucket (`rl:public-branding:`), never the `/auth` class that
+ * sign-in shares. Fails open like every other tier, as ADR-013's limiter already does.
+ */
+export async function enforcePublicBrandingRateLimit(
+  clientIp: string,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  try {
+    return await checkRateLimit(
+      getRedis(),
+      `rl:public-branding:${clientIp}`,
+      env.RATE_LIMIT_PUBLIC_BRANDING_PER_MIN,
+      PUBLIC_BRANDING_RATE_LIMIT_WINDOW_SECONDS,
+    );
+  } catch (err) {
+    logger.warn(
+      { err },
+      "rate-limit-tiers: public branding check failed unexpectedly — failing open",
+    );
+    return {
+      allowed: true,
+      remaining: env.RATE_LIMIT_PUBLIC_BRANDING_PER_MIN,
+      resetAt: 0,
+    };
+  }
+}
+
 const CLIENT_ERROR_RATE_LIMIT_PER_MIN = 20;
 const CLIENT_ERROR_RATE_LIMIT_WINDOW_SECONDS = 60;
 

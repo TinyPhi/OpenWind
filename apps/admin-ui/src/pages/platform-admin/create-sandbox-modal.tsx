@@ -6,6 +6,7 @@ import {
   downloadHandoverCsv,
   formatHandoverClipboard,
 } from "./sandbox-handover-csv.js";
+import { loginLink } from "./login-link.js";
 
 interface ProvisioningProgress {
   status: "pending" | "running" | "completed" | "failed";
@@ -17,6 +18,8 @@ interface ProvisioningProgress {
 
 interface SandboxHandover {
   tenantId: string;
+  /** The sandbox's login key, for its login link (R13); null if it could not be read back. */
+  loginKey?: string | null;
   seededAccounts: {
     username: string;
     email: string;
@@ -121,12 +124,14 @@ export function CreateSandboxModal({
     resetForm();
   }
 
+  const link = handover?.loginKey ? loginLink(handover.loginKey) : null;
+
   async function handleCopyCredentials(): Promise<void> {
     if (!handover) return;
     setCopyFailed(false);
     setDownloadFailed(false);
     try {
-      const text = formatHandoverClipboard(handover.seededAccounts);
+      const text = formatHandoverClipboard(handover.seededAccounts, link);
       await navigator.clipboard.writeText(text);
       setCopied(true);
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
@@ -272,6 +277,18 @@ export function CreateSandboxModal({
             <p className="page-subtitle">
               Copy these credentials now — they cannot be shown again.
             </p>
+            {link && (
+              <>
+                <p style={{ fontWeight: 600, marginTop: 16 }}>Login link</p>
+                <p style={{ color: "var(--text-muted)", margin: "0 0 6px" }}>
+                  Send this link instead of the plain login page: it shows the
+                  organization&apos;s own name and logo.
+                </p>
+                <p style={{ margin: 0 }}>
+                  <code style={{ userSelect: "all" }}>{link}</code>
+                </p>
+              </>
+            )}
             <p style={{ fontWeight: 600, marginTop: 16 }}>
               {t("platformAdmin.seededAccounts")}
             </p>
@@ -329,7 +346,7 @@ export function CreateSandboxModal({
                   setDownloadFailed(false);
                   setCopyFailed(false);
                   try {
-                    downloadHandoverCsv(orgName, handover.seededAccounts);
+                    downloadHandoverCsv(orgName, handover.seededAccounts, link);
                   } catch (err) {
                     console.error("Sandbox handover CSV download failed:", err);
                     setDownloadFailed(true);

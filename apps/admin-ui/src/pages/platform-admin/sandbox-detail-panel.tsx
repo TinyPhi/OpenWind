@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import React from "react";
 import { IconButton } from "@platform/ui";
 import { SandboxRowActions } from "./sandbox-row-actions.js";
+import { loginLink } from "./login-link.js";
 import { ActivityTimeline } from "./activity-timeline.js";
 import {
   TRIAL_BADGE,
@@ -71,6 +72,7 @@ export function SandboxDetailPanel({
               tenantName={sandbox.name}
               trialEndsAt={sandbox.trialEndsAt}
               logo={sandbox.logo}
+              loginKey={sandbox.loginKey}
               onDone={onActionDone}
             />
             <IconButton
@@ -87,6 +89,16 @@ export function SandboxDetailPanel({
           <dd className="pa-id" style={{ fontSize: 13 }}>
             {sandbox.id}
           </dd>
+          {sandbox.loginKey && (
+            <>
+              <dt>Login link</dt>
+              <dd style={{ fontSize: 13, wordBreak: "break-all" }}>
+                <code style={{ userSelect: "all" }}>
+                  {loginLink(sandbox.loginKey)}
+                </code>
+              </dd>
+            </>
+          )}
           <dt>{t("platformAdmin.created")}</dt>
           <dd>
             {new Date(sandbox.createdAt).toLocaleString()} (

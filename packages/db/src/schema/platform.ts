@@ -45,6 +45,8 @@ export const tenants = pgTable("tenants", {
   createdByPlatformAdmin: text("created_by_platform_admin"),
   /** Sandbox header logo: a png/jpeg/webp data URL (CHECK in migration 0155), never SVG. NULL for real tenants. */
   logo: text("logo"),
+  /** The sandbox's login link is /login?org=<login_key> (R13): 16 random hex characters, unique, set at creation, never changed. NULL for real tenants (CHECK, migration 0162). */
+  loginKey: text("login_key").unique(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
