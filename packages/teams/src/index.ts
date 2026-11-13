@@ -20,7 +20,13 @@ export {
 
 export { compactTeamPositions, replaceTeamMembers } from "./team-members.js";
 
-export { loadTeamMemberIds, loadPreviousHolders } from "./rotation-state.js";
+export {
+  loadTeamMemberIds,
+  loadTeamMemberIdsBatch,
+  loadPreviousHolders,
+  loadPreviousHoldersBatch,
+  type RotationCursor,
+} from "./rotation-state.js";
 
 export {
   nextAssignment,

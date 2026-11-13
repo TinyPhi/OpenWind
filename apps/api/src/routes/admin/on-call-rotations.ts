@@ -18,9 +18,12 @@ import type { DbOrTx } from "@platform/db";
 import { db, withTenantContext, onCallRotations, teams } from "@platform/db";
 import {
   loadPreviousHolders,
+  loadPreviousHoldersBatch,
   loadTeamMemberIds,
+  loadTeamMemberIdsBatch,
   nextAssignment,
   projectWindows,
+  type RotationHolders,
 } from "@platform/teams";
 import { writeAuditEntry } from "@platform/audit";
 import { releaseUpcomingWindows } from "../../lib/rotation-windows.js";
@@ -97,9 +100,13 @@ async function presentRotation(
   tx: DbOrTx,
   tenantId: string,
   row: RotationRow,
+  preloadedMembers?: string[],
+  preloadedPrevious?: RotationHolders,
 ): Promise<RotationView> {
-  const members = await loadTeamMemberIds(tx, tenantId, row.teamId);
-  const previous = await loadPreviousHolders(tx, tenantId, row);
+  const members =
+    preloadedMembers ?? (await loadTeamMemberIds(tx, tenantId, row.teamId));
+  const previous =
+    preloadedPrevious ?? (await loadPreviousHolders(tx, tenantId, row));
   const next = nextAssignment(members, previous);
   const projected =
     row.status === "active" && row.blockedReason === null
@@ -155,8 +162,23 @@ router.get(
           .where(and(...conditions))
           .orderBy(desc(onCallRotations.createdAt), onCallRotations.id)
           .limit(100);
+
+        const teamIds = [...new Set(rows.map((r) => r.teamId))];
+        const [membersByTeam, holdersByRotation] = await Promise.all([
+          loadTeamMemberIdsBatch(tx, auth.tenantId, teamIds),
+          loadPreviousHoldersBatch(tx, auth.tenantId, rows),
+        ]);
+
         return Promise.all(
-          rows.map((r) => presentRotation(tx, auth.tenantId, r)),
+          rows.map((r) =>
+            presentRotation(
+              tx,
+              auth.tenantId,
+              r,
+              membersByTeam.get(r.teamId),
+              holdersByRotation.get(r.id),
+            ),
+          ),
         );
       });
       return c.json({ data });
