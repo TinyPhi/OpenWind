@@ -87,7 +87,7 @@ export function SystemLogsPage(): React.ReactElement {
                   t("logs.columnTitle"),
                   t("logs.columnDetails"),
                   t("logs.columnOccurred"),
-                  "ID",
+                  t("logs.columnId"),
                 ].map((h) => (
                   <TableHead
                     key={h}

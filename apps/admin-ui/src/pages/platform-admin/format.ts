@@ -34,32 +34,51 @@ export interface AuditEntry {
   createdAt: string;
 }
 
-export const ACTION_LABEL: Record<PlatformAdminAction, string> = {
-  "sandbox.created": "Created sandbox",
-  "sandbox.reset": "Reset sandbox",
-  "sandbox.deleted": "Deleted sandbox",
-  "sandbox.trial_changed": "Extended trial",
-  "sandbox.trial_ended": "Ended trial",
-  "sandbox.branding_changed": "Changed branding",
+export const ACTION_LABEL_KEY: Record<PlatformAdminAction, string> = {
+  "sandbox.created": "platformAdmin.format.sandboxCreated",
+  "sandbox.reset": "platformAdmin.format.sandboxReset",
+  "sandbox.deleted": "platformAdmin.format.sandboxDeleted",
+  "sandbox.trial_changed": "platformAdmin.format.trialExtended",
+  "sandbox.trial_ended": "platformAdmin.format.trialEnded",
+  "sandbox.branding_changed": "platformAdmin.format.brandingChanged",
 };
 
-export const TRIAL_BADGE: Record<TrialStatus, { label: string; cls: string }> =
-  {
-    active: { label: "Trial active", cls: "badge-success" },
-    expired: { label: "Trial expired", cls: "badge-warning" },
-    none: { label: "No trial", cls: "badge-muted" },
-  };
+export function actionLabel(t: TFunction, action: PlatformAdminAction): string {
+  return t(ACTION_LABEL_KEY[action]);
+}
+
+export const TRIAL_BADGE: Record<
+  TrialStatus,
+  { labelKey: string; cls: string }
+> = {
+  active: { labelKey: "platformAdmin.trialActive", cls: "badge-success" },
+  expired: { labelKey: "platformAdmin.trialExpired", cls: "badge-warning" },
+  none: { labelKey: "platformAdmin.noTrial", cls: "badge-muted" },
+};
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-export function relativeTime(iso: string, now: number = Date.now()): string {
+export function relativeTime(
+  t: TFunction,
+  iso: string,
+  now: number = Date.now(),
+): string {
   const diff = now - Date.parse(iso);
-  if (diff < MINUTE) return "just now";
-  if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
-  if (diff < 30 * DAY) return `${Math.floor(diff / DAY)}d ago`;
+  if (diff < MINUTE) return t("platformAdmin.format.justNow");
+  if (diff < HOUR)
+    return t("platformAdmin.format.minutesAgo", {
+      count: Math.floor(diff / MINUTE),
+    });
+  if (diff < DAY)
+    return t("platformAdmin.format.hoursAgo", {
+      count: Math.floor(diff / HOUR),
+    });
+  if (diff < 30 * DAY)
+    return t("platformAdmin.format.daysAgo", {
+      count: Math.floor(diff / DAY),
+    });
   return new Date(iso).toLocaleDateString();
 }
 

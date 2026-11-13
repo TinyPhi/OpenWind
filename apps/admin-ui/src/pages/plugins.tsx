@@ -29,11 +29,11 @@ export interface PluginListEntry {
   errorCount: number;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  installing: "Installing…",
-  active: "Active",
-  error: "Error",
-  disabled: "Disabled",
+const STATUS_LABEL_KEY: Record<string, string> = {
+  installing: "plugins.statusInstalling",
+  active: "plugins.statusActive",
+  error: "plugins.statusError",
+  disabled: "plugins.statusDisabled",
 };
 
 export function Plugins(): React.ReactElement {
@@ -95,7 +95,9 @@ export function Plugins(): React.ReactElement {
               <TableCell>{plugin.category}</TableCell>
               <TableCell>
                 {plugin.installed
-                  ? (STATUS_LABEL[plugin.status ?? ""] ?? plugin.status)
+                  ? STATUS_LABEL_KEY[plugin.status ?? ""]
+                    ? t(STATUS_LABEL_KEY[plugin.status ?? ""] as string)
+                    : plugin.status
                   : t("plugins.notInstalled")}
               </TableCell>
               <TableCell>

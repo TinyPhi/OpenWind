@@ -292,9 +292,10 @@ function TeamFormModal({
         if (membersSaved) {
           onRefresh();
           setError(
-            `Members were saved, but the name and description were not: ${
-              err instanceof Error ? err.message : "failed to save team"
-            }`,
+            t("teams.membersSavedOnly", {
+              error:
+                err instanceof Error ? err.message : t("teams.failedToSave"),
+            }),
           );
           return;
         }
@@ -336,7 +337,7 @@ function TeamFormModal({
           <DialogClose asChild>
             <button
               type="button"
-              aria-label="Close"
+              aria-label={t("teams.close")}
               style={{
                 background: "none",
                 border: "none",

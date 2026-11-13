@@ -30,12 +30,12 @@ describe("relativeTime", () => {
     ["2026-10-12T10:00:00", "5h ago"],
     ["2026-10-09T15:00:00", "3d ago"],
   ])("%s -> %s", (iso, expected) => {
-    expect(relativeTime(new Date(iso).toISOString(), NOW)).toBe(expected);
+    expect(relativeTime(t, new Date(iso).toISOString(), NOW)).toBe(expected);
   });
 
   it("falls back to a calendar date beyond 30 days", () => {
     const iso = new Date("2026-08-01T12:00:00").toISOString();
-    expect(relativeTime(iso, NOW)).toBe(new Date(iso).toLocaleDateString());
+    expect(relativeTime(t, iso, NOW)).toBe(new Date(iso).toLocaleDateString());
   });
 });
 

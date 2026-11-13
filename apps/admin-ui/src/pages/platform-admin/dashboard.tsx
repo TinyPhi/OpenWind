@@ -133,23 +133,26 @@ export function PlatformAdminDashboard(): React.ReactElement {
         <div>
           <div className="pa-eyebrow">OpenWind</div>
           <h1 className="page-title" style={{ margin: 0 }}>
-            Platform Admin
+            {t("platformAdmin.title")}
           </h1>
           {session && (
             <p className="page-subtitle" style={{ margin: "4px 0 0" }}>
-              Signed in as {session.displayName} ({session.email})
+              {t("platformAdmin.signedInAs", {
+                name: session.displayName,
+                email: session.email,
+              })}
             </p>
           )}
         </div>
         <div className="pa-header-actions">
           <Button variant="secondary" onClick={refresh}>
-            Refresh
+            {t("platformAdmin.refresh")}
           </Button>
           <Button variant="primary" onClick={() => setCreateOpen(true)}>
-            Create sandbox
+            {t("platformAdmin.createSandbox")}
           </Button>
           <Button variant="secondary" onClick={() => void handleLogout()}>
-            Log out
+            {t("platformAdmin.logOut")}
           </Button>
         </div>
       </header>
@@ -166,7 +169,10 @@ export function PlatformAdminDashboard(): React.ReactElement {
         </p>
       )}
 
-      <section className="pa-stats" aria-label="Sandbox summary">
+      <section
+        className="pa-stats"
+        aria-label={t("platformAdmin.sandboxSummary")}
+      >
         {(
           stats ?? [0, 1, 2, 3].map((i) => ({ label: String(i), value: null }))
         ).map((s) => (
@@ -193,16 +199,17 @@ export function PlatformAdminDashboard(): React.ReactElement {
         <section className="pa-panel" aria-labelledby="pa-sandboxes-title">
           <div className="pa-panel-header">
             <h2 id="pa-sandboxes-title" className="pa-panel-title">
-              Sandboxes
+              {t("platformAdmin.sandboxes")}
             </h2>
             {sandboxes && (
-              <span className="pa-muted">{sandboxes.length} total</span>
+              <span className="pa-muted">
+                {t("platformAdmin.totalCount", { count: sandboxes.length })}
+              </span>
             )}
           </div>
           {truncated && (
             <p role="status" className="pa-muted" style={{ margin: "0 0 8px" }}>
-              Showing the {SANDBOX_LIST_LIMIT} most recent sandboxes; older ones
-              are not listed.
+              {t("platformAdmin.listTruncated", { limit: SANDBOX_LIST_LIMIT })}
             </p>
           )}
           {sandboxes ? (
@@ -213,7 +220,7 @@ export function PlatformAdminDashboard(): React.ReactElement {
             />
           ) : (
             !loadError && (
-              <div aria-label="Loading sandboxes">
+              <div aria-label={t("platformAdmin.loadingSandboxes")}>
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
@@ -229,7 +236,7 @@ export function PlatformAdminDashboard(): React.ReactElement {
         <section className="pa-panel" aria-labelledby="pa-activity-title">
           <div className="pa-panel-header">
             <h2 id="pa-activity-title" className="pa-panel-title">
-              Activity
+              {t("platformAdmin.activity")}
             </h2>
           </div>
           <ActivityTimeline

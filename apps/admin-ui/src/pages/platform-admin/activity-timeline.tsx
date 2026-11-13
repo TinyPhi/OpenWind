@@ -3,7 +3,7 @@ import React from "react";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import {
-  ACTION_LABEL,
+  actionLabel,
   groupByDay,
   relativeTime,
   shortId,
@@ -112,7 +112,7 @@ export function ActivityTimeline({
 
   if (entries === null) {
     return (
-      <div aria-label="Loading activity">
+      <div aria-label={t("platformAdmin.loadingActivity")}>
         {[0, 1, 2].map((i) => (
           <div key={i} className="pa-skeleton" style={{ marginBottom: 12 }} />
         ))}
@@ -129,7 +129,7 @@ export function ActivityTimeline({
         <div className="pa-toolbar">
           <select
             className="pa-select"
-            aria-label="Filter activity by action"
+            aria-label={t("platformAdmin.filterActivityByAction")}
             value={filter}
             // The <option> values below are exactly ActionFilter's members.
             onChange={(e) => setFilter(e.target.value as ActionFilter)}
@@ -204,12 +204,13 @@ function TimelineItem({
   const { t } = useTranslation();
   const dotClass = `pa-tl-dot pa-tl-dot-${entry.action.split(".")[1] ?? "created"}`;
   const target =
-    tenantName ?? `Deleted tenant ${shortId(entry.targetTenantId)}`;
+    tenantName ??
+    t("platformAdmin.deletedTenant", { id: shortId(entry.targetTenantId) });
   return (
     <li className="pa-tl-item">
       <span className={dotClass} aria-hidden="true" />
       <div className="pa-tl-title">
-        {ACTION_LABEL[entry.action]}
+        {actionLabel(t, entry.action)}
         {!compact && (
           <>
             {" "}
@@ -226,7 +227,7 @@ function TimelineItem({
           dateTime={entry.createdAt}
           title={new Date(entry.createdAt).toLocaleString()}
         >
-          {relativeTime(entry.createdAt)}
+          {relativeTime(t, entry.createdAt)}
         </time>
       </div>
     </li>
