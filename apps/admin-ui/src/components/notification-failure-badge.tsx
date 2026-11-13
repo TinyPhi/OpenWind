@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { relativeTime } from "../lib/format.js";
 
@@ -37,6 +38,7 @@ export function NotificationFailureBadge({
   ticketId: string;
   enabled: boolean;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   const [failures, setFailures] = useState<Failure[]>([]);
 
   useEffect(() => {
@@ -65,7 +67,7 @@ export function NotificationFailureBadge({
   return (
     <span
       role="status"
-      title="A notification for this ticket could not be delivered in the last 24 hours."
+      title={t("origin.notificationFailedTooltip")}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -79,7 +81,10 @@ export function NotificationFailureBadge({
         whiteSpace: "nowrap",
       }}
     >
-      Notification failed: {channels.join(", ")} · {relativeTime(latest)}
+      {t("origin.notificationFailed", {
+        channels: channels.join(", "),
+        time: relativeTime(latest),
+      })}
     </span>
   );
 }

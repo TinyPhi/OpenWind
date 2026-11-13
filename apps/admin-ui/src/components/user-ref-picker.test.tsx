@@ -6,6 +6,7 @@ import {
   waitFor,
   cleanup,
 } from "@testing-library/react";
+import "../i18n.js";
 
 vi.mock("../lib/api.js", () => ({ fetchWithAuth: vi.fn(), API_URL: "" }));
 

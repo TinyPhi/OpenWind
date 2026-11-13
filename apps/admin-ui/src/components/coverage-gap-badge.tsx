@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useTeamCoverageGap } from "../lib/oncall-coverage.js";
 
 /**
@@ -18,6 +19,7 @@ export function CoverageGapBadge({
   assignedTo: string | null;
   enabled: boolean;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   const unassignedWithTeam = !assignedTo && !!teamId;
   const inGap = useTeamCoverageGap(unassignedWithTeam ? teamId : null, enabled);
   if (!inGap) return null;
@@ -25,7 +27,7 @@ export function CoverageGapBadge({
   return (
     <span
       role="status"
-      title="This ticket's team has no on-call schedule right now and the ticket has no assignee."
+      title={t("severity.noCoverageTooltip")}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -39,7 +41,7 @@ export function CoverageGapBadge({
         whiteSpace: "nowrap",
       }}
     >
-      No on-call coverage
+      {t("severity.noCoverage")}
     </span>
   );
 }

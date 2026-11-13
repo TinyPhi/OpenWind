@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   listNotifications,
   markNotificationRead,
@@ -28,6 +29,7 @@ const BELL_ICON = (
 );
 
 export function NotificationBell(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -147,7 +149,7 @@ export function NotificationBell(): React.ReactElement {
     <div ref={containerRef} style={{ position: "relative" }}>
       <button
         onClick={() => setOpen((o) => !o)}
-        aria-label="Notifications"
+        aria-label={t("notificationBell.notifications")}
         className="notification-bell-btn"
         style={{
           position: "relative",
@@ -217,7 +219,7 @@ export function NotificationBell(): React.ReactElement {
             }}
           >
             <span style={{ fontSize: "13px", fontWeight: 600 }}>
-              Notifications
+              {t("notificationBell.notifications")}
             </span>
             <button
               onClick={() => void handleMarkAllRead()}
@@ -230,7 +232,7 @@ export function NotificationBell(): React.ReactElement {
                 padding: 0,
               }}
             >
-              Mark all as read
+              {t("notificationBell.markAllRead")}
             </button>
           </div>
 
@@ -244,7 +246,7 @@ export function NotificationBell(): React.ReactElement {
                   color: "var(--text-muted)",
                 }}
               >
-                No notifications yet
+                {t("notificationBell.noNotifications")}
               </div>
             )}
             {items.map((n) => {
@@ -326,7 +328,9 @@ export function NotificationBell(): React.ReactElement {
                 cursor: loadingMore ? "default" : "pointer",
               }}
             >
-              {loadingMore ? "Loading…" : "Load more"}
+              {loadingMore
+                ? t("notificationBell.loading")
+                : t("notificationBell.loadMore")}
             </button>
           )}
 
@@ -342,7 +346,7 @@ export function NotificationBell(): React.ReactElement {
               borderTop: "1px solid var(--border-color)",
               background: "var(--bg-tertiary)",
             }}
-            title="Drag to resize"
+            title={t("notificationBell.dragToResize")}
           >
             <div
               style={{

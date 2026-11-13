@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchUsersShared } from "../lib/use-users.js";
 import { UserPicker, type UserOption } from "./user-picker.js";
 
@@ -28,6 +29,7 @@ export function UserRefPicker({
   onChange,
   disabled = false,
 }: UserRefPickerProps): React.ReactElement {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<UserOption[]>([]);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -54,7 +56,7 @@ export function UserRefPicker({
         users={users}
         value={value}
         onChange={onChange}
-        placeholder="Select a user…"
+        placeholder={t("fieldInput.selectUserPlaceholder")}
         disabled={disabled}
       />
       {failed && (
@@ -62,13 +64,13 @@ export function UserRefPicker({
           role="alert"
           style={{ fontSize: "12px", color: "var(--text-muted)" }}
         >
-          Couldn&apos;t load users.{" "}
+          {t("fieldInput.couldNotLoadUsers")}{" "}
           <button
             type="button"
             onClick={() => setAttempt((n) => n + 1)}
             style={{ cursor: "pointer" }}
           >
-            Retry
+            {t("fieldInput.retry")}
           </button>
         </div>
       )}

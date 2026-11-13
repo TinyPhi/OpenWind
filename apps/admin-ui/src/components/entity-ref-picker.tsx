@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes } from "../entity-type-context.js";
 import { useOutsideClick } from "../hooks/use-outside-click.js";
@@ -40,6 +41,7 @@ export function EntityRefPicker({
   classPrefix = "form",
   disabled,
 }: EntityRefPickerProps): React.ReactElement {
+  const { t } = useTranslation();
   const { entityTypes } = useEntityTypes();
   const targetType = entityTypes.find((t) => t.name === targetEntityTypeName);
 
@@ -113,7 +115,10 @@ export function EntityRefPicker({
         className={`${classPrefix}-input`}
         type="text"
         disabled
-        value={`Unknown entity type: ${targetEntityTypeName}`}
+        value={t("fieldInput.unknownEntityType", {
+          type: targetEntityTypeName,
+          defaultValue: `Unknown entity type: ${targetEntityTypeName}`,
+        })}
       />
     );
   }
@@ -127,7 +132,9 @@ export function EntityRefPicker({
         onClick={() => setOpen((v) => !v)}
         style={{ textAlign: "left", cursor: "pointer" }}
       >
-        {value ? (selectedLabel ?? `#${value.slice(0, 8)}`) : "Select…"}
+        {value
+          ? (selectedLabel ?? `#${value.slice(0, 8)}`)
+          : t("fieldInput.select")}
       </button>
 
       {open && (
@@ -151,7 +158,10 @@ export function EntityRefPicker({
             autoFocus
             className={`${classPrefix}-input`}
             style={{ margin: 8, width: "calc(100% - 16px)" }}
-            placeholder={`Search ${targetType.plural.toLowerCase()}…`}
+            placeholder={t("fieldInput.searchEntitiesPlaceholder", {
+              plural: targetType.plural.toLowerCase(),
+              defaultValue: `Search ${targetType.plural.toLowerCase()}…`,
+            })}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
           />
@@ -169,16 +179,16 @@ export function EntityRefPicker({
             }}
             onClick={() => select(null)}
           >
-            Clear
+            {t("fieldInput.clear")}
           </button>
           {loading && (
             <div style={{ padding: "8px 12px", color: "var(--text-muted)" }}>
-              Searching…
+              {t("fieldInput.searching")}
             </div>
           )}
           {!loading && query.trim() !== "" && results.length === 0 && (
             <div style={{ padding: "8px 12px", color: "var(--text-muted)" }}>
-              No matches
+              {t("fieldInput.noMatches")}
             </div>
           )}
           {!loading &&

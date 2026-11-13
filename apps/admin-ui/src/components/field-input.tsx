@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { UserRefPicker } from "./user-ref-picker.js";
 import { EntityRefPicker } from "./entity-ref-picker.js";
 import { FileFieldPicker } from "./file-field-picker.js";
@@ -59,6 +60,7 @@ export function FieldInput({
   moduleSlug,
   entityId,
 }: FieldInputProps): React.ReactElement {
+  const { t } = useTranslation();
   const strVal = value === null || value === undefined ? "" : String(value);
   const req = required ?? false;
 
@@ -232,7 +234,7 @@ export function FieldInput({
           required={req}
           onChange={(e) => onChange(e.target.value || null)}
         >
-          <option value="">Select…</option>
+          <option value="">{t("fieldInput.select")}</option>
           {opts.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}

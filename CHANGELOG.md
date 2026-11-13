@@ -3,6 +3,13 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — i18n extraction for remaining admin-ui screens (#1119, #200)]
+
+### Added
+
+- Extracted remaining hardcoded strings across modules (`modules.tsx`) and shared component suite (`notification-bell.tsx`, `transition-modal.tsx`, `field-input.tsx`, `entity-ref-picker.tsx`, `user-ref-picker.tsx`, `file-attachment.tsx`, `user-picker.tsx`, `severity-tag.tsx`, `coverage-gap-badge.tsx`, `origin-tag.tsx`, `notification-failure-badge.tsx`) into `common` i18n namespace keys (#1119, #200).
+- Mirrored newly added keys across all 11 supported locales (`bn`, `de`, `en`, `es`, `fr`, `hi`, `it`, `kn`, `mr`, `ta`, `te`) maintaining 100% key parity.
+
 ## [Unreleased — i18n Phase 2 remaining strings extraction (#200)]
 
 ### Added

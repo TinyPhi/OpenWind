@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import "../i18n.js";
 
 vi.mock("../lib/api.js", () => ({ fetchWithAuth: vi.fn(), API_URL: "" }));
 vi.mock("./user-ref-picker.js", () => ({

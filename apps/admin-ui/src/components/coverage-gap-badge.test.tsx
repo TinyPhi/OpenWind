@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, waitFor, cleanup } from "@testing-library/react";
+import "../i18n.js";
 
 vi.mock("../lib/api.js", () => ({
   fetchWithAuth: vi.fn(),

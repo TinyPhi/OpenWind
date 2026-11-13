@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchRawWithAuth, API_URL } from "../lib/api.js";
 import type { StagedFile } from "../hooks/use-file-upload.js";
 import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
@@ -271,6 +272,7 @@ export function FileCard({
   onDelete?: (fileId: string) => void;
   canDelete?: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isQuarantined = file.scanStatus === "quarantined";
@@ -313,7 +315,7 @@ export function FileCard({
       <div
         className={`fa-card ${isQuarantined ? "fa-card-blocked" : isPending || isFailed ? "fa-card-pending" : ""}`}
         title={
-          isQuarantined ? "File blocked — malware detected" : file.originalName
+          isQuarantined ? t("fileAttachment.malwareBlocked") : file.originalName
         }
       >
         {/* Coloured top accent bar driven by format badge colour */}
@@ -327,11 +329,11 @@ export function FileCard({
           <span className="fa-card-name">{file.originalName}</span>
           <span className="fa-card-size">
             {isQuarantined
-              ? "Blocked"
+              ? t("fileAttachment.blocked")
               : isPending
-                ? "Scanning…"
+                ? t("fileAttachment.scanning")
                 : isFailed
-                  ? "Scan failed"
+                  ? t("fileAttachment.scanFailed")
                   : formatBytes(file.sizeBytes)}
           </span>
         </div>
@@ -342,7 +344,11 @@ export function FileCard({
             <button
               type="button"
               className="fa-card-btn"
-              title={canPreview(file.mimeType) ? "Preview" : "Download"}
+              title={
+                canPreview(file.mimeType)
+                  ? t("fileAttachment.preview")
+                  : t("fileAttachment.download")
+              }
               onClick={handleView}
             >
               <svg
@@ -364,7 +370,7 @@ export function FileCard({
             <button
               type="button"
               className="fa-card-btn"
-              title="Download"
+              title={t("fileAttachment.download")}
               onClick={handleDownload}
             >
               <svg
@@ -387,7 +393,7 @@ export function FileCard({
             <button
               type="button"
               className="fa-card-btn fa-card-btn-delete"
-              title="Delete"
+              title={t("fileAttachment.delete")}
               onClick={(e) => {
                 e.stopPropagation();
                 setConfirmDelete(true);
@@ -415,10 +421,16 @@ export function FileCard({
 
       <ConfirmDeleteDialog
         open={confirmDelete && !!onDelete}
-        title="Delete attachment?"
+        title={t("fileAttachment.deleteConfirmTitle")}
         message={
           <>
-            <strong>{file.originalName}</strong> will be permanently removed.
+            <strong>{file.originalName}</strong>{" "}
+            {t("fileAttachment.deleteConfirmMessage", {
+              name: "",
+              defaultValue: "{{name}} will be permanently removed.",
+            })
+              .replace(/^\{\{name\}\}\s*/, "")
+              .trim()}
           </>
         }
         busy={false}
@@ -473,6 +485,7 @@ export function FileChip({
   onDelete?: (fileId: string) => void;
   canDelete?: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const isDeleted = file.scanStatus === "deleted";
   const isQuarantined = file.scanStatus === "quarantined";
   const isClean = file.scanStatus === "clean";
@@ -482,7 +495,7 @@ export function FileChip({
     <div
       className={`fa-chip ${isQuarantined ? "fa-chip-blocked" : isPending ? "fa-chip-pending" : ""}`}
       title={
-        isQuarantined ? "File blocked — malware detected" : file.originalName
+        isQuarantined ? t("fileAttachment.malwareBlocked") : file.originalName
       }
     >
       <span className="fa-chip-icon">{fileIcon(file.mimeType)}</span>
@@ -491,17 +504,21 @@ export function FileChip({
         <span className="fa-chip-size">{formatBytes(file.sizeBytes)}</span>
       )}
       {isQuarantined && (
-        <span className="fa-chip-tag fa-chip-tag-blocked">Blocked</span>
+        <span className="fa-chip-tag fa-chip-tag-blocked">
+          {t("fileAttachment.blocked")}
+        </span>
       )}
       {isPending && (
-        <span className="fa-chip-tag fa-chip-tag-pending">Scanning…</span>
+        <span className="fa-chip-tag fa-chip-tag-pending">
+          {t("fileAttachment.scanning")}
+        </span>
       )}
       {isClean && canPreview(file.mimeType) && (
         <button
           type="button"
           className="fa-chip-action"
           onClick={() => onPreview(file)}
-          title="Preview"
+          title={t("fileAttachment.preview")}
         >
           <svg
             width="12"
@@ -522,7 +539,7 @@ export function FileChip({
         <button
           type="button"
           className="fa-chip-action"
-          title="Download"
+          title={t("fileAttachment.download")}
           onClick={() => {
             void (async () => {
               try {
@@ -560,7 +577,7 @@ export function FileChip({
           type="button"
           className="fa-chip-action fa-chip-delete"
           onClick={() => onDelete(file.id)}
-          title="Remove"
+          title={t("fileAttachment.remove")}
         >
           ×
         </button>
@@ -578,6 +595,7 @@ export function StagedFileChip({
   file: StagedFile;
   onRemove: (fileId: string) => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const isTemp = file.fileId.startsWith("temp-");
   const isUploading = isTemp || file.uploadProgress < 100;
 
@@ -593,22 +611,32 @@ export function StagedFileChip({
       <span className="fa-chip-name">{file.originalName}</span>
       {isUploading ? (
         <span className="fa-chip-tag fa-chip-tag-pending">
-          {file.uploadProgress < 100 ? `${file.uploadProgress}%` : "Uploaded"}
+          {file.uploadProgress < 100
+            ? `${file.uploadProgress}%`
+            : t("fileAttachment.uploaded")}
         </span>
       ) : file.scanStatus === "pending" ? (
-        <span className="fa-chip-tag fa-chip-tag-pending">Scanning…</span>
+        <span className="fa-chip-tag fa-chip-tag-pending">
+          {t("fileAttachment.scanning")}
+        </span>
       ) : file.scanStatus === "clean" ? (
-        <span className="fa-chip-tag fa-chip-tag-clean">Ready</span>
+        <span className="fa-chip-tag fa-chip-tag-clean">
+          {t("fileAttachment.ready")}
+        </span>
       ) : file.scanStatus === "quarantined" ? (
-        <span className="fa-chip-tag fa-chip-tag-blocked">Blocked</span>
+        <span className="fa-chip-tag fa-chip-tag-blocked">
+          {t("fileAttachment.blocked")}
+        </span>
       ) : (
-        <span className="fa-chip-tag fa-chip-tag-blocked">Scan failed</span>
+        <span className="fa-chip-tag fa-chip-tag-blocked">
+          {t("fileAttachment.scanFailed")}
+        </span>
       )}
       <button
         type="button"
         className="fa-chip-action fa-chip-delete"
         onClick={() => onRemove(file.fileId)}
-        title="Remove"
+        title={t("fileAttachment.remove")}
       >
         ×
       </button>
@@ -625,6 +653,7 @@ export function AttachmentUploadZone({
   onFiles: (files: File[]) => void | Promise<void>;
   disabled?: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -670,7 +699,7 @@ export function AttachmentUploadZone({
         <polyline points="17 8 12 3 7 8" />
         <line x1="12" y1="3" x2="12" y2="15" />
       </svg>
-      <span>Click or drag files to attach</span>
+      <span>{t("fileAttachment.uploadPrompt")}</span>
       <input
         ref={inputRef}
         type="file"
@@ -697,6 +726,7 @@ export function FilePreviewModal({
   file: AttachmentFile;
   onClose: () => void;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -751,7 +781,7 @@ export function FilePreviewModal({
             <button
               type="button"
               className="fa-modal-download"
-              title="Download"
+              title={t("fileAttachment.download")}
               onClick={() => {
                 // downloadUrl is already a blob: object URL from the effect
                 // above — no need to re-fetch, just trigger a save-as.
@@ -783,7 +813,9 @@ export function FilePreviewModal({
         </div>
 
         <div className="fa-modal-body">
-          {loading && <p className="fa-modal-hint">Loading…</p>}
+          {loading && (
+            <p className="fa-modal-hint">{t("fileAttachment.loading")}</p>
+          )}
           {error && (
             <p className="fa-modal-hint fa-modal-hint-error">{error}</p>
           )}
@@ -824,9 +856,9 @@ export function FilePreviewModal({
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
                   </svg>
-                  <p>No preview available for this file type.</p>
+                  <p>{t("fileAttachment.noPreview")}</p>
                   <p style={{ fontSize: "12px", opacity: 0.6 }}>
-                    Use the download button above to open it.
+                    {t("fileAttachment.useDownload")}
                   </p>
                 </div>
               )}

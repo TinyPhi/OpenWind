@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { initials } from "../lib/format.js";
 
 export interface UserOption {
@@ -119,10 +120,12 @@ export function UserPicker({
   users,
   value,
   onChange,
-  placeholder = "Assign to…",
+  placeholder,
   disabled = false,
   portalContainer,
 }: Props): React.ReactElement {
+  const { t } = useTranslation();
+  const effectivePlaceholder = placeholder ?? t("userPicker.assignTo");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null);
@@ -247,7 +250,7 @@ export function UserPicker({
                 <circle cx="12" cy="7" r="4" />
               </svg>
             </span>
-            <span>{placeholder}</span>
+            <span>{effectivePlaceholder}</span>
           </>
         )}
         <svg
@@ -316,7 +319,7 @@ export function UserPicker({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search users…"
+                  placeholder={t("userPicker.searchPlaceholder")}
                   style={{
                     width: "100%",
                     padding: "6px 8px 6px 28px",
@@ -368,7 +371,7 @@ export function UserPicker({
                   >
                     <path d="M18 6L6 18M6 6l12 12" />
                   </svg>
-                  Unassign
+                  {t("userPicker.unassign")}
                 </button>
               )}
 
@@ -381,7 +384,7 @@ export function UserPicker({
                     textAlign: "center",
                   }}
                 >
-                  No users found
+                  {t("userPicker.noUsersFound")}
                 </div>
               ) : (
                 filtered.map((u) => (
@@ -507,10 +510,12 @@ export function MultiUserPicker({
   users,
   value,
   onChange,
-  placeholder = "Add admins…",
+  placeholder,
   disabled = false,
   portalContainer,
 }: MultiProps): React.ReactElement {
+  const { t } = useTranslation();
+  const effectivePlaceholder = placeholder ?? t("userPicker.addAdmins");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null);
@@ -605,7 +610,7 @@ export function MultiUserPicker({
         }}
       >
         {selected.length === 0 ? (
-          <span>{placeholder}</span>
+          <span>{effectivePlaceholder}</span>
         ) : (
           selected.map((u) => (
             <span
@@ -700,7 +705,7 @@ export function MultiUserPicker({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search users…"
+                  placeholder={t("userPicker.searchPlaceholder")}
                   style={{
                     width: "100%",
                     padding: "6px 8px 6px 28px",
@@ -726,7 +731,7 @@ export function MultiUserPicker({
                     textAlign: "center",
                   }}
                 >
-                  No users found
+                  {t("userPicker.noUsersFound")}
                 </div>
               ) : (
                 filtered.map((u) => (

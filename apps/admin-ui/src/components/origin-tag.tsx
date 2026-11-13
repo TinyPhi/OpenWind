@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { withAlpha } from "../lib/theme.js";
 
 // docs/specs/third-party-api-origin-tagging.md — the API response shape
@@ -50,19 +51,27 @@ export function OriginCornerBadge({
 }: {
   origin: Origin;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   if (!origin) return null;
   const color = COLOR_BY_MECHANISM[origin.mechanism];
+  const mechanismLabel = t(`origin.${origin.mechanism}`, {
+    defaultValue: LABEL_BY_MECHANISM[origin.mechanism],
+  });
 
   return (
     <span
       className="kb-card-origin-corner"
-      title={`${LABEL_BY_MECHANISM[origin.mechanism]} · Created via ${origin.appName} by ${performerLabel(origin)}`}
+      title={t("origin.cornerBadgeTooltip", {
+        mechanism: mechanismLabel,
+        app: origin.appName,
+        person: performerLabel(origin),
+      })}
       style={{
         background: color,
         color: "hsl(0, 0%, 100%)",
       }}
     >
-      {LABEL_BY_MECHANISM[origin.mechanism]}
+      {mechanismLabel}
     </span>
   );
 }
@@ -81,15 +90,22 @@ export function OriginTag({
   origin: Origin;
   size?: "normal" | "compact";
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   if (!origin) return null;
 
   const color = COLOR_BY_MECHANISM[origin.mechanism];
   const fontSize = size === "compact" ? "10.5px" : "11.5px";
   const padding = size === "compact" ? "1px 7px" : "2px 9px";
+  const mechanismLabel = t(`origin.${origin.mechanism}`, {
+    defaultValue: LABEL_BY_MECHANISM[origin.mechanism],
+  });
 
   return (
     <span
-      title={`Created via ${origin.appName} by ${performerLabel(origin)}`}
+      title={t("origin.createdViaBy", {
+        app: origin.appName,
+        person: performerLabel(origin),
+      })}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -105,7 +121,7 @@ export function OriginTag({
         color: "var(--text-secondary)",
       }}
     >
-      <span style={{ color }}>{LABEL_BY_MECHANISM[origin.mechanism]}</span>
+      <span style={{ color }}>{mechanismLabel}</span>
       <span aria-hidden="true" style={{ opacity: 0.5 }}>
         ·
       </span>
@@ -145,13 +161,20 @@ export function OriginHeaderPill({
 }: {
   origin: Origin;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   if (!origin) return null;
 
   const color = COLOR_BY_MECHANISM[origin.mechanism];
+  const mechanismLabel = t(`origin.${origin.mechanism}`, {
+    defaultValue: LABEL_BY_MECHANISM[origin.mechanism],
+  });
 
   return (
     <span
-      title={`Created via ${origin.appName} by ${performerLabel(origin)}`}
+      title={t("origin.createdViaBy", {
+        app: origin.appName,
+        person: performerLabel(origin),
+      })}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -175,7 +198,7 @@ export function OriginHeaderPill({
           flexShrink: 0,
         }}
       />
-      {LABEL_BY_MECHANISM[origin.mechanism]}
+      {mechanismLabel}
     </span>
   );
 }
@@ -190,6 +213,7 @@ export function OriginDetailLine({
 }: {
   origin: Origin;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   if (!origin) return null;
 
   return (
@@ -218,11 +242,11 @@ export function OriginDetailLine({
         <path d="M9 9h6v6H9z" />
       </svg>
       <span>
-        Created via{" "}
+        {t("origin.createdVia")}{" "}
         <strong style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
           {origin.appName}
         </strong>{" "}
-        by{" "}
+        {t("origin.by")}{" "}
         <strong style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
           {performerLabel(origin)}
         </strong>
