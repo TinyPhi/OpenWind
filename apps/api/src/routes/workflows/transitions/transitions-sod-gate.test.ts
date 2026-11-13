@@ -12,6 +12,7 @@ let mockBefore: { allowedRoles: string[]; conditions: unknown } = {
   allowedRoles: [],
   conditions: null,
 };
+let mockExistingOnEdge: Array<{ id: string; conditions: unknown }> = [];
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -28,7 +29,10 @@ vi.mock("@platform/auth", () => ({
 const mockTx = {
   select: () => ({
     from: () => ({
-      where: () => ({ limit: () => Promise.resolve([mockBefore]) }),
+      where: () =>
+        Object.assign(Promise.resolve(mockExistingOnEdge), {
+          limit: () => Promise.resolve([mockBefore]),
+        }),
     }),
   }),
 };
@@ -91,6 +95,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth = { userId: "u-agent", roles: ["agent"] };
   mockBefore = { allowedRoles: [], conditions: null };
+  mockExistingOnEdge = [];
   mockAdd.mockResolvedValue({ ...row, conditions: RULE });
   mockUpdate.mockResolvedValue(row);
   mockDelete.mockResolvedValue(undefined);
@@ -146,5 +151,87 @@ describe("actor rule changes are limited to a person admin (#1008)", () => {
     expect(res.status).toBe(200);
     const del = await send("DELETE", `/${WF}/transitions/${TR}`);
     expect(del.status).toBe(204);
+  });
+
+  describe("duplicate edge and allowedRoles protection (#1132)", () => {
+    it("refuses a non-admin creating an unruled transition on an edge where a ruled transition already exists", async () => {
+      mockExistingOnEdge = [{ id: TR, conditions: RULE }];
+      const res = await send("POST", `/${WF}/transitions`, {
+        fromState: "a",
+        toState: "b",
+        allowedRoles: ["agent"],
+        conditions: null,
+      });
+      expect(res.status).toBe(403);
+      expect(mockAdd).not.toHaveBeenCalled();
+    });
+
+    it("lets a person admin create an alternate transition on an edge where a ruled transition exists", async () => {
+      mockAuth = { userId: "u-admin", roles: ["admin"] };
+      mockExistingOnEdge = [{ id: TR, conditions: RULE }];
+      mockAdd.mockResolvedValue({
+        ...row,
+        conditions: null,
+        allowedRoles: ["agent"],
+      });
+      const res = await send("POST", `/${WF}/transitions`, {
+        fromState: "a",
+        toState: "b",
+        allowedRoles: ["agent"],
+        conditions: null,
+      });
+      expect(res.status).toBe(201);
+      expect(mockAdd).toHaveBeenCalled();
+    });
+
+    it("refuses a non-admin patching allowedRoles on a transition that carries an actor rule", async () => {
+      mockBefore = { allowedRoles: ["admin"], conditions: RULE };
+      const res = await send("PATCH", `/${WF}/transitions/${TR}`, {
+        allowedRoles: ["agent"],
+      });
+      expect(res.status).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it("refuses an API key holding admin patching allowedRoles on a ruled transition", async () => {
+      mockAuth = { userId: "apikey:k1", roles: ["admin"] };
+      mockBefore = { allowedRoles: ["admin"], conditions: RULE };
+      const res = await send("PATCH", `/${WF}/transitions/${TR}`, {
+        allowedRoles: ["agent"],
+      });
+      expect(res.status).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it("lets a person admin patch allowedRoles on a ruled transition", async () => {
+      mockAuth = { userId: "u-admin", roles: ["admin"] };
+      mockBefore = { allowedRoles: ["admin"], conditions: RULE };
+      mockUpdate.mockResolvedValue({ ...row, allowedRoles: ["agent"] });
+      const res = await send("PATCH", `/${WF}/transitions/${TR}`, {
+        allowedRoles: ["agent"],
+      });
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalled();
+    });
+
+    it("lets a non-admin patch allowedRoles on a transition with no rule", async () => {
+      mockBefore = { allowedRoles: ["admin"], conditions: null };
+      mockUpdate.mockResolvedValue({ ...row, allowedRoles: ["agent"] });
+      const res = await send("PATCH", `/${WF}/transitions/${TR}`, {
+        allowedRoles: ["agent"],
+      });
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalled();
+    });
+
+    it("lets a non-admin resubmit unchanged allowedRoles on a ruled transition", async () => {
+      mockBefore = { allowedRoles: ["admin"], conditions: RULE };
+      mockUpdate.mockResolvedValue({ ...row, allowedRoles: ["admin"] });
+      const res = await send("PATCH", `/${WF}/transitions/${TR}`, {
+        allowedRoles: ["admin"],
+      });
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalled();
+    });
   });
 });

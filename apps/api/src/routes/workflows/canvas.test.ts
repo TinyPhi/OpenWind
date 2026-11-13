@@ -345,6 +345,135 @@ describe("PUT /workflows/:id/canvas", () => {
       mockGetWorkflow.mockResolvedValue(withRule);
       expect((await dropAll()).status).toBe(200);
     });
+
+    it("refuses a non-admin whose save changes allowedRoles on a ruled transition (#1132)", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-owner", roles: ["agent"] };
+      const res = await makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          states: BASE_WORKFLOW.states,
+          transitions: [
+            {
+              ...BASE_WORKFLOW.transitions[0],
+              allowedRoles: ["agent"],
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("refuses a non-admin whose save adds an alternate transition alongside a ruled transition (#1132)", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-owner", roles: ["agent"] };
+      const res = await makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          states: BASE_WORKFLOW.states,
+          transitions: [
+            BASE_WORKFLOW.transitions[0],
+            {
+              id: "__new_1",
+              fromState: BASE_WORKFLOW.transitions[0].fromState,
+              toState: BASE_WORKFLOW.transitions[0].toState,
+              label: "Bypass edge",
+              allowedRoles: ["agent"],
+              requiresComment: false,
+              requiresFields: [],
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("lets a person admin change allowedRoles on a ruled transition (#1132)", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-admin", roles: ["admin"] };
+      const res = await makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          states: BASE_WORKFLOW.states,
+          transitions: [
+            {
+              ...BASE_WORKFLOW.transitions[0],
+              allowedRoles: ["agent"],
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("lets a person admin add an alternate transition alongside a ruled transition (#1132)", async () => {
+      mockGetWorkflow.mockResolvedValue(withRule);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-admin", roles: ["admin"] };
+      mockInsertedTransitions = [
+        {
+          id: "t-new",
+          fromState: BASE_WORKFLOW.transitions[0].fromState,
+          toState: BASE_WORKFLOW.transitions[0].toState,
+          allowedRoles: ["agent"],
+        },
+      ];
+      const res = await makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          states: BASE_WORKFLOW.states,
+          transitions: [
+            BASE_WORKFLOW.transitions[0],
+            {
+              id: "__new_1",
+              fromState: BASE_WORKFLOW.transitions[0].fromState,
+              toState: BASE_WORKFLOW.transitions[0].toState,
+              label: "Admin alternate edge",
+              allowedRoles: ["agent"],
+              requiresComment: false,
+              requiresFields: [],
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("lets a non-admin save a workflow with pre-existing duplicate edges without 403 (#1132)", async () => {
+      const withDuplicateEdge = {
+        ...BASE_WORKFLOW,
+        transitions: [
+          {
+            ...BASE_WORKFLOW.transitions[0],
+            conditions: { op: "actor_not_creator" },
+          },
+          {
+            id: "t-existing-parallel",
+            fromState: BASE_WORKFLOW.transitions[0].fromState,
+            toState: BASE_WORKFLOW.transitions[0].toState,
+            label: "Pre-existing parallel",
+            allowedRoles: ["agent"],
+            requiresComment: false,
+            requiresFields: [],
+            conditions: null,
+          },
+        ],
+      };
+      mockGetWorkflow.mockResolvedValue(withDuplicateEdge);
+      mockAuthCtx = { ...mockAuthCtx, userId: "u-owner", roles: ["agent"] };
+      const res = await makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          states: BASE_WORKFLOW.states,
+          transitions: withDuplicateEdge.transitions,
+        }),
+      });
+      expect(res.status).toBe(200);
+    });
   });
 
   describe("transition role audit (#640)", () => {

@@ -8,6 +8,7 @@ import { factory } from "../factory.js";
 import { TransitionConditionsSchema } from "./condition-schema.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import {
+  assertMayModifyRuledRoles,
   assertMaySetActorRules,
   SodRuleForbiddenError,
 } from "../../../lib/sod-rule-gate.js";
@@ -54,12 +55,22 @@ export const updateTransitionHandler = factory.createHandlers(
                 )
                 .limit(1)
             : [];
-        if (input.conditions !== undefined) {
-          assertMaySetActorRules(
-            auth,
-            before?.conditions ?? null,
-            input.conditions,
-          );
+        if (before) {
+          if (input.conditions !== undefined) {
+            assertMaySetActorRules(
+              auth,
+              before.conditions ?? null,
+              input.conditions,
+            );
+          }
+          if (input.allowedRoles !== undefined) {
+            assertMayModifyRuledRoles(
+              auth,
+              before.conditions ?? null,
+              before.allowedRoles,
+              input.allowedRoles,
+            );
+          }
         }
         const updated = await updateWorkflowTransition(
           tx,

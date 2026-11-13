@@ -1,12 +1,14 @@
 import type { AuthContext } from "@platform/auth";
 import { treeUsesActorRule } from "@platform/workflow-engine";
-import { sameJson } from "./audit-workflow-access.js";
+import { sameJson, sameMembers } from "./audit-workflow-access.js";
 
 type ConditionTree = Parameters<typeof treeUsesActorRule>[0];
 
 export class SodRuleForbiddenError extends Error {
-  constructor() {
-    super("Only an admin can add, change or remove an actor rule");
+  constructor(
+    message = "Only an admin can add, change or remove an actor rule",
+  ) {
+    super(message);
     this.name = "SodRuleForbiddenError";
   }
 }
@@ -43,4 +45,46 @@ export function assertMaySetActorRules(
   if (!touchesRule) return;
   if (sameJson(before, next)) return;
   throw new SodRuleForbiddenError();
+}
+
+/**
+ * Throws unless the caller is a person admin, when a transition carries an actor rule and the write
+ * changes its allowedRoles. Changing allowedRoles on a ruled transition touches department or role
+ * gating for a segregation-of-duties control (#1132).
+ */
+export function assertMayModifyRuledRoles(
+  auth: AuthContext,
+  conditions: unknown,
+  beforeRoles: readonly string[] | null | undefined,
+  nextRoles: readonly string[] | null | undefined,
+): void {
+  if (isPersonAdmin(auth)) return;
+  if (nextRoles === undefined) return;
+  if (!usesActorRule(conditions)) return;
+  if (sameMembers(beforeRoles, nextRoles)) return;
+  throw new SodRuleForbiddenError(
+    "Only an admin can change allowed roles on a transition with an actor rule",
+  );
+}
+
+/**
+ * Throws unless the caller is a person admin, when adding a transition between two states where
+ * an existing transition already carries an actor rule. Adding an unruled transition alongside
+ * an existing ruled transition creates a parallel unruled bypass edge around segregation-of-duties (#1132).
+ */
+export function assertMayAddTransitionOnEdge(
+  auth: AuthContext,
+  existingTransitionsOnEdge: Array<{ conditions: unknown }>,
+  nextConditions: unknown,
+): void {
+  if (isPersonAdmin(auth)) return;
+  assertMaySetActorRules(auth, null, nextConditions ?? null);
+  const edgeHasRule = existingTransitionsOnEdge.some((t) =>
+    usesActorRule(t.conditions),
+  );
+  if (edgeHasRule) {
+    throw new SodRuleForbiddenError(
+      "Only an admin can add an alternate transition between steps protected by an actor rule",
+    );
+  }
 }
