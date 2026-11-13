@@ -42,11 +42,14 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
   asc: vi.fn(),
   eq: vi.fn(),
+  exists: vi.fn(),
   gt: vi.fn(),
   isNotNull: vi.fn(),
   isNull: vi.fn(),
   lt: vi.fn(),
   lte: vi.fn(),
+  or: vi.fn(),
+  sql: vi.fn(),
 }));
 
 const { startOncallRotationWorker, stopOncallRotationWorker } =
