@@ -27,6 +27,7 @@ export const supersetErasureQueue = new Queue("superset-erasure", {
 // Starts at 0 so the first failed enqueue of a process still moves increase() (SupersetErasureFailed).
 supersetErasureTotal.add(0, { outcome: "not_queued" });
 supersetErasureTotal.add(0, { outcome: "unverified" });
+supersetErasureTotal.add(0, { outcome: "reconciled" });
 
 /**
  * Queues the erasure of a user's data in Superset (#728). Only when Superset Stage 2 is on: with
@@ -221,7 +222,7 @@ export async function eraseUserInSuperset(input: {
       status: "queue_failed",
       switchIgnored,
       message:
-        "Superset data could not be scheduled for erasure; an operator must run it (see the Superset erasure runbook).",
+        "Superset data could not be scheduled for erasure immediately; it will be retried automatically.",
     };
   }
   return {

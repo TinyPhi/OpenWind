@@ -270,6 +270,7 @@ export async function processSupersetErasure(job: {
 supersetErasureTotal.add(0, { outcome: "completed" });
 supersetErasureTotal.add(0, { outcome: "failed" });
 supersetErasureTotal.add(0, { outcome: "not_queued" });
+supersetErasureTotal.add(0, { outcome: "reconciled" });
 
 // Failure audit writes still running, so a shutdown waits for them instead of losing the row.
 const pendingFailureAudits = new Set<Promise<void>>();

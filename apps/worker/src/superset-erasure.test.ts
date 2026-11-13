@@ -404,6 +404,7 @@ describe("metrics", () => {
     expect(initialCounts).toContainEqual([0, { outcome: "failed" }]);
     expect(initialCounts).toContainEqual([0, { outcome: "completed" }]);
     expect(initialCounts).toContainEqual([0, { outcome: "not_queued" }]);
+    expect(initialCounts).toContainEqual([0, { outcome: "reconciled" }]);
   });
 });
 

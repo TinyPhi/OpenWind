@@ -34,6 +34,10 @@ import {
   scheduleSupersetErasureSelfcheck,
   stopSupersetErasureSelfcheck,
 } from "./superset-erasure-selfcheck.js";
+import {
+  scheduleSupersetErasureReconcile,
+  stopSupersetErasureReconcileWorker,
+} from "./superset-erasure-reconcile.js";
 import { startHealthServer, stopHealthServer } from "./health-server.js";
 import {
   startNotificationPoller,
@@ -112,6 +116,12 @@ scheduleSupersetErasureSelfcheck().catch((err: unknown) => {
     "superset self-check: could not be scheduled; erasure will read as unverified",
   );
 });
+scheduleSupersetErasureReconcile().catch((err: unknown) => {
+  logger.error(
+    { err: String(err) },
+    "superset erasure reconciler: could not be scheduled",
+  );
+});
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
@@ -139,6 +149,7 @@ async function shutdown(): Promise<void> {
     stopSupersetCacheFlushWorker(),
     stopSupersetErasureWorker(),
     stopSupersetErasureSelfcheck(),
+    stopSupersetErasureReconcileWorker(),
     stopHealthServer(),
     stopNotificationWorker(),
     stopNotificationOutboundWorker(),

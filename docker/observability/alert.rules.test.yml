@@ -256,6 +256,46 @@ tests:
               summary: "A Superset erasure did not complete (failed)"
               description: "1 Superset erasure(s) with outcome failed in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
 
+  - name: unreconciled user erasures older than 1 hour raise SupersetErasureUnreconciled after 10m
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_older_than_1h{instance="api"}'
+        values: "0x5 2x25"
+      - series: 'openwind_superset_erasure_unreconciled_older_than_1h{instance="worker"}'
+        values: "0x5 2x25"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: SupersetErasureUnreconciled
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SupersetErasureUnreconciled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+            exp_annotations:
+              summary: "Unreconciled Superset user erasures older than 1 hour"
+              description: "2 user erasure(s) committed over 1 hour ago have not completed in Superset. The reconciler could not re-queue them or the erasure jobs are failing. Follow docs/runbooks/superset-erasure.md."
+
+  - name: SupersetErasureUnreconciled clears when gauge returns to zero
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_older_than_1h{instance="worker"}'
+        values: "0x5 1x15 0x20"
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: SupersetErasureUnreconciled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+            exp_annotations:
+              summary: "Unreconciled Superset user erasures older than 1 hour"
+              description: "1 user erasure(s) committed over 1 hour ago have not completed in Superset. The reconciler could not re-queue them or the erasure jobs are failing. Follow docs/runbooks/superset-erasure.md."
+      - eval_time: 30m
+        alertname: SupersetErasureUnreconciled
+        exp_alerts: []
+
   - name: a slow tick raises ScheduleTickDurationSLOBreach
     interval: 1m
     input_series:
