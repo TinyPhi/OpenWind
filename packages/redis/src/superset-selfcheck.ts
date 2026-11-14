@@ -12,6 +12,9 @@ import { getRedis } from "./index.js";
  * "unverified".
  */
 export const SUPERSET_SELFCHECK_KEY = "ops:superset-erasure:selfcheck";
+export const SUPERSET_UNRECONCILED_KEY =
+  "ops:superset-erasure:unreconciled-older-1h";
+export const SUPERSET_UNRECONCILED_TTL_SECONDS = 15 * 60;
 
 /** How long a stored result stays fresh (SUPERSET_SELFCHECK_TTL_MINUTES). */
 export function supersetSelfcheckTtlSeconds(): number {
@@ -133,4 +136,35 @@ export function resolveSupersetErasureMode(
     verified: fresh?.stage2 === false,
     overridden: false,
   };
+}
+
+/**
+ * Stores the count of unreconciled deleted user audit rows older than 1 hour (#1138),
+ * computed by the worker's superset-erasure-reconcile sweep for Prometheus scrape.
+ */
+export async function writeSupersetUnreconciledCount(
+  count: number,
+): Promise<void> {
+  await getRedis().set(
+    SUPERSET_UNRECONCILED_KEY,
+    String(count),
+    "EX",
+    SUPERSET_UNRECONCILED_TTL_SECONDS,
+  );
+}
+
+/**
+ * Reads the count of unreconciled deleted user audit rows older than 1 hour (#1138).
+ * Returns null if not present or on Redis failure.
+ */
+export async function readSupersetUnreconciledCount(): Promise<number | null> {
+  try {
+    const raw = await getRedis().get(SUPERSET_UNRECONCILED_KEY);
+    if (raw === null) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch (err) {
+    logger.warn({ err }, "superset unreconciled count could not be read");
+    return null;
+  }
 }
