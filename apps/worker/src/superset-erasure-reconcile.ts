@@ -35,11 +35,12 @@ import { Queue, Worker, supersetErasureTotal } from "@platform/telemetry";
 import { env, supersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
 import { adminAuditLog, withTenantContext } from "@platform/db";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, or, sql } from "drizzle-orm";
 import {
   readSupersetSelfcheck,
   resolveSupersetErasureMode,
-  writeSupersetUnreconciledCount,
+  writeSupersetUnreconciledEntries,
+  type UnreconciledErasureEntry,
 } from "@platform/redis";
 import { connection, supersetErasureQueue } from "./queues.js";
 import {
@@ -58,6 +59,7 @@ export const BATCH_LIMIT = 500;
 export interface ReconcileTenantResult {
   reconciled: number;
   olderThan1h: number;
+  entries: UnreconciledErasureEntry[];
 }
 
 export interface ReconcileSweepSummary {
@@ -69,7 +71,7 @@ export interface ReconcileSweepSummary {
 }
 
 /**
- * Sweeps a single tenant's audit log for unreconciled deleted user rows and re-enqueues them.
+ * Sweeps a single tenant's audit log for unreconciled deleted user or tenant purge rows and re-enqueues them (#1138, #1141).
  * Reads are executed inside withTenantContext(tenantId) to respect ADR-001 RLS without BYPASSRLS.
  */
 export async function reconcileTenantSupersetErasure(
@@ -77,14 +79,16 @@ export async function reconcileTenantSupersetErasure(
   now: Date,
   options: { force?: boolean } = {},
 ): Promise<ReconcileTenantResult> {
-  const cutoff7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // Look back up to 30 days to cover the statutory GDPR Article 17 completion target (#1141).
+  const cutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const cutoff1h = new Date(now.getTime() - 60 * 60 * 1000);
 
-  // 1. Fetch unreconciled user deletion audit rows under tenant context
+  // 1. Fetch unreconciled user deletion or tenant purge audit rows under tenant context
   const rows = await withTenantContext(tenantId, async (tx) => {
     return tx
       .select({
         id: adminAuditLog.id,
+        resourceType: adminAuditLog.resourceType,
         resourceId: adminAuditLog.resourceId,
         metadata: adminAuditLog.metadata,
         createdAt: adminAuditLog.createdAt,
@@ -93,14 +97,22 @@ export async function reconcileTenantSupersetErasure(
       .where(
         and(
           eq(adminAuditLog.tenantId, tenantId),
-          eq(adminAuditLog.resourceType, "user"),
-          eq(adminAuditLog.action, "deleted"),
-          gte(adminAuditLog.createdAt, cutoff7d),
-          sql`${adminAuditLog.metadata}->>'wasMember' = 'true'`,
+          gte(adminAuditLog.createdAt, cutoff30d),
+          or(
+            and(
+              eq(adminAuditLog.resourceType, "user"),
+              eq(adminAuditLog.action, "deleted"),
+              sql`${adminAuditLog.metadata}->>'wasMember' = 'true'`,
+            ),
+            and(
+              eq(adminAuditLog.resourceType, "tenant"),
+              eq(adminAuditLog.action, "purge.completed"),
+            ),
+          ),
           sql`NOT EXISTS (
             SELECT 1 FROM admin_audit_log sibling
             WHERE sibling.tenant_id = ${adminAuditLog.tenantId}
-              AND sibling.resource_type = 'user'
+              AND sibling.resource_type = ${adminAuditLog.resourceType}
               AND sibling.resource_id = ${adminAuditLog.resourceId}
               AND (
                 sibling.action = 'superset_erasure.completed'
@@ -120,11 +132,36 @@ export async function reconcileTenantSupersetErasure(
 
   let reconciled = 0;
   let olderThan1h = 0;
+  const entries: UnreconciledErasureEntry[] = [];
 
   // 2. Process enqueues outside of the DB transaction
   for (const row of rows) {
     if (row.createdAt < cutoff1h) {
       olderThan1h += 1;
+      entries.push({
+        tenantId,
+        subjectHash: row.resourceId,
+      });
+    }
+
+    if (row.resourceType === "tenant") {
+      const jobId = supersetErasureJobId({ kind: "tenant", tenantId });
+      const existing = await supersetErasureQueue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state !== "failed" && state !== "completed") {
+          continue;
+        }
+      }
+      const enqueued = await enqueueSupersetErasure(
+        { kind: "tenant", tenantId },
+        options.force ? { force: true } : {},
+      );
+      if (enqueued) {
+        supersetErasureTotal.add(1, { outcome: "reconciled" });
+        reconciled += 1;
+      }
+      continue;
     }
 
     const meta = row.metadata as Record<string, unknown> | null;
@@ -164,7 +201,7 @@ export async function reconcileTenantSupersetErasure(
     }
   }
 
-  return { reconciled, olderThan1h };
+  return { reconciled, olderThan1h, entries };
 }
 
 /**
@@ -181,7 +218,7 @@ export async function runSupersetErasureReconcile(): Promise<ReconcileSweepSumma
       { localMode, mode },
       "superset-erasure-reconcile: skipped because Superset erasure mode is not full",
     );
-    await writeSupersetUnreconciledCount(0);
+    await writeSupersetUnreconciledEntries([]);
     return {
       tenantCount: 0,
       failedTenantCount: 0,
@@ -206,12 +243,14 @@ export async function runSupersetErasureReconcile(): Promise<ReconcileSweepSumma
 
   let totalReconciled = 0;
   let totalOlderThan1h = 0;
+  const allEntries: UnreconciledErasureEntry[] = [];
   for (const res of results.values()) {
     totalReconciled += res.reconciled;
     totalOlderThan1h += res.olderThan1h;
+    allEntries.push(...res.entries);
   }
 
-  await writeSupersetUnreconciledCount(totalOlderThan1h);
+  await writeSupersetUnreconciledEntries(allEntries);
 
   logger.info(
     {

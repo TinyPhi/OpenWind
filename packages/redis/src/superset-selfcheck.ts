@@ -14,7 +14,14 @@ import { getRedis } from "./index.js";
 export const SUPERSET_SELFCHECK_KEY = "ops:superset-erasure:selfcheck";
 export const SUPERSET_UNRECONCILED_KEY =
   "ops:superset-erasure:unreconciled-older-1h";
+export const SUPERSET_UNRECONCILED_ENTRIES_KEY =
+  "ops:superset-erasure:unreconciled-entries";
 export const SUPERSET_UNRECONCILED_TTL_SECONDS = 15 * 60;
+
+export interface UnreconciledErasureEntry {
+  tenantId: string;
+  subjectHash: string;
+}
 
 /** How long a stored result stays fresh (SUPERSET_SELFCHECK_TTL_MINUTES). */
 export function supersetSelfcheckTtlSeconds(): number {
@@ -145,12 +152,64 @@ export function resolveSupersetErasureMode(
 export async function writeSupersetUnreconciledCount(
   count: number,
 ): Promise<void> {
-  await getRedis().set(
+  const redis = getRedis();
+  await redis.set(
     SUPERSET_UNRECONCILED_KEY,
     String(count),
     "EX",
     SUPERSET_UNRECONCILED_TTL_SECONDS,
   );
+  if (count === 0) {
+    await redis.set(
+      SUPERSET_UNRECONCILED_ENTRIES_KEY,
+      JSON.stringify([]),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    );
+  }
+}
+
+/**
+ * Stores the list of unreconciled erasure entries older than 1 hour (#1138, #1141),
+ * with tenantId and subjectHash for labelled Prometheus telemetry.
+ */
+export async function writeSupersetUnreconciledEntries(
+  entries: readonly UnreconciledErasureEntry[],
+): Promise<void> {
+  const redis = getRedis();
+  await Promise.all([
+    redis.set(
+      SUPERSET_UNRECONCILED_KEY,
+      String(entries.length),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    ),
+    redis.set(
+      SUPERSET_UNRECONCILED_ENTRIES_KEY,
+      JSON.stringify(entries),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    ),
+  ]);
+}
+
+/**
+ * Reads the list of unreconciled erasure entries older than 1 hour (#1141).
+ * Returns null if not present or on Redis failure.
+ */
+export async function readSupersetUnreconciledEntries(): Promise<
+  UnreconciledErasureEntry[] | null
+> {
+  try {
+    const raw = await getRedis().get(SUPERSET_UNRECONCILED_ENTRIES_KEY);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed as UnreconciledErasureEntry[];
+  } catch (err) {
+    logger.warn({ err }, "superset unreconciled entries could not be read");
+    return null;
+  }
 }
 
 /**

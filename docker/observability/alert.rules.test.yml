@@ -296,6 +296,30 @@ tests:
         alertname: SupersetErasureUnreconciled
         exp_alerts: []
 
+  - name: unreconciled erasure pending after 7 days raises SupersetErasurePending7d with tenant and subject hash
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_older_than_1h{tenant_id="t-1",subject_hash="h-1"}'
+        values: "0x5 1x10100 0x30"
+    alert_rule_test:
+      - eval_time: 1440m
+        alertname: SupersetErasurePending7d
+        exp_alerts: []
+      - eval_time: 10086m
+        alertname: SupersetErasurePending7d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              tenant_id: t-1
+              subject_hash: h-1
+            exp_annotations:
+              summary: "Superset erasure pending after 7 days"
+              description: "A Superset erasure for tenant t-1 (subject hash h-1) has had no completed record for 7 days. Target completion is 30 days under GDPR Article 17; follow docs/runbooks/superset-erasure.md."
+      - eval_time: 10120m
+        alertname: SupersetErasurePending7d
+        exp_alerts: []
+
   - name: a slow tick raises ScheduleTickDurationSLOBreach
     interval: 1m
     input_series:

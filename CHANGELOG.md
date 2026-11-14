@@ -3,6 +3,16 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — define and monitor Superset erasure completion target (#1141)]
+
+### Added
+
+- Defined and documented the 30-day statutory completion target (GDPR Article 17) for Superset user erasures and tenant purges in `docs/runbooks/superset-erasure.md` (#1141).
+- Added Prometheus warning alert `SupersetErasurePending7d` in `docker/observability/alert.rules.yml` that fires when an unreconciled erasure persists for 7 days (`for: 7d`), labelling `tenant_id` and pseudonymous `subject_hash` (`resource_id` from `admin_audit_log`, never raw personal data).
+- Added promtool unit test suite covering `SupersetErasurePending7d` alert firing at day 7 and clearing upon completion in `docker/observability/alert.rules.test.yml`.
+- Extended worker sweep `superset-erasure-reconcile` lookback window from 7 days to 30 days (`cutoff30d`) and added support for sweeping unreconciled tenant purge records (`resourceType: 'tenant'`, `action: 'purge.completed'`).
+- Added `writeSupersetUnreconciledEntries` and `readSupersetUnreconciledEntries` in `@platform/redis` and updated `openwind_superset_erasure_unreconciled_older_than_1h` observable gauge in `@platform/telemetry` to observe labelled `{ tenant_id, subject_hash }` series.
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed

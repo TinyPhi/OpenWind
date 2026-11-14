@@ -10,7 +10,7 @@ const {
   mockForEachTenant,
   mockReadSelfcheck,
   mockResolveMode,
-  mockWriteUnreconciledCount,
+  mockWriteUnreconciledEntries,
   mockEnqueueErasure,
   mockJobId,
   mockEnv,
@@ -36,7 +36,7 @@ const {
     mockForEachTenant: vi.fn(),
     mockReadSelfcheck: vi.fn(),
     mockResolveMode: vi.fn(),
-    mockWriteUnreconciledCount: vi.fn(),
+    mockWriteUnreconciledEntries: vi.fn(),
     mockEnqueueErasure: vi.fn(),
     mockJobId: vi.fn(),
     mockEnv: {
@@ -92,7 +92,7 @@ vi.mock("@platform/db", () => ({
 vi.mock("@platform/redis", () => ({
   readSupersetSelfcheck: mockReadSelfcheck,
   resolveSupersetErasureMode: mockResolveMode,
-  writeSupersetUnreconciledCount: mockWriteUnreconciledCount,
+  writeSupersetUnreconciledEntries: mockWriteUnreconciledEntries,
 }));
 
 vi.mock("./queues.js", () => ({
@@ -168,7 +168,7 @@ beforeEach(() => {
   mockGetJob.mockResolvedValue(undefined);
   mockJobId.mockReturnValue(`job-${SUBJECT}`);
   mockEnqueueErasure.mockResolvedValue(true);
-  mockWriteUnreconciledCount.mockResolvedValue(undefined);
+  mockWriteUnreconciledEntries.mockResolvedValue(undefined);
 });
 
 describe("runSupersetErasureReconcile (#1138)", () => {
@@ -182,7 +182,7 @@ describe("runSupersetErasureReconcile (#1138)", () => {
     const summary = await runSupersetErasureReconcile();
     expect(summary.skipped).toBe(true);
     expect(mockListSweepTenants).not.toHaveBeenCalled();
-    expect(mockWriteUnreconciledCount).toHaveBeenCalledWith(0);
+    expect(mockWriteUnreconciledEntries).toHaveBeenCalledWith([]);
   });
 
   it("skips the sweep when deployment is off and resets unreconciled count", async () => {
@@ -195,7 +195,7 @@ describe("runSupersetErasureReconcile (#1138)", () => {
     const summary = await runSupersetErasureReconcile();
     expect(summary.skipped).toBe(true);
     expect(mockListSweepTenants).not.toHaveBeenCalled();
-    expect(mockWriteUnreconciledCount).toHaveBeenCalledWith(0);
+    expect(mockWriteUnreconciledEntries).toHaveBeenCalledWith([]);
   });
 
   it("sweeps active tenants when mode is full and writes total older than 1h to Redis", async () => {
@@ -204,6 +204,7 @@ describe("runSupersetErasureReconcile (#1138)", () => {
     mockDbRows([
       {
         id: "audit-1",
+        resourceType: "user",
         resourceId: "res-1",
         metadata: { userId: SUBJECT, wasMember: true },
         createdAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), // 2 hours old
@@ -218,9 +219,10 @@ describe("runSupersetErasureReconcile (#1138)", () => {
       [TENANT_1, TENANT_2],
       expect.any(Function),
     );
-    expect(mockWriteUnreconciledCount).toHaveBeenCalledWith(
-      summary.totalOlderThan1h,
-    );
+    expect(mockWriteUnreconciledEntries).toHaveBeenCalledWith([
+      { tenantId: TENANT_1, subjectHash: "res-1" },
+      { tenantId: TENANT_2, subjectHash: "res-1" },
+    ]);
     expect(mockLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantCount: 2,
@@ -271,13 +273,41 @@ describe("reconcileTenantSupersetErasure (#1138)", () => {
     );
   });
 
-  it("counts rows older than 1 hour for the gauge", async () => {
+  it("counts rows older than 1 hour for the gauge and collects entries", async () => {
     const now = new Date();
     mockDbRows([
       {
         id: "audit-1",
+        resourceType: "user",
         resourceId: "res-1",
         metadata: { userId: SUBJECT, wasMember: true },
+        createdAt: new Date(now.getTime() - 90 * 60 * 1000), // 1.5h old
+      },
+      {
+        id: "audit-2",
+        resourceType: "user",
+        resourceId: "res-2",
+        metadata: { userId: "other-user", wasMember: true },
+        createdAt: new Date(now.getTime() - 20 * 60 * 1000), // 20m old
+      },
+    ]);
+
+    const result = await reconcileTenantSupersetErasure(TENANT_1, now);
+    expect(result.reconciled).toBe(2);
+    expect(result.olderThan1h).toBe(1);
+    expect(result.entries).toEqual([
+      { tenantId: TENANT_1, subjectHash: "res-1" },
+    ]);
+  });
+
+  it("re-enqueues unreconciled tenant purge rows (#1141)", async () => {
+    const now = new Date();
+    mockDbRows([
+      {
+        id: "audit-tenant-purge",
+        resourceType: "tenant",
+        resourceId: TENANT_1,
+        metadata: {},
         createdAt: new Date(now.getTime() - 90 * 60 * 1000), // 1.5h old
       },
     ]);
@@ -285,6 +315,14 @@ describe("reconcileTenantSupersetErasure (#1138)", () => {
     const result = await reconcileTenantSupersetErasure(TENANT_1, now);
     expect(result.reconciled).toBe(1);
     expect(result.olderThan1h).toBe(1);
+    expect(result.entries).toEqual([
+      { tenantId: TENANT_1, subjectHash: TENANT_1 },
+    ]);
+    expect(mockEnqueueErasure).toHaveBeenCalledWith(
+      { kind: "tenant", tenantId: TENANT_1 },
+      {},
+    );
+    expect(mockCount).toHaveBeenCalledWith(1, { outcome: "reconciled" });
   });
 
   it("skips re-enqueuing when job is already active or waiting in queue", async () => {
