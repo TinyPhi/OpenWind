@@ -151,9 +151,9 @@ groups:
           summary: "No Superset erasure self-check has passed in the last hour"
           description: "The worker's Superset erasure self-check has not passed for an hour, so erasure cannot be verified. Follow docs/runbooks/superset-erasure.md (a deployment without Superset: leave SUPERSET_DEPLOYMENT=off)."
 
-      # Backstop for the alert above: a failed superset-erasure job stays in the queue for 7 days, so this
+      # Backstop for the alert above: a failed superset-erasure job stays in the queue for 24 hours (#1140), so this
       # also catches one the counter cannot see (a job BullMQ failed after it stalled twice, or a counter
-      # lost to a restart). It clears when the job is removed or after the 7 days.
+      # lost to a restart). It clears when the job is removed or after 24 hours.
       - alert: SupersetErasureJobFailedInQueue
         expr: bullmq_queue_depth{queue_name="superset-erasure",status="failed"} > 0
         for: 5m

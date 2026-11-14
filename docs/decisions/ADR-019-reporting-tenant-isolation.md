@@ -257,8 +257,8 @@ options`), and adding the parameter to `ignore_startup_parameters` would drop it
   reporting connection for every tenant. Mitigation: accepted for single-node compose; pinned
   image, production refuses empty or dev-default secrets (#666), network restriction deferred
   until the deployment leaves single-node.
-- **Tenant data also lives outside the database.** Superset's Redis result cache (300 s TTL), its
-  metadata DB and export files hold tenant data. Mitigation: the cache TTL bounds how long a
+- **Tenant data also lives outside the database.** Superset's Redis result cache (300 s TTL) and its
+  metadata DB hold tenant data. (Export files do not persist: exports are streamed directly to the HTTP response, no results backend or export volume exists; confirmed on a running instance, #1140 item 3). Mitigation: the cache TTL bounds how long a
   purged tenant's rows survive; retention and backup coverage are open (see Open Questions).
 - **Mirror columns must be kept in step with their source.** Mitigation: they are trigger-
   maintained and backfilled in the same migration that adds them.
