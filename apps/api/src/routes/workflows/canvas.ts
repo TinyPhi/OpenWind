@@ -8,8 +8,11 @@ import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import {
+  assertMayAddTransitionOnEdge,
+  assertMayModifyRuledRoles,
   assertMaySetActorRules,
   SodRuleForbiddenError,
+  usesActorRule,
 } from "../../lib/sod-rule-gate.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
@@ -155,6 +158,41 @@ export const canvasSaveHandler = factory.createHandlers(
             (prior.fromState !== t.fromState || prior.toState !== t.toState)
           ) {
             assertMaySetActorRules(auth, prior.conditions, null);
+          }
+        }
+        // Changing allowedRoles on a ruled transition touches segregation-of-duties permissions (#1132).
+        for (const t of existingTransitions) {
+          const prior = current.transitions.find((p) => p.id === t.id);
+          if (prior) {
+            assertMayModifyRuledRoles(
+              auth,
+              prior.conditions,
+              prior.allowedRoles,
+              t.allowedRoles,
+            );
+          }
+        }
+        // Adding an alternate transition alongside a step protected by an actor rule creates a bypass (#1132).
+        const survivingRuledTransitions = current.transitions.filter(
+          (t) =>
+            usesActorRule(t.conditions) && !deletedTransitionIds.includes(t.id),
+        );
+        for (const ruled of survivingRuledTransitions) {
+          const duplicateOnRuledEdge = input.transitions.filter(
+            (t) =>
+              t.id !== ruled.id &&
+              t.fromState === ruled.fromState &&
+              t.toState === ruled.toState,
+          );
+          const newlyPlacedOnEdge = duplicateOnRuledEdge.filter((t) => {
+            const prior = current.transitions.find((p) => p.id === t.id);
+            if (!prior) return true;
+            return (
+              prior.fromState !== t.fromState || prior.toState !== t.toState
+            );
+          });
+          if (newlyPlacedOnEdge.length > 0) {
+            assertMayAddTransitionOnEdge(auth, [ruled], null);
           }
         }
 

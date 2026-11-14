@@ -1,13 +1,14 @@
 import { zValidator } from "../../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { withTenantContext } from "@platform/db";
+import { workflowTransitions, withTenantContext } from "@platform/db";
+import { and, eq } from "drizzle-orm";
 import { addWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { TransitionConditionsSchema } from "./condition-schema.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import {
-  assertMaySetActorRules,
+  assertMayAddTransitionOnEdge,
   SodRuleForbiddenError,
 } from "../../../lib/sod-rule-gate.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
@@ -37,7 +38,25 @@ export const createTransitionHandler = factory.createHandlers(
     const { tenantId } = auth;
     try {
       const transition = await withTenantContext(tenantId, async (tx) => {
-        assertMaySetActorRules(auth, null, input.conditions ?? null);
+        const existingOnEdge = await tx
+          .select({
+            id: workflowTransitions.id,
+            conditions: workflowTransitions.conditions,
+          })
+          .from(workflowTransitions)
+          .where(
+            and(
+              eq(workflowTransitions.workflowId, workflowId),
+              eq(workflowTransitions.tenantId, tenantId),
+              eq(workflowTransitions.fromState, input.fromState),
+              eq(workflowTransitions.toState, input.toState),
+            ),
+          );
+        assertMayAddTransitionOnEdge(
+          auth,
+          existingOnEdge,
+          input.conditions ?? null,
+        );
         const created = await addWorkflowTransition(
           tx,
           tenantId,

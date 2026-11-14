@@ -3,6 +3,13 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — Segregation of duties write-gate bypass fix (#1132)]
+
+### Security
+
+- Enforced person-admin authorization when modifying `allowedRoles` on transitions protected by actor rules across `PATCH /workflows/:id/transitions/:transitionId` and `PUT /workflows/:id/canvas` (#1132).
+- Prevented non-admin callers from adding parallel or duplicate transitions along edges carrying actor rules in `POST /workflows/:id/transitions` and `PUT /workflows/:id/canvas`, eliminating Segregation of Duties bypasses (#1132).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed
