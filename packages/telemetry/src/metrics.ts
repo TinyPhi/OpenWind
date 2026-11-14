@@ -4,6 +4,7 @@ import {
   getRedis,
   readSupersetSelfcheck,
   readSupersetUnreconciledCount,
+  readSupersetUnreconciledEntries,
 } from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
@@ -473,6 +474,20 @@ const supersetErasureUnreconciledGauge = meter.createObservableGauge(
 
 supersetErasureUnreconciledGauge.addCallback(async (observableResult) => {
   try {
+    const entries = await readSupersetUnreconciledEntries();
+    if (entries !== null) {
+      if (entries.length === 0) {
+        observableResult.observe(0);
+      } else {
+        for (const entry of entries) {
+          observableResult.observe(1, {
+            tenant_id: entry.tenantId,
+            subject_hash: entry.subjectHash,
+          });
+        }
+      }
+      return;
+    }
     const count = await readSupersetUnreconciledCount();
     if (count !== null) observableResult.observe(count);
   } catch {

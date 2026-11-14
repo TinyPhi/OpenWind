@@ -121,6 +121,19 @@ groups:
           summary: "Unreconciled Superset user erasures older than 1 hour"
           description: '{{ $value | printf "%.0f" }} user erasure(s) committed over 1 hour ago have not completed in Superset. The reconciler could not re-queue them or the erasure jobs are failing. Follow docs/runbooks/superset-erasure.md.'
 
+      # #1141: an erasure that has had no superset_erasure.completed row after 7 days raises
+      # a warning so operators can act before the 30-day GDPR Article 17 target.
+      # Names the tenant and subject hash, never the raw subject. Runbook: docs/runbooks/superset-erasure.md.
+      - alert: SupersetErasurePending7d
+        expr: openwind_superset_erasure_unreconciled_older_than_1h > 0
+        for: 7d
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Superset erasure pending after 7 days"
+          description: "A Superset erasure for tenant {{ $labels.tenant_id }} (subject hash {{ $labels.subject_hash }}) has had no completed record for 7 days. Target completion is 30 days under GDPR Article 17; follow docs/runbooks/superset-erasure.md."
+
       # #1137: the worker's self-check (a repeatable job, 15 minutes by default) found Superset and the platform disagreeing on
       # whether Stage 2 is on. Superset on with the id missing here is the dangerous direction: erasure
       # would only flush the cache (the API and purge override it while the check is fresh). max(): the

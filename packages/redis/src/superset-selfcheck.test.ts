@@ -26,7 +26,10 @@ const {
   supersetSelfcheckTtlSeconds,
   writeSupersetUnreconciledCount,
   readSupersetUnreconciledCount,
+  writeSupersetUnreconciledEntries,
+  readSupersetUnreconciledEntries,
   SUPERSET_UNRECONCILED_KEY,
+  SUPERSET_UNRECONCILED_ENTRIES_KEY,
   SUPERSET_UNRECONCILED_TTL_SECONDS,
 } = await import("./superset-selfcheck.js");
 
@@ -200,5 +203,78 @@ describe("unreconciled count in Redis (#1138)", () => {
 
     client.get = vi.fn().mockRejectedValue(new Error("redis down")) as never;
     expect(await readSupersetUnreconciledCount()).toBeNull();
+  });
+});
+
+describe("unreconciled entries in Redis (#1141)", () => {
+  it("writes and reads back the entries", async () => {
+    const { getRedis } = await import("./index.js");
+    const client = getRedis();
+    const setSpy = vi.fn().mockResolvedValue("OK");
+    client.set = setSpy as never;
+
+    const sampleEntries = [
+      { tenantId: "tenant-1", subjectHash: "hash-1" },
+      { tenantId: "tenant-2", subjectHash: "hash-2" },
+    ];
+
+    await writeSupersetUnreconciledEntries(sampleEntries);
+    expect(setSpy).toHaveBeenCalledWith(
+      SUPERSET_UNRECONCILED_KEY,
+      "2",
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      SUPERSET_UNRECONCILED_ENTRIES_KEY,
+      JSON.stringify(sampleEntries),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    );
+
+    client.get = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify(sampleEntries)) as never;
+    const entries = await readSupersetUnreconciledEntries();
+    expect(entries).toEqual(sampleEntries);
+  });
+
+  it("writeSupersetUnreconciledCount(0) resets entries key to empty array", async () => {
+    const { getRedis } = await import("./index.js");
+    const client = getRedis();
+    const setSpy = vi.fn().mockResolvedValue("OK");
+    client.set = setSpy as never;
+
+    await writeSupersetUnreconciledCount(0);
+    expect(setSpy).toHaveBeenCalledWith(
+      SUPERSET_UNRECONCILED_KEY,
+      "0",
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      SUPERSET_UNRECONCILED_ENTRIES_KEY,
+      JSON.stringify([]),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    );
+  });
+
+  it("returns null when key does not exist or on parse failure", async () => {
+    const { getRedis } = await import("./index.js");
+    const client = getRedis();
+    client.get = vi.fn().mockResolvedValue(null) as never;
+    expect(await readSupersetUnreconciledEntries()).toBeNull();
+
+    client.get = vi.fn().mockResolvedValue("not-json") as never;
+    expect(await readSupersetUnreconciledEntries()).toBeNull();
+
+    client.get = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify({ not: "an array" })) as never;
+    expect(await readSupersetUnreconciledEntries()).toBeNull();
+
+    client.get = vi.fn().mockRejectedValue(new Error("redis down")) as never;
+    expect(await readSupersetUnreconciledEntries()).toBeNull();
   });
 });

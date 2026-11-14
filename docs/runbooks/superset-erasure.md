@@ -79,7 +79,27 @@ lasts 7 days or until the job is removed. It also catches a job BullMQ failed be
 twice while running it: that job has no `failed` audit row, so look for it in the queue
 (`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
 
-1. **Find the cause in the worker log** (`ow-worker`), the line before the final one. Usual causes:
+### 30-day statutory completion target & `SupersetErasurePending7d` alert (#1141)
+
+Under GDPR Article 17, personal data erasure must be completed without undue delay and at the latest within **30 calendar days** (one month). To guarantee statutory compliance:
+
+1. **Reconciliation window (30 days):** The reconciliation worker sweep (`superset-erasure-reconcile`) sweeps all uncompleted user deletions and tenant purges over a 30-day lookback window (`NOW() - INTERVAL '30 days'`), continuously re-attempting enqueues for any dropped or pending erasures.
+2. **Day-7 warning alert (`SupersetErasurePending7d`):**
+   - Fires when `openwind_superset_erasure_unreconciled_older_than_1h > 0` persists for `7d` (7 consecutive days) for a specific `{ tenant_id, subject_hash }` series.
+   - Severity: `warning`.
+   - Privacy guarantee: Metric labels contain only `tenant_id` (UUID) and `subject_hash` (`resource_id` from `admin_audit_log`, a deterministic SHA-1 UUID v5 hash). Personal identifiers (name, email, zitadel user ID) are never exposed in metric labels or alert annotations.
+3. **Operator escalation procedure for `SupersetErasurePending7d`:**
+   - **Step 1: Check audit log.** Query `admin_audit_log` with the alert's `tenant_id` and `resource_id = subject_hash` to find the original deletion audit record and its metadata (`userId`).
+   - **Step 2: Inspect worker and queue state.** Check BullMQ for the corresponding job id (`bull:superset-erasure:*`), examine worker logs for persistent failures (e.g., auth, role permissions, or Superset availability), and verify whether Superset is reachable.
+   - **Step 3: Manual remediation.** If automatic retries and reconciliations cannot proceed, execute the CLI erasure on the Superset host before the 30-day deadline:
+     ```bash
+     docker exec ow-superset superset openwind-erase --tenant <tenant-uuid> --subject <zitadel-user-id>
+     docker exec ow-superset superset openwind-erase --tenant <tenant-uuid>      # for a tenant purge
+     ```
+   - **Step 4: Verify completion.** Confirm in Superset that the user account is erased (`erased-<id>`, `active = false`) and verify that a `superset_erasure.completed` audit row is recorded so the gauge resets and the alert clears.
+   - **Step 5: Notify Privacy / DPO.** If remediation approaches Day 25 without resolution, escalate to the Data Protection Officer (DPO) and follow the [breach notification runbook](breach-notification.md) if a statutory deadline is at risk.
+
+4. **Find the cause in the worker log** (`ow-worker`), the line before the final one. Usual causes:
 
    | Log says                                       | Cause and fix                                                                                                                                              |
    | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -90,7 +110,7 @@ twice while running it: that job has no `failed` audit row, so look for it in th
    | `Superset erase call failed with 400`          | CSRF or request problem: check the Superset version still matches the one in `docker/superset/Dockerfile`.                                                 |
    | an `insert into "admin_audit_log"` error       | Migration `0156_superset_erasure_audit_actions` is not applied. Apply migrations; the job keeps Superset's result and retries, so the counts are not lost. |
 
-2. **Fix it, then run the erase by hand.** The failed job is kept for 7 days but is not retried
+5. **Fix it, then run the erase by hand.** The failed job is kept for 7 days but is not retried
    again. Erasing the same user again from OpenWind does **not** queue a new job: the first erase
    already removed them from the organisation, so the API answers "not found". Run it from a shell on
    the host that runs Superset:
@@ -104,7 +124,7 @@ twice while running it: that job has no `failed` audit row, so look for it in th
    to the server can run it, and the server keeps its own access records. Use it only for a job that
    keeps failing, and note **who ran it and why** in the incident ticket.
 
-3. **Check** that no Superset account still holds the person: their username is `erased-<id>` and
+6. **Check** that no Superset account still holds the person: their username is `erased-<id>` and
    `active` is false. Then close the ticket.
 
 If personal data stayed in Superset longer than expected, treat it as a possible personal-data
