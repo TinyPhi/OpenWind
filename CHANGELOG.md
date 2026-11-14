@@ -3,6 +3,18 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — Superset erasure hygiene checks (#1140)]
+
+### Changed
+
+- Bounded failed Superset erasure job retention in Redis (`removeOnFail`) from 7 days to 24 hours (`age: 86_400`) in both worker and API queue configurations (`SUPERSET_ERASURE_JOB_OPTIONS`), fulfilling ADR-019 Stage 2 gate criterion 15 (#1140).
+- Updated ADR-019 ("Negative and mitigations") to reflect that export files do not persist on disk (streaming CSV downloads without Celery or `RESULTS_BACKEND`).
+
+### Added
+
+- Documented enumeration of all user-removal paths (per-user erase, tenant purge, sandbox delete, sandbox reset, sandbox handover, org-directory sync, platform admin) and Superset erasure coverage in `docs/runbooks/superset-erasure.md` (ADR-019 criterion 16, #1140).
+- Documented Superset process log retention and confirmation of absent verbatim SQL logging and export file persistence in `docs/runbooks/superset-erasure.md` (#1140).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed

@@ -8,5 +8,5 @@ export const SUPERSET_ERASURE_JOB_OPTIONS = {
   attempts: 32,
   backoff: { type: "custom" },
   removeOnComplete: { age: 3_600 },
-  removeOnFail: { age: 604_800 },
+  removeOnFail: { age: 86_400 },
 } as const;

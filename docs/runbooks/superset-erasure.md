@@ -75,7 +75,7 @@ or uncompleted after 1 hour. Unlike the 1-hour `increase()` counter, this gauge 
 remains in Superset without an audit completion record.
 
 A third alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state, which
-lasts 7 days or until the job is removed. It also catches a job BullMQ failed because the worker died
+lasts 24 hours (bounded in #1140, previously 7 days) or until the job is removed. It also catches a job BullMQ failed because the worker died
 twice while running it: that job has no `failed` audit row, so look for it in the queue
 (`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
 
@@ -90,7 +90,7 @@ twice while running it: that job has no `failed` audit row, so look for it in th
    | `Superset erase call failed with 400`          | CSRF or request problem: check the Superset version still matches the one in `docker/superset/Dockerfile`.                                                 |
    | an `insert into "admin_audit_log"` error       | Migration `0156_superset_erasure_audit_actions` is not applied. Apply migrations; the job keeps Superset's result and retries, so the counts are not lost. |
 
-2. **Fix it, then run the erase by hand.** The failed job is kept for 7 days but is not retried
+2. **Fix it, then run the erase by hand.** The failed job is kept for 24 hours (bounded in #1140) but is not retried
    again. Erasing the same user again from OpenWind does **not** queue a new job: the first erase
    already removed them from the organisation, so the API answers "not found". Run it from a shell on
    the host that runs Superset:
@@ -218,6 +218,49 @@ and schedule jobs, so a missing key stops all of them. It is required even when 
 Also recommended: do not route `/openwind/erasure/*` through the public proxy. Only the worker calls
 it, inside the docker network. The endpoints already refuse every caller except the service account
 (role checked, CSRF required), so this is a second layer.
+
+## Enumeration of user-removal paths (#1140, ADR-019 criterion 16)
+
+Every path across the platform where users are removed or modified is audited below, specifying whether it executes Superset erasure or why it cannot leave an account behind:
+
+1. **Per-User GDPR Erasure (`DELETE /users/:userId`)**:
+   - The primary per-user erasure entry point in `apps/api/src/routes/platform/users.ts`.
+   - Erases personal data across tenant database tables, deletes the user's Zitadel sign-in, and calls `enqueueSupersetErasure({ kind: "user", tenantId, subject })`.
+   - If enqueueing fails due to Redis blips or process crashes, the `superset-erasure-reconcile` background sweep sweeps the `deleted` user audit row within 5 minutes and enqueues the job.
+2. **Tenant Purge (`tenant-purge` worker)**:
+   - Triggered when a deleted tenant's retention window expires or after immediate sandbox deletion (`apps/worker/src/tenant-purge.ts`).
+   - Purges all tenant database tables and calls `enqueueSupersetErasure({ kind: "tenant", tenantId })`.
+   - The Superset `/openwind/erasure/tenant` endpoint deletes every Superset account bound to the tenant's role (`tenant:<uuid>`) and flushes the result cache.
+3. **Sandbox Delete (`sandbox-delete` worker)**:
+   - Triggered via `POST /platform-admin/sandboxes/:id/delete` (`apps/worker/src/sandbox-delete-worker.ts`).
+   - Deletes the sandbox's Zitadel organization (which cascades to delete all seeded Zitadel accounts) and enqueues an immediate `tenant-purge` job, which triggers full Superset tenant erasure as above.
+4. **Sandbox Reset (`sandbox-reset` worker)**:
+   - Triggered via `POST /platform-admin/sandboxes/:id/reset` (`apps/worker/src/sandbox-reset-worker.ts`).
+   - Wipes business/module instance records (tickets, workflow events, executions) and reseeds demo tickets.
+   - **Does not remove users**: accounts, teams, `tenant_users`, and org directory employees are intentionally preserved so prospect login access is undisturbed. Leaves no orphan accounts because no user is removed.
+5. **Sandbox Handover (`GET /platform-admin/sandboxes/:jobId/handover`)**:
+   - Read-only retrieval of initial seeded credentials within 7 days of sandbox provisioning (`apps/api/src/routes/platform-admin/sandboxes.ts`).
+   - Does not create, modify, or remove user accounts.
+6. **Org-Directory Sync (`syncOrgDirectory`)**:
+   - Scheduled or manual sync from external HR directories (`packages/org-directory/src/sync.ts`).
+   - When an employee is removed from the external directory, sync removes them from the `org_employees` hierarchy table (the org chart tree), severing reporting lines.
+   - **Does not delete user accounts**: `tenant_users` and Zitadel logins are not deleted by directory sync. User data remains intact until an admin explicitly triggers `DELETE /users/:userId`.
+7. **Platform Admin Accounts**:
+   - Managed in the platform organization (`PLATFORM_ORG_ID`).
+   - Platform admins do not carry tenant roles (`tenant:<uuid>`) in Superset Stage 2; their identity does not bind to tenant reporting datasets or leave tenant-scoped Superset accounts behind.
+
+## Process logs and export files (#1140, ADR-019 items 2–3)
+
+- **Superset process logs**:
+  - Gunicorn and Flask log to container stdout/stderr at `LOG_LEVEL=INFO`.
+  - HTTP request logs record method, path, response status, and duration.
+  - Erasure endpoints log internal IDs only (`tenantId`, `subject`), never names, emails, or personal details.
+  - Verbatim SQL statements are **not** logged to stdout/stderr (SQLAlchemy `echo=False` default). SQL Lab query audit records are emitted directly to the platform's `admin_audit_log` via `PlatformAuditEventLogger`.
+  - Container stdout/stderr retention is governed by the host container log driver (e.g. systemd-journald or Docker JSON log rotation).
+- **Export files**:
+  - CSV exports from SQL Lab (`SqlLabRestApi.export_streaming_csv`) and chart CSV downloads (`can_csv`) are streamed directly in chunked HTTP responses.
+  - No asynchronous Celery workers or `RESULTS_BACKEND` are configured.
+  - The Superset container has no persistent export volume or directory mount. No export files persist on the host or inside the container.
 
 ## What it does not cover
 
