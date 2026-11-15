@@ -3,6 +3,15 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — redact audited SQL literals, pseudonymise actor, and cap reporting retention (#1139)]
+
+### Security & Privacy
+
+- Redacted string, numeric, hex, and scientific literals from SQL statements before `reporting.*` audit rows are recorded in `admin_audit_log`, preserving statement structure, identifiers, comments, and SHA-256 statement hash (ADR-019 Stage 2 criterion 11, #1139).
+- Pseudonymised actor ID (`pseudonym:<sha256[:16]>`) on `reporting.*` rows during user erasure via `tenant_purge_role`, complying with GDPR without Art. 17(3)(b) exception for security logs under legitimate interest (ADR-019 Stage 2 criterion 12, #1139).
+- Ensured tenant purge strips SQL text from audit rows (`metadata = metadata - 'sql'`) (ADR-019 Stage 2 criterion 13, #1139).
+- Introduced configurable retention cap for `reporting.*` rows (`REPORTING_AUDIT_RETENTION_DAYS`, default 90 days), swept atomically in batches via narrow `reporting_audit_retention_role` (migration 0164, ADR-019 Stage 2 criterion 14, #1139).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed

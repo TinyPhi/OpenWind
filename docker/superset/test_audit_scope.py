@@ -149,7 +149,8 @@ class AuditScope(unittest.TestCase):
     def test_the_owner_still_gets_their_own_sql_recorded(self):
         rows = [FakeQuery("tenantAqry01", USER_A, SECRET)]
         payload, _ = self.payload(rows, "reporting.exported", {"client_id": "tenantAqry01"}, User(USER_A))
-        self.assertEqual(payload["sql"], SECRET)
+        # #1139 (ADR-019 Stage 2 criterion 11): SQL literals are redacted before recording
+        self.assertEqual(payload["sql"], "SELECT '[REDACTED]' FROM reporting_instances")
         self.assertNotIn("sql_withheld", payload)
 
     def test_the_lookup_is_filtered_by_the_callers_id(self):
@@ -187,7 +188,7 @@ class AuditScope(unittest.TestCase):
         rows = [FakeQuery("q1", USER_B, "SELECT 1")]
         payload, lookup = self.payload(rows, "reporting.exported", {"client_id": "q1"}, User(USER_B),
                                        dialect="sqlite")
-        self.assertEqual(payload["sql"], "SELECT 1")
+        self.assertEqual(payload["sql"], "SELECT [REDACTED]")
         self.assertFalse(any("statement_timeout" in s for s in lookup.statements))
 
     def test_an_unknown_client_id_is_withheld_not_an_error(self):
@@ -199,7 +200,7 @@ class AuditScope(unittest.TestCase):
         rows = [FakeQuery("q1", USER_A, SECRET)]
         payload, lookup = self.payload(
             rows, "reporting.query_executed", {"client_id": "q1", "sql": "SELECT 1"}, User(USER_B))
-        self.assertEqual(payload["sql"], "SELECT 1")
+        self.assertEqual(payload["sql"], "SELECT [REDACTED]")
         self.assertEqual(lookup.filters, [])
 
     # ── #812: the audit row names the database, not only its id ───────────────

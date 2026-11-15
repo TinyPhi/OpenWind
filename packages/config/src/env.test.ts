@@ -754,6 +754,7 @@ describe("retention settings (docs/specs/retention-classes.md)", () => {
     expect(parsed.RETENTION_DEFAULT_DAYS).toBe(90);
     expect(parsed.RETENTION_COMMENT_DAYS).toBe(365);
     expect(parsed.RETENTION_EVIDENCE_DAYS).toBe(2555);
+    expect(parsed.REPORTING_AUDIT_RETENTION_DAYS).toBe(90);
     expect(parsed.RETENTION_BATCH_SIZE).toBe(5000);
     expect(parsed.RETENTION_BATCH_PAUSE_MS).toBe(50);
   });

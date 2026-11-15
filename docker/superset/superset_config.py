@@ -389,6 +389,49 @@ def classify_audit_event(action, record):
     return None
 
 
+# ─── SQL literal redaction for reporting audit trail (#1139, ADR-019 criterion 11) ────
+# String and numeric literals are stripped from SQL text before a reporting.*
+# audit row is written, so personal data typed into SQL Lab queries is never stored
+# in the audit trail. Comments, quoted identifiers, keywords, table and column names,
+# and statement structure remain intact.
+_SQL_TOKEN_RE = re.compile(
+    r"""
+      (?P<BLOCK_COMMENT>/\*[\s\S]*?\*/)
+    | (?P<LINE_COMMENT>--[^\r\n]*)
+    | (?P<QUOTED_IDENT>"(?:""|[^"])*")
+    | (?P<DOLLAR_STRING>(?P<TAG>\$[a-zA-Z0-9_]*\$)[\s\S]*?(?P=TAG))
+    | (?P<STRING_LITERAL>[eE]?'(?:\\'|''|[^'])*')
+    | (?P<NUMERIC_LITERAL>\b0[xX][0-9a-fA-F]+\b|(?:\b\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\b)
+    | (?P<OTHER>[\s\S])
+    """,
+    re.VERBOSE,
+)
+
+
+def redact_sql_literals(sql: str) -> str:
+    """Redacts string and numeric literals from SQL text, preserving structure, comments and identifiers."""
+    if not sql:
+        return ""
+    pieces = []
+    for m in _SQL_TOKEN_RE.finditer(sql):
+        kind = m.lastgroup
+        val = m.group(0)
+        if kind in ("STRING_LITERAL", "DOLLAR_STRING"):
+            pieces.append("'[REDACTED]'")
+        elif kind == "NUMERIC_LITERAL":
+            pieces.append("[REDACTED]")
+        else:
+            pieces.append(val)
+    return "".join(pieces)
+
+
+def compute_sql_hash(sql: str) -> str:
+    """Deterministic statement hash for audited SQL text."""
+    if not sql:
+        return ""
+    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
 def posted_chart_body():
     """The chart-data request body as the browser sent it, or {} when there is none.
 
@@ -512,6 +555,50 @@ def chart_export_detail(record, slice_id, fmt, body=None):
         "slice_id": sid,
         "datasource": ds,
     }
+
+
+def build_reporting_audit_payload(action, record, kwargs=None, user=None, lookup_sql_fn=None):
+    """The `metadata` of one audit row. No database access of its own."""
+    record = record if isinstance(record, dict) else {}
+    kwargs = kwargs if isinstance(kwargs, dict) else {}
+    sql = record.get("sql")
+    withheld = False
+    if not sql and record.get("client_id") and lookup_sql_fn is not None:
+        found = lookup_sql_fn(record.get("client_id"), user)
+        if found is None:
+            sql, withheld = "", True
+        else:
+            sql = found
+    raw_sql = str(sql or "")
+    redacted_sql = redact_sql_literals(raw_sql) if raw_sql else ""
+    payload = {
+        "action": action,
+        # SQL Lab: the query text is the point of the record, "who
+        # exported what", not just "who exported". Truncated so one
+        # pathological query cannot bloat the audit table. Literals are
+        # redacted before storage (#1139, ADR-019 criterion 11). Never taken
+        # from a query the caller does not own (see _lookup_export_sql).
+        "sql": str(redacted_sql)[:4000],
+        "database_id": record.get("database_id") or kwargs.get("database_id"),
+        "schema": record.get("schema"),
+        "client_id": record.get("client_id"),
+        "slice_id": kwargs.get("slice_id"),
+        "duration_ms": kwargs.get("duration_ms"),
+    }
+    if raw_sql:
+        payload["sql_hash"] = compute_sql_hash(raw_sql)
+    if withheld:
+        payload["sql_withheld"] = True
+    if action == "reporting.exported" and not record.get("client_id"):
+        # A chart export: say which chart and dataset, since it has no SQL.
+        payload["export"] = chart_export_detail(
+            record,
+            kwargs.get("slice_id"),
+            # POST shapes carry `result_format`; the GET carries `format`; the
+            # real button's logged record carries neither, so ask the request.
+            record.get("result_format") or record.get("format") or requested_result_format(),
+        )
+    return payload
 
 
 _PRINCIPAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,255}$")
@@ -1411,39 +1498,9 @@ if _OAUTH_CLIENT_ID:
 
         def build_audit_payload(self, action, record, kwargs, user):
             """The `metadata` of one audit row. No database access of its own."""
-            sql = record.get("sql")
-            withheld = False
-            if not sql and record.get("client_id"):
-                found = self._lookup_export_sql(record.get("client_id"), user)
-                if found is None:
-                    sql, withheld = "", True
-                else:
-                    sql = found
-            payload = {
-                "action": action,
-                # SQL Lab: the query text is the point of the record, "who
-                # exported what", not just "who exported". Truncated so one
-                # pathological query cannot bloat the audit table. Never taken
-                # from a query the caller does not own (see _lookup_export_sql).
-                "sql": str(sql or "")[:4000],
-                "database_id": record.get("database_id") or kwargs.get("database_id"),
-                "schema": record.get("schema"),
-                "client_id": record.get("client_id"),
-                "slice_id": kwargs.get("slice_id"),
-                "duration_ms": kwargs.get("duration_ms"),
-            }
-            if withheld:
-                payload["sql_withheld"] = True
-            if action == "reporting.exported" and not record.get("client_id"):
-                # A chart export: say which chart and dataset, since it has no SQL.
-                payload["export"] = chart_export_detail(
-                    record,
-                    kwargs.get("slice_id"),
-                    # POST shapes carry `result_format`; the GET carries `format`; the
-                    # real button's logged record carries neither, so ask the request.
-                    record.get("result_format") or record.get("format") or requested_result_format(),
-                )
-            return payload
+            return build_reporting_audit_payload(
+                action, record, kwargs, user, lookup_sql_fn=self._lookup_export_sql
+            )
 
         def _append_platform_audit(self, action, record, kwargs):
             from sqlalchemy import text as _text

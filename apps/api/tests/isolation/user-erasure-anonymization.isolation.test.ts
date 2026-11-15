@@ -12,6 +12,7 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   db,
   tenants,
+  adminAuditLog,
   withTenantContext,
   entityTypes,
   entityFields,
@@ -36,6 +37,7 @@ const TARGET = "u-anon-target";
 const OTHER = "u-anon-other";
 const TARGET_NAME = "Erin Target";
 const REDACTED = "[REDACTED]";
+const AUDIT_RESOURCE = "00000000-0000-4000-a000-000000000001";
 
 const SEED = readFileSync(
   join(
@@ -56,6 +58,9 @@ let targetKeyId: string;
 let resolvedRequestId: string;
 let endedShiftId: string;
 let soonKeyId: string;
+let reportingAuditId: string;
+let otherReportingAuditId: string;
+let generalAuditId: string;
 const soonExpiry = new Date(Date.now() + 2 * 86_400_000);
 let erasureResult: UserErasureResult;
 let boundaryCommentId: string;
@@ -334,6 +339,50 @@ beforeAll(async () => {
   if (!soon) throw new Error("seed: soon key");
   soonKeyId = soon.id;
 
+  const [reportingAuditRow] = await db
+    .insert(adminAuditLog)
+    .values({
+      tenantId: TENANT,
+      actorId: TARGET,
+      actorType: "user",
+      resourceType: "reporting",
+      resourceId: AUDIT_RESOURCE,
+      action: "reporting.query_executed",
+      metadata: { sql: "SELECT 1" },
+    })
+    .returning();
+  if (!reportingAuditRow) throw new Error("seed: reporting audit");
+  reportingAuditId = reportingAuditRow.id;
+
+  const [otherReportingRow] = await db
+    .insert(adminAuditLog)
+    .values({
+      tenantId: TENANT,
+      actorId: OTHER,
+      actorType: "user",
+      resourceType: "reporting",
+      resourceId: AUDIT_RESOURCE,
+      action: "reporting.query_executed",
+      metadata: { sql: "SELECT 2" },
+    })
+    .returning();
+  if (!otherReportingRow) throw new Error("seed: other reporting audit");
+  otherReportingAuditId = otherReportingRow.id;
+
+  const [generalAuditRow] = await db
+    .insert(adminAuditLog)
+    .values({
+      tenantId: TENANT,
+      actorId: TARGET,
+      actorType: "user",
+      resourceType: "ticket",
+      resourceId: AUDIT_RESOURCE,
+      action: "updated",
+    })
+    .returning();
+  if (!generalAuditRow) throw new Error("seed: general audit");
+  generalAuditId = generalAuditRow.id;
+
   erasureResult = await withTenantContext(TENANT, (tx) =>
     eraseUserFromTenant(tx, TENANT, TARGET),
   );
@@ -522,5 +571,41 @@ describe("per-user erasure anonymizes rather than deletes (#688)", () => {
       mentions: [TARGET],
       actorName: TARGET_NAME,
     });
+  });
+
+  it("pseudonymises actor id on reporting.* rows for the erased user (#1139, ADR-019 criterion 12)", async () => {
+    const [reporting] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, reportingAuditId));
+    expect(reporting?.actorId).not.toBe(TARGET);
+    expect(reporting?.actorId).toMatch(/^pseudonym:[0-9a-f]{16}$/);
+
+    // Other user's reporting row is untouched
+    const [other] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, otherReportingAuditId));
+    expect(other?.actorId).toBe(OTHER);
+
+    // Non-reporting audit row for TARGET is untouched (kept under Art. 17(3)(b))
+    const [general] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, generalAuditId));
+    expect(general?.actorId).toBe(TARGET);
+
+    // No reporting.* row for TENANT retains TARGET as actorId
+    const targetReportingRows = await db
+      .select()
+      .from(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT),
+          eq(adminAuditLog.actorId, TARGET),
+          sql`${adminAuditLog.action} LIKE 'reporting.%'`,
+        ),
+      );
+    expect(targetReportingRows).toHaveLength(0);
   });
 });

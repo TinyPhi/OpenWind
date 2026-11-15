@@ -271,6 +271,15 @@ describe("anonymizeAuditLogForTenant", () => {
     expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
 
+  it("removes audit SQL text from metadata for the purged tenant (#1139, ADR-019 criterion 13)", async () => {
+    await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
+
+    const hasSqlScrub = mockExecute.mock.calls.some((call) =>
+      JSON.stringify(call).includes("metadata - 'sql'"),
+    );
+    expect(hasSqlScrub).toBe(true);
+  });
+
   it("throws and does not run the UPDATE when the RLS context check itself fails — fails closed, not open", async () => {
     mockExecute.mockRejectedValue(new Error("connection terminated"));
 

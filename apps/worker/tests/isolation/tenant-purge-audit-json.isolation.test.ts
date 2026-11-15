@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, tenants, tenantUsers, adminAuditLog } from "@platform/db";
 import { anonymizeAuditLogForTenant } from "@platform/audit";
 
@@ -114,6 +114,17 @@ beforeAll(async () => {
   await insert("short", row(TENANT, { metadata: { v: SHORT } }));
   await insert("clean", row(TENANT, { metadata: { status: "ok", n: 3 } }));
   await insert(
+    "reportingQuery",
+    row(TENANT, {
+      action: "reporting.query_executed",
+      resourceType: "reporting",
+      metadata: {
+        sql: "SELECT id FROM reporting_instances LIMIT 5",
+        sql_hash: "abcd1234ef567890",
+      },
+    }),
+  );
+  await insert(
     "bystander",
     row(BYSTANDER, { metadata: { targetUserId: MEMBER_ONLY } }),
   );
@@ -191,6 +202,28 @@ describe("tenant purge scrubs person identifiers from audit JSON (#860)", () => 
     expect((await load("bystander"))?.metadata).toEqual({
       targetUserId: MEMBER_ONLY,
     });
+  });
+
+  it("removes audit SQL text from metadata for the purged tenant (#1139, ADR-019 criterion 13)", async () => {
+    const r = await load("reportingQuery");
+    expect(
+      (r?.metadata as Record<string, unknown> | undefined)?.sql,
+    ).toBeUndefined();
+    expect((r?.metadata as Record<string, unknown> | undefined)?.sql_hash).toBe(
+      "abcd1234ef567890",
+    );
+
+    // Assert no audit row for the tenant keeps SQL text
+    const rowsWithSql = await db
+      .select()
+      .from(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT),
+          sql`${adminAuditLog.metadata} ? 'sql'`,
+        ),
+      );
+    expect(rowsWithSql).toHaveLength(0);
   });
 
   it("is idempotent: a second run changes nothing", async () => {

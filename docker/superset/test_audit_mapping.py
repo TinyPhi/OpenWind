@@ -27,7 +27,41 @@ ENV = {
 }
 
 
+_STUB_DIR = None
+
+
+def ensure_superset_stub():
+    global _STUB_DIR
+    spec = importlib.util.find_spec("superset")
+    locations = list(getattr(spec, "submodule_search_locations", None) or [])
+    if not locations and _STUB_DIR is None:
+        import tempfile
+
+        d = Path(tempfile.mkdtemp())
+        s_dir = d / "superset"
+        (s_dir / "models").mkdir(parents=True)
+        (s_dir / "__init__.py").write_text("")
+        (s_dir / "models" / "__init__.py").write_text("")
+        (s_dir / "models" / "core.py").write_text('''
+class Database:
+    def get_sqla_engine(self, catalog=None, schema=None, nullpool: bool = True, source=None):
+        return self._get_sqla_engine(nullpool=nullpool)
+
+    def _get_sqla_engine(self, catalog=None, schema=None, nullpool: bool = True, source=None):
+        engine_kwargs = {}
+        if nullpool:
+            engine_kwargs["poolclass"] = NullPool
+        return engine_kwargs
+
+    def get_raw_connection(self, catalog=None, schema=None, nullpool: bool = True):
+        return self.get_sqla_engine(nullpool=nullpool)
+''')
+        _STUB_DIR = d
+        sys.path.insert(0, str(d))
+
+
 def load_config():
+    ensure_superset_stub()
     for name in ("superset_config", "superset.config"):
         sys.modules.pop(name, None)
     if "superset.config" not in sys.modules:
@@ -322,6 +356,119 @@ class AuditActor(AuditMapping):
         # `owuser:` narrows what a session may see; `owsub:` must never match it.
         self.assertFalse("owsub:5".startswith(self.config._OWN_ROWS_PREFIX))
         self.assertFalse("owuser:5".startswith(self.config.SUBJECT_ROLE_PREFIX))
+
+
+class SqlLiteralRedaction(AuditMapping):
+    """ADR-019 Stage 2 criterion 11 (#1139): typed SQL literals are redacted before audit."""
+
+    def redact(self, sql):
+        return self.config.redact_sql_literals(sql)
+
+    def hash(self, sql):
+        return self.config.compute_sql_hash(sql)
+
+    def test_redacts_email_string_literal(self):
+        query = "SELECT * FROM users WHERE email = 'user@example.com' AND status = 'active'"
+        redacted = self.redact(query)
+        self.assertNotIn("user@example.com", redacted)
+        self.assertNotIn("active", redacted)
+        self.assertEqual(
+            redacted,
+            "SELECT * FROM users WHERE email = '[REDACTED]' AND status = '[REDACTED]'",
+        )
+
+    def test_redacts_numeric_literals(self):
+        query = "SELECT id, name FROM employees WHERE salary >= 150000 AND dept_id = 42"
+        redacted = self.redact(query)
+        self.assertNotIn("150000", redacted)
+        self.assertNotIn("42", redacted)
+        self.assertEqual(
+            redacted,
+            "SELECT id, name FROM employees WHERE salary >= [REDACTED] AND dept_id = [REDACTED]",
+        )
+
+    def test_preserves_identifiers_with_numbers(self):
+        query = "SELECT t1.col1, tbl_2.field3 FROM table1 AS t1 JOIN tbl_2 ON t1.id = tbl_2.id"
+        redacted = self.redact(query)
+        self.assertEqual(redacted, query)
+
+    def test_preserves_quoted_identifiers(self):
+        query = 'SELECT "user 123"."email address", "order-99" FROM "my table 456"'
+        redacted = self.redact(query)
+        self.assertEqual(redacted, query)
+
+    def test_preserves_sql_comments_single_and_multi_line(self):
+        query = (
+            "-- Find customer 10492 by email 'c@example.com'\n"
+            "SELECT id FROM customers /* check partition 2 */ WHERE code = 'ABC'"
+        )
+        redacted = self.redact(query)
+        self.assertIn("-- Find customer 10492 by email 'c@example.com'\n", redacted)
+        self.assertIn("/* check partition 2 */", redacted)
+        self.assertNotIn("'ABC'", redacted)
+        self.assertIn("WHERE code = '[REDACTED]'", redacted)
+
+    def test_redacts_escaped_quotes_and_empty_strings(self):
+        query = "SELECT * FROM authors WHERE name = 'O''Reilly' AND bio = ''"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT * FROM authors WHERE name = '[REDACTED]' AND bio = '[REDACTED]'",
+        )
+
+    def test_redacts_postgres_escape_and_dollar_quoted_strings(self):
+        query = "SELECT E'hello \\'world\\'', $$secret 123$$, $tag$tag value$tag$"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT '[REDACTED]', '[REDACTED]', '[REDACTED]'",
+        )
+
+    def test_redacts_hex_floats_and_scientific_notation(self):
+        query = "SELECT 0xDEADBEEF, 123.456, .75, 1.2e-4, 5E+10"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT [REDACTED], [REDACTED], [REDACTED], [REDACTED], [REDACTED]",
+        )
+
+    def test_preserves_query_structure_and_keywords(self):
+        query = "SELECT a, b, c FROM tbl WHERE a > 10 AND b IN (1, 2, 3) ORDER BY c DESC LIMIT 5 OFFSET 10"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT a, b, c FROM tbl WHERE a > [REDACTED] AND b IN ([REDACTED], [REDACTED], [REDACTED]) ORDER BY c DESC LIMIT [REDACTED] OFFSET [REDACTED]",
+        )
+
+    def test_compute_sql_hash_deterministic_and_distinct(self):
+        q1 = "SELECT 1"
+        q2 = "SELECT 2"
+        h1 = self.hash(q1)
+        h2 = self.hash(q2)
+        import hashlib
+
+        self.assertEqual(h1, hashlib.sha256(b"SELECT 1").hexdigest())
+        self.assertNotEqual(h1, h2)
+        self.assertEqual(self.hash(""), "")
+
+    def test_build_audit_payload_stores_redacted_sql_and_hash(self):
+        raw_sql = "SELECT * FROM users WHERE email = 'victim@example.com' AND pin = 1234"
+        record = {
+            "sql": raw_sql,
+            "database_id": 2,
+            "schema": "public",
+            "client_id": "probe123",
+        }
+        payload = self.config.build_reporting_audit_payload("reporting.query_executed", record, {}, None)
+        self.assertNotIn("victim@example.com", payload["sql"])
+        self.assertNotIn("1234", payload["sql"])
+        self.assertEqual(
+            payload["sql"],
+            "SELECT * FROM users WHERE email = '[REDACTED]' AND pin = [REDACTED]",
+        )
+        import hashlib
+
+        self.assertEqual(payload["sql_hash"], hashlib.sha256(raw_sql.encode("utf-8")).hexdigest())
 
 
 if __name__ == "__main__":
