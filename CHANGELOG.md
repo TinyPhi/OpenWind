@@ -3,6 +3,12 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — on-call roster partial-save handling (#1161)]
+
+### Fixed
+
+- Editing a repeating on-call roster no longer leaves the repeat toggle out of sync when the window saves but the repeat change fails: the roster reloads to the persisted state and the form stays open with a retry message (#1161).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed
