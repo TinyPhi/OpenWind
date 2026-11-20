@@ -3,6 +3,12 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — lazy-load non-English admin-ui locales (#1120)]
+
+### Changed
+
+- Non-English locale bundles are now separate on-demand chunks (`loadLocale` in `apps/admin-ui/src/i18n.ts`) instead of one all-locales chunk preloaded on every page load. Initial-load JS drops from about 431 kB to 205 kB gzip; the entry chunk is unchanged. Only English is bundled up front, and a saved non-English language is loaded before first render (#1120, #200).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed

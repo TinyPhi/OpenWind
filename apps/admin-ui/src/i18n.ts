@@ -1,16 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import common from "./locales/en/common.json";
-import commonHi from "./locales/hi/common.json";
-import commonMr from "./locales/mr/common.json";
-import commonBn from "./locales/bn/common.json";
-import commonTa from "./locales/ta/common.json";
-import commonTe from "./locales/te/common.json";
-import commonKn from "./locales/kn/common.json";
-import commonFr from "./locales/fr/common.json";
-import commonDe from "./locales/de/common.json";
-import commonIt from "./locales/it/common.json";
-import commonEs from "./locales/es/common.json";
 import { getSavedLanguage } from "./lib/language-storage.js";
 
 /**
@@ -59,21 +49,26 @@ import { getSavedLanguage } from "./lib/language-storage.js";
  *    is NOT part of this scaffold — `i18next-browser-languagedetector` (or
  *    a simple user-preference field) is the natural place to plug one in
  *    when that becomes a real requirement.
+ *
+ * 6. English is bundled in the entry chunk as the fallback. Every other
+ *    locale is a separate chunk loaded on demand by `loadLocale` (#1120), so
+ *    a new language needs no change here beyond `supportedLngs`.
  */
+const lazyLocales = import.meta.glob<{ default: Record<string, unknown> }>([
+  "./locales/*/common.json",
+  "!./locales/en/common.json",
+]);
+
+export async function loadLocale(lng: string): Promise<void> {
+  if (i18n.hasResourceBundle(lng, "common")) return;
+  const load = lazyLocales[`./locales/${lng}/common.json`];
+  if (!load) return;
+  const mod = await load();
+  i18n.addResourceBundle(lng, "common", mod.default, true, true);
+}
+
 void i18n.use(initReactI18next).init({
-  resources: {
-    en: { common },
-    hi: { common: commonHi },
-    mr: { common: commonMr },
-    bn: { common: commonBn },
-    ta: { common: commonTa },
-    te: { common: commonTe },
-    kn: { common: commonKn },
-    fr: { common: commonFr },
-    de: { common: commonDe },
-    it: { common: commonIt },
-    es: { common: commonEs },
-  },
+  resources: { en: { common } },
   lng: getSavedLanguage(),
   fallbackLng: "en",
   supportedLngs: [
@@ -101,4 +96,15 @@ void i18n.use(initReactI18next).init({
 // see the correct language before any React render (changeLocale keeps it in sync).
 document.documentElement.lang = getSavedLanguage();
 
-export { i18n };
+// A saved non-English language must have its bundle before the first render, or the UI
+// flashes English. English is already bundled, so the common path resolves immediately.
+const i18nReady: Promise<void> = loadLocale(getSavedLanguage())
+  .then(() => i18n.changeLanguage(getSavedLanguage()))
+  .then(() => undefined)
+  .catch((err: unknown) => {
+    console.error("i18n: failed to load saved locale, using English", err);
+    document.documentElement.lang = "en";
+    return i18n.changeLanguage("en").then(() => undefined);
+  });
+
+export { i18n, i18nReady };
