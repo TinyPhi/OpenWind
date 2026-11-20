@@ -1149,6 +1149,13 @@
       "when": 1793577601000,
       "tag": "0163_oncall_rotation_sweeper_schedule_read",
       "breakpoints": false
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1793664000000,
+      "tag": "0164_tenant_settings",
+      "breakpoints": false
     }
   ]
 }

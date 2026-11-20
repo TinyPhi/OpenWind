@@ -4,6 +4,8 @@
  * cursor and `now`; everything here is deterministic and unit-tested.
  */
 
+import { addCalendarDays } from "./rotation-timezone.js";
+
 export const ROTATION_MIN_CYCLE_DAYS = 3;
 export const ROTATION_MAX_CYCLE_DAYS = 90;
 export const ROTATION_DEFAULT_CYCLE_DAYS = 7;
@@ -73,6 +75,7 @@ export type PlanWindowsInput = {
   /** `YYYY-MM-DD` (UTC): no window may start after this day. */
   endsOn: string | null;
   maxSteps?: number;
+  timeZone?: string | null | undefined;
 };
 
 export type PlanWindowsResult = {
@@ -100,7 +103,6 @@ export type PlanWindowsResult = {
  * and left empty if they are no longer a member.
  */
 export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
-  const cycleMs = input.cycleDays * DAY_MS;
   const maxSteps = input.maxSteps ?? ROTATION_MAX_STEPS_PER_RUN;
   const nowMs = input.now.getTime();
   const dueUntilMs = nowMs + ROTATION_NOTICE_LEAD_MS;
@@ -112,7 +114,9 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
       ? input.escalationManager
       : null;
 
-  let startMs = input.nextStartsAt.getTime();
+  const anchor = input.nextStartsAt;
+  let currentStart = input.nextStartsAt;
+  let startMs = currentStart.getTime();
   let previous = input.previous;
   const windows: GeneratedWindow[] = [];
   let skippedEnded = 0;
@@ -134,11 +138,16 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
       }
       steps++;
       const next = nextAssignment(input.members, previous) as NextAssignment; // members is non-empty here
-      const endMs = startMs + cycleMs;
+      const end = addCalendarDays(
+        anchor,
+        steps * input.cycleDays,
+        input.timeZone,
+      );
+      const endMs = end.getTime();
       if (endMs > nowMs) {
         windows.push({
-          startsAt: new Date(startMs),
-          endsAt: new Date(endMs),
+          startsAt: currentStart,
+          endsAt: end,
           primary: next.primary,
           backup: next.backup,
           escalationManager,
@@ -147,6 +156,7 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
         skippedEnded++;
       }
       previous = next;
+      currentStart = end;
       startMs = endMs;
     }
   }
@@ -173,6 +183,7 @@ export type ProjectWindowsInput = {
   escalationManager: string | null;
   endsOn: string | null;
   count: number;
+  timeZone?: string | null | undefined;
 };
 
 /**
@@ -181,7 +192,6 @@ export type ProjectWindowsInput = {
  * is created, and the real windows may differ if the team changes first.
  */
 export function projectWindows(input: ProjectWindowsInput): GeneratedWindow[] {
-  const cycleMs = input.cycleDays * DAY_MS;
   const startLimitMs = input.endsOn
     ? Date.parse(`${input.endsOn}T00:00:00Z`) + DAY_MS
     : Number.POSITIVE_INFINITY;
@@ -190,20 +200,26 @@ export function projectWindows(input: ProjectWindowsInput): GeneratedWindow[] {
       ? input.escalationManager
       : null;
   const out: GeneratedWindow[] = [];
-  let startMs = input.nextStartsAt.getTime();
+  const anchor = input.nextStartsAt;
+  let currentStart = input.nextStartsAt;
+  let startMs = currentStart.getTime();
   let previous = input.previous;
+  let step = 0;
   while (out.length < input.count && startMs < startLimitMs) {
     const next = nextAssignment(input.members, previous);
     if (!next) break;
+    step++;
+    const end = addCalendarDays(anchor, step * input.cycleDays, input.timeZone);
     out.push({
-      startsAt: new Date(startMs),
-      endsAt: new Date(startMs + cycleMs),
+      startsAt: currentStart,
+      endsAt: end,
       primary: next.primary,
       backup: next.backup,
       escalationManager,
     });
     previous = next;
-    startMs += cycleMs;
+    currentStart = end;
+    startMs = end.getTime();
   }
   return out;
 }

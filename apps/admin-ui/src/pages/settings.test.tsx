@@ -1,6 +1,7 @@
 import "../i18n.js";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import type { User } from "oidc-client-ts";
 import * as languageModule from "../lib/language.js";
 import { Settings } from "./settings.js";
 
@@ -79,5 +80,62 @@ describe("Settings Language tab (#1110)", () => {
     // Clicking an enabled option does invoke changeLocale
     fireEvent.click(englishOption);
     expect(changeLocaleMock).toHaveBeenCalledWith("en");
+  });
+});
+
+describe("Settings Organization tab (#1158)", () => {
+  it("renders the organization tab and shows the timezone selector", async () => {
+    const { fetchWithAuth } = await import("../lib/api.js");
+    vi.mocked(fetchWithAuth).mockResolvedValue({
+      data: { defaultTimezone: "Asia/Kolkata" },
+    });
+
+    render(<Settings />);
+
+    const orgTab = screen.getByRole("tab", { name: /organization/i });
+    expect(orgTab).toBeDefined();
+
+    fireEvent.click(orgTab);
+
+    const select = screen.getByLabelText(/default timezone/i);
+    expect(select).toBeDefined();
+    // Non-admin by default
+    expect(select.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("allows admin to change the default timezone", async () => {
+    const { userManager } = await import("../authProvider.js");
+    const { fetchWithAuth } = await import("../lib/api.js");
+
+    vi.mocked(userManager.getUser).mockResolvedValue({
+      profile: {
+        "urn:zitadel:iam:org:project:roles": { admin: {} },
+      },
+    } as unknown as User);
+
+    vi.mocked(fetchWithAuth).mockResolvedValue({
+      data: { defaultTimezone: null },
+    });
+
+    render(<Settings />);
+
+    // Wait for user role to load
+    await new Promise((r) => setTimeout(r, 10));
+
+    const orgTab = screen.getByRole("tab", { name: /organization/i });
+    fireEvent.click(orgTab);
+
+    const select = screen.getByLabelText(/default timezone/i);
+    expect(select.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(select, { target: { value: "Europe/London" } });
+
+    expect(fetchWithAuth).toHaveBeenCalledWith(
+      expect.stringContaining("/admin/tenant-settings"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ defaultTimezone: "Europe/London" }),
+      }),
+    );
   });
 });

@@ -25,7 +25,30 @@ type ModuleRow = {
   isVisible: boolean;
 };
 
-type SettingsTab = "appearance" | "notifications" | "templates" | "language";
+type SettingsTab =
+  | "appearance"
+  | "language"
+  | "organization"
+  | "notifications"
+  | "templates";
+
+const TIMEZONES =
+  typeof Intl !== "undefined" && typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("timeZone")
+    : [
+        "UTC",
+        "America/New_York",
+        "America/Chicago",
+        "America/Denver",
+        "America/Los_Angeles",
+        "Europe/London",
+        "Europe/Paris",
+        "Europe/Berlin",
+        "Asia/Kolkata",
+        "Asia/Tokyo",
+        "Asia/Singapore",
+        "Australia/Sydney",
+      ];
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English",
@@ -59,6 +82,46 @@ export function Settings(): React.ReactElement {
   const [outboundLoading, setOutboundLoading] = useState(false);
   const [outboundToggling, setOutboundToggling] = useState(false);
 
+  const [defaultTimezone, setDefaultTimezone] = useState<string>("");
+  const [timezoneLoading, setTimezoneLoading] = useState(false);
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
+  const [timezoneError, setTimezoneError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTimezoneLoading(true);
+    void fetchWithAuth(`${API_URL}/admin/tenant-settings`)
+      .then((res) => {
+        const data = (res as { data?: { defaultTimezone?: string | null } })
+          .data;
+        setDefaultTimezone(data?.defaultTimezone ?? "");
+      })
+      .catch(() => {
+        // Fallback gracefully if not yet created or configured
+      })
+      .finally(() => setTimezoneLoading(false));
+  }, []);
+
+  async function handleTimezoneChange(nextTz: string): Promise<void> {
+    if (!isAdmin) return;
+    const prev = defaultTimezone;
+    setDefaultTimezone(nextTz);
+    setTimezoneSaving(true);
+    setTimezoneError(null);
+    try {
+      await fetchWithAuth(`${API_URL}/admin/tenant-settings`, {
+        method: "PATCH",
+        body: JSON.stringify({ defaultTimezone: nextTz || null }),
+      });
+    } catch (err) {
+      setDefaultTimezone(prev);
+      setTimezoneError(
+        err instanceof Error ? err.message : t("settings.failedToSaveTimezone"),
+      );
+    } finally {
+      setTimezoneSaving(false);
+    }
+  }
+
   useEffect(() => {
     void userManager.getUser().then((u) => {
       if (!u) {
@@ -77,7 +140,12 @@ export function Settings(): React.ReactElement {
   // Fall back to Appearance if the active tab is admin-only and the user
   // turns out not to be an admin (or role hasn't loaded yet).
   useEffect(() => {
-    if (!isAdmin && activeTab !== "appearance" && activeTab !== "language") {
+    if (
+      !isAdmin &&
+      activeTab !== "appearance" &&
+      activeTab !== "language" &&
+      activeTab !== "organization"
+    ) {
       setActiveTab("appearance");
     }
   }, [isAdmin, activeTab]);
@@ -197,6 +265,25 @@ export function Settings(): React.ReactElement {
             strokeLinecap="round"
             strokeLinejoin="round"
             d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802"
+          />
+        </svg>
+      ),
+    },
+    {
+      id: "organization" as const,
+      label: t("settings.tabOrganization", "Organization"),
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth="2"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"
           />
         </svg>
       ),
@@ -488,6 +575,73 @@ export function Settings(): React.ReactElement {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Organization — default timezone (#1158) */}
+        {activeTab === "organization" && (
+          <div className="settings-section-body">
+            <div
+              className="settings-field"
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "16px",
+              }}
+            >
+              <div className="settings-field-label">
+                <span>{t("settings.defaultTimezone", "Default Timezone")}</span>
+                <span className="settings-field-hint">
+                  {t(
+                    "settings.defaultTimezoneHint",
+                    "The organization default timezone used for schedule rules and on-call rotations.",
+                  )}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-end",
+                }}
+              >
+                <select
+                  aria-label={t("settings.defaultTimezone", "Default Timezone")}
+                  className="settings-select"
+                  disabled={!isAdmin || timezoneLoading || timezoneSaving}
+                  value={defaultTimezone}
+                  onChange={(e) => void handleTimezoneChange(e.target.value)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-color, #ccc)",
+                    background: "var(--bg-primary, #fff)",
+                    color: "var(--text-primary, #000)",
+                  }}
+                >
+                  <option value="">
+                    {t("settings.defaultTimezoneUtc", "UTC (System Default)")}
+                  </option>
+                  {TIMEZONES.map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
+                {timezoneError && (
+                  <div
+                    style={{
+                      color: "var(--error-color, #e53935)",
+                      fontSize: 12,
+                      marginTop: 4,
+                    }}
+                  >
+                    {timezoneError}
+                  </div>
+                )}
               </div>
             </div>
           </div>

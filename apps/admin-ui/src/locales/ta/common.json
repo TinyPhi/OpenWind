@@ -103,7 +103,12 @@
     "loadingTemplates": "Loading templates…",
     "templateVisible": "Visible on the Templates page for everyone",
     "templateHidden": "Hidden — no tenant can see or install this template",
-    "comingSoon": "Coming soon"
+    "comingSoon": "Coming soon",
+    "tabOrganization": "Organization",
+    "defaultTimezone": "Default Timezone",
+    "defaultTimezoneHint": "The organization default timezone used for schedule rules and on-call rotations.",
+    "defaultTimezoneUtc": "UTC (System Default)",
+    "failedToSaveTimezone": "Failed to save default timezone"
   },
   "dashboard": {
     "myDashboard": "My Dashboard",

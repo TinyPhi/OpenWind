@@ -434,7 +434,7 @@ describe("ScheduleRulesPage", () => {
     expect(tzSelect.value).toBe("Europe/London");
   });
 
-  it("defaults a new rule to India time, not UTC", async () => {
+  it("defaults a new rule to UTC fallback when no tenant timezone is set (#1158)", async () => {
     queueRefresh([]);
     renderPage();
     await waitFor(() =>
@@ -444,7 +444,26 @@ describe("ScheduleRulesPage", () => {
     fireEvent.click(screen.getByText("New Rule"));
 
     expect((screen.getByLabelText(/Timezone/) as HTMLSelectElement).value).toBe(
-      "Asia/Kolkata",
+      "UTC",
+    );
+  });
+
+  it("defaults a new rule to tenant default timezone when configured (#1158)", async () => {
+    queueRefresh([]);
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: { defaultTimezone: "America/New_York" },
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("No schedule rules yet")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByText("New Rule"));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/Timezone/) as HTMLSelectElement).value,
+      ).toBe("America/New_York"),
     );
   });
 
@@ -460,6 +479,35 @@ describe("ScheduleRulesPage", () => {
     expect(
       ((await screen.findByLabelText(/Timezone/)) as HTMLSelectElement).value,
     ).toBe("UTC");
+  });
+
+  it("does not overwrite user-selected timezone in create modal when tenant settings resolves late (G3)", async () => {
+    queueRefresh([]);
+    let resolveSettings: (val: unknown) => void = () => {};
+    const settingsPromise = new Promise((resolve) => {
+      resolveSettings = resolve;
+    });
+    mockFetchWithAuth.mockReturnValueOnce(settingsPromise);
+
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("No schedule rules yet")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByText("New Rule"));
+    const tzSelect = screen.getByLabelText(/Timezone/) as HTMLSelectElement;
+    expect(tzSelect.value).toBe("UTC");
+
+    // User explicitly changes timezone before fetch resolves
+    fireEvent.change(tzSelect, { target: { value: "Europe/London" } });
+    expect(tzSelect.value).toBe("Europe/London");
+
+    // Fetch resolves late with tenant default
+    resolveSettings({ data: { defaultTimezone: "America/New_York" } });
+    await Promise.resolve();
+
+    // Must NOT overwrite the user's manual selection
+    expect(tzSelect.value).toBe("Europe/London");
   });
 
   it("preserves an existing timezone that is not in the picker options", async () => {

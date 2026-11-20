@@ -467,19 +467,20 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     expect(screen.getByText(/manual cover overlaps/)).toBeTruthy();
   });
 
-  it("stops the rotation when repeat is unticked and the window is saved", async () => {
+  it("stops the rotation atomically when repeat is unticked and the window is saved (#1161)", async () => {
     rotations = [ROTATION];
     await openRotationEdit();
     fireEvent.click(screen.getByLabelText(/Repeat automatically/));
     fireEvent.click(screen.getByLabelText("Save changes"));
     await waitFor(() =>
-      expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
-        { status: "stopped" },
+      expect(bodiesFor("PATCH", "/admin/on-call-schedules/s-rot")).toEqual([
+        expect.objectContaining({ rotationStatus: "stopped" }),
       ]),
     );
+    expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([]);
   });
 
-  it("resumes a stopped rotation when repeat is ticked and the window is saved", async () => {
+  it("resumes a stopped rotation atomically when repeat is ticked and the window is saved (#1161)", async () => {
     rotations = [{ ...ROTATION, status: "stopped" }];
     await openRotationEdit();
     expect(
@@ -489,10 +490,11 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     fireEvent.click(screen.getByLabelText(/Repeat automatically/));
     fireEvent.click(screen.getByLabelText("Save changes"));
     await waitFor(() =>
-      expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([
-        { status: "active" },
+      expect(bodiesFor("PATCH", "/admin/on-call-schedules/s-rot")).toEqual([
+        expect.objectContaining({ rotationStatus: "active" }),
       ]),
     );
+    expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([]);
   });
 
   it("asks what to do with this cycle's end when repeat is unticked, and sends a changed end", async () => {

@@ -51,7 +51,7 @@ name         text NOT NULL — unique per tenant (soft-delete allows reuse)
 description  text
 -- schedule
 cron_expr    text NOT NULL — 5-field standard cron (e.g. "0 9 25 * *")
-timezone     text NOT NULL DEFAULT 'UTC' — IANA timezone string
+timezone     text NOT NULL DEFAULT 'UTC' — IANA timezone string (defaults to tenant default timezone via tenant_settings.default_timezone or 'UTC' fallback; #1158)
 -- ticket template
 entity_type_id  uuid FK entity_types NOT NULL — must have slug = 'ticket'
 workflow_id     uuid FK workflows (nullable) — null = entity type's default workflow
