@@ -12,6 +12,7 @@
 -- tenant_settings: per-tenant organization configuration (#1158).
 -- One row per tenant (tenant_id is primary key and foreign key to tenants.id).
 -- default_timezone: default IANA timezone string (nullable, null falls back to UTC).
+-- analytics: excluded (tenant configuration, not business data)
 
 CREATE TABLE "tenant_settings" (
   "tenant_id"        uuid PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,

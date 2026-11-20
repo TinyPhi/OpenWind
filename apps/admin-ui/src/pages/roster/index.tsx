@@ -98,7 +98,11 @@ function calendarDayDiff(a: Date, b: Date): number {
   return Math.floor((utc1 - utc2) / DAY_MS);
 }
 
-/** Calendar day addition preserving wall-clock time across DST (#1162). */
+/**
+ * Calendar day addition preserving wall-clock time across DST in the operator's browser timezone (#1162).
+ * Roster UI grid rendering and interactive form previews operate in the user's local browser timezone,
+ * matching user expectation for local shift handoffs.
+ */
 function addCalendarDaysLocal(date: Date, days: number): Date {
   const res = new Date(date);
   res.setDate(res.getDate() + days);

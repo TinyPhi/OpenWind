@@ -111,6 +111,7 @@ const mockRotationRow = {
 let overlapConflict = false;
 let updateMatchesNoRow = false;
 let getReturnsRow = true;
+let rotationRowExists = true;
 let teamMemberIds: string[] = [];
 let activeRotationExists = false;
 
@@ -199,7 +200,9 @@ vi.mock("@platform/db", () => ({
       for: () =>
         Promise.resolve(
           (fromTable as { isRotations?: boolean } | undefined)?.isRotations
-            ? [{ ...mockRotationRow }]
+            ? rotationRowExists
+              ? [{ ...mockRotationRow }]
+              : []
             : [{ ...mockScheduleRow }],
         ),
       insert: () => tx,
@@ -583,7 +586,10 @@ describe("PATCH /admin/on-call-schedules/:id — atomic rotationStatus update (#
 
   beforeEach(() => {
     mockScheduleRow.rotationId = null;
+    mockScheduleRow.startsAt = FUTURE_START;
+    mockScheduleRow.endsAt = FUTURE_END;
     mockRotationRow.status = "active";
+    rotationRowExists = true;
     teamMemberIds = ["u-bbb"];
     mockReleaseUpcomingWindows.mockClear();
     mockWriteAuditEntry.mockClear();
@@ -596,7 +602,7 @@ describe("PATCH /admin/on-call-schedules/:id — atomic rotationStatus update (#
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
-  it("stops rotation atomically and releases upcoming windows", async () => {
+  it("stops rotation atomically and releases upcoming windows with exceptId", async () => {
     mockScheduleRow.rotationId = "rot-1";
     mockRotationRow.status = "active";
     const res = await patch({
@@ -606,6 +612,13 @@ describe("PATCH /admin/on-call-schedules/:id — atomic rotationStatus update (#
     expect(res.status).toBe(200);
     expect(mockRotationRow.status).toBe("stopped");
     expect(mockReleaseUpcomingWindows).toHaveBeenCalledTimes(1);
+    expect(mockReleaseUpcomingWindows).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      { exceptId: mockScheduleRow.id },
+    );
     expect(mockWriteAuditEntry).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -614,6 +627,31 @@ describe("PATCH /admin/on-call-schedules/:id — atomic rotationStatus update (#
         afterSnapshot: expect.objectContaining({ status: "stopped" }),
       }),
     );
+  });
+
+  it("does not mutate rotation or release windows when window validation fails (M1/M2 atomicity)", async () => {
+    mockScheduleRow.rotationId = "rot-1";
+    mockRotationRow.status = "active";
+    // Bad window: startsAt >= endsAt
+    const res = await patch({
+      rotationStatus: "stopped",
+      endsAt: new Date(mockScheduleRow.startsAt.getTime() - 1000).toISOString(),
+    });
+    expect(res.status).toBe(422);
+    expect(mockRotationRow.status).toBe("active");
+    expect(mockReleaseUpcomingWindows).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 and does not mutate when rotation row vanished (S4)", async () => {
+    mockScheduleRow.rotationId = "rot-1";
+    mockRotationRow.status = "active";
+    rotationRowExists = false;
+    const res = await patch({ rotationStatus: "stopped" });
+    expect(res.status).toBe(404);
+    expect(mockRotationRow.status).toBe("active");
+    expect(mockReleaseUpcomingWindows).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
   it("resumes rotation atomically when rotationStatus is active", async () => {

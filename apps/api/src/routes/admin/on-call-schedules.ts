@@ -59,6 +59,8 @@ import {
   type PeopleCheck,
 } from "../../lib/oncall-people.js";
 
+class ScheduleNotFoundError extends Error {}
+
 type Vars = { Variables: { auth: AuthContext } };
 
 const router = new Hono<Vars>();
@@ -734,6 +736,7 @@ router.patch(
               ),
             )
             .for("update");
+          if (!rot) return { status: "not_found" as const };
           lockedRotation = rot;
           const [locked] = await tx
             .select()
@@ -772,54 +775,6 @@ router.patch(
               lockedRotation.teamId,
             );
             if (members.length === 0) return { status: "no_members" as const };
-          }
-
-          let currentRotation = lockedRotation;
-          if (rotationStatus !== lockedRotation.status) {
-            const [updatedRotation] = await tx
-              .update(onCallRotations)
-              .set({
-                status: rotationStatus,
-                ...(resuming ? { blockedReason: null } : {}),
-                updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  eq(onCallRotations.id, lockedRotation.id),
-                  eq(onCallRotations.tenantId, auth.tenantId),
-                ),
-              )
-              .returning();
-            if (updatedRotation) currentRotation = updatedRotation;
-
-            if (
-              rotationStatus === "stopped" &&
-              lockedRotation.status === "active"
-            ) {
-              await releaseUpcomingWindows(
-                tx,
-                auth.tenantId,
-                auth.userId,
-                currentRotation,
-              );
-            }
-
-            await writeAuditEntry(tx, {
-              tenantId: auth.tenantId,
-              actorId: auth.userId,
-              actorType: "user",
-              resourceType: "on_call_rotation",
-              resourceId: lockedRotation.id,
-              action: "updated",
-              beforeSnapshot: {
-                status: lockedRotation.status,
-                endsOn: lockedRotation.endsOn,
-              },
-              afterSnapshot: {
-                status: currentRotation.status,
-                endsOn: currentRotation.endsOn,
-              },
-            });
           }
         }
 
@@ -889,6 +844,60 @@ router.patch(
           return { status: "invalid" as const, refErrors: memberErrors };
         }
 
+        // All validations passed -- now perform writes atomically
+        if (rotationStatus !== undefined && lockedRotation) {
+          const resuming =
+            rotationStatus === "active" && lockedRotation.status !== "active";
+          let currentRotation = lockedRotation;
+          if (rotationStatus !== lockedRotation.status) {
+            const [updatedRotation] = await tx
+              .update(onCallRotations)
+              .set({
+                status: rotationStatus,
+                ...(resuming ? { blockedReason: null } : {}),
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(onCallRotations.id, lockedRotation.id),
+                  eq(onCallRotations.tenantId, auth.tenantId),
+                ),
+              )
+              .returning();
+            if (updatedRotation) currentRotation = updatedRotation;
+
+            if (
+              rotationStatus === "stopped" &&
+              lockedRotation.status === "active"
+            ) {
+              await releaseUpcomingWindows(
+                tx,
+                auth.tenantId,
+                auth.userId,
+                currentRotation,
+                { exceptId: id },
+              );
+            }
+
+            await writeAuditEntry(tx, {
+              tenantId: auth.tenantId,
+              actorId: auth.userId,
+              actorType: "user",
+              resourceType: "on_call_rotation",
+              resourceId: lockedRotation.id,
+              action: "updated",
+              beforeSnapshot: {
+                status: lockedRotation.status,
+                endsOn: lockedRotation.endsOn,
+              },
+              afterSnapshot: {
+                status: currentRotation.status,
+                endsOn: currentRotation.endsOn,
+              },
+            });
+          }
+        }
+
         const endChanges =
           scheduleInput.endsAt !== undefined &&
           scheduleInput.endsAt.getTime() !== existing.endsAt.getTime();
@@ -908,8 +917,12 @@ router.patch(
             ),
           )
           .returning();
-        // soft-deleted by another transaction between the peek above and this UPDATE
-        if (!row) return { status: "not_found" as const };
+        // If the row vanished under mutation, throw to roll back transaction
+        if (!row) {
+          throw new ScheduleNotFoundError(
+            `Schedule ${id} vanished during update`,
+          );
+        }
         if (row.rotationId && endChanges) {
           await alignRotationCursor(tx, auth.tenantId, auth.userId, row);
         }
@@ -1013,6 +1026,12 @@ router.patch(
       }
       return c.json({ data: result.row });
     } catch (err: unknown) {
+      if (err instanceof ScheduleNotFoundError) {
+        return c.json(
+          { error: "NOT_FOUND", message: "Schedule not found" },
+          404,
+        );
+      }
       if (isExclusionViolation(err)) {
         return c.json(
           {

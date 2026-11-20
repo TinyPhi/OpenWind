@@ -121,7 +121,9 @@ vi.mock("@platform/db", () => ({
           Promise.resolve(
             (fromTable as { defaultTimezone?: string } | undefined)
               ?.defaultTimezone
-              ? [{ defaultTimezone: "UTC" }]
+              ? tenantTimezone !== null
+                ? [{ defaultTimezone: tenantTimezone }]
+                : []
               : (fromTable as { deletedAt?: string } | undefined)?.deletedAt &&
                   teamDeleted
                 ? []
@@ -156,14 +158,9 @@ vi.mock("@platform/db", () => ({
   },
 }));
 
-vi.mock("@platform/teams", () => ({
-  loadTeamMemberIds: () => Promise.resolve(members),
-  loadPreviousHolders: () => Promise.resolve({ primary: "u-1", backup: "u-2" }),
-  loadTeamMemberIdsBatch: (...args: unknown[]) =>
-    mockLoadTeamMemberIdsBatch(...args),
-  loadPreviousHoldersBatch: (...args: unknown[]) =>
-    mockLoadPreviousHoldersBatch(...args),
-  projectWindows: (input: { count: number }) =>
+let tenantTimezone: string | null = "UTC";
+const mockProjectWindows = vi.fn(
+  (input: { count: number; timeZone?: string | null }) =>
     Array.from({ length: Math.min(input.count, 2) }, (_, i) => ({
       startsAt: new Date(Date.UTC(2026, 10, 9 + i * 7)),
       endsAt: new Date(Date.UTC(2026, 10, 16 + i * 7)),
@@ -171,6 +168,17 @@ vi.mock("@platform/teams", () => ({
       backup: "u-3",
       escalationManager: "u-3",
     })),
+);
+
+vi.mock("@platform/teams", () => ({
+  loadTeamMemberIds: () => Promise.resolve(members),
+  loadPreviousHolders: () => Promise.resolve({ primary: "u-1", backup: "u-2" }),
+  loadTeamMemberIdsBatch: (...args: unknown[]) =>
+    mockLoadTeamMemberIdsBatch(...args),
+  loadPreviousHoldersBatch: (...args: unknown[]) =>
+    mockLoadPreviousHoldersBatch(...args),
+  projectWindows: (input: { count: number; timeZone?: string | null }) =>
+    mockProjectWindows(input),
   nextAssignment: (m: string[]) =>
     m.length === 0 ? null : { primary: "u-2", backup: "u-3" },
 }));
@@ -323,6 +331,8 @@ describe("PATCH /admin/on-call-rotations/:id", () => {
   });
 
   it("lists projected windows for a running rotation and none for a paused one", async () => {
+    tenantTimezone = "America/New_York";
+    mockProjectWindows.mockClear();
     const running = (await (await patch({ endsOn: null })).json()) as {
       data: { projected: unknown[] };
     };
@@ -331,11 +341,23 @@ describe("PATCH /admin/on-call-rotations/:id", () => {
       primaryUserId: "u-2",
       backupUserId: "u-3",
     });
+    expect(mockProjectWindows).toHaveBeenCalledWith(
+      expect.objectContaining({ timeZone: "America/New_York" }),
+    );
     existingRow = { ...rotationRow, status: "stopped" };
     const paused = (await (await patch({ endsOn: null })).json()) as {
       data: { projected: unknown[] };
     };
     expect(paused.data.projected).toEqual([]);
+  });
+
+  it("passes undefined timeZone when tenant has no default timezone", async () => {
+    tenantTimezone = null;
+    mockProjectWindows.mockClear();
+    await patch({ endsOn: null });
+    expect(mockProjectWindows).toHaveBeenCalledWith(
+      expect.objectContaining({ timeZone: undefined }),
+    );
   });
 
   it("pausing removes the windows that have not started and rewinds the cursor", async () => {

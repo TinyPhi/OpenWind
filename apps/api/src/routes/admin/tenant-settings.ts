@@ -15,13 +15,29 @@ import { logger } from "@platform/logger";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 
+export function canonicalizeTimezone(tz: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: tz }).resolvedOptions()
+    .timeZone;
+}
+
 export const PatchTenantSettingsSchema = z.object({
   defaultTimezone: z
     .string()
+    .trim()
+    .max(64)
     .nullable()
-    .refine((tz) => tz === null || isValidTimezone(tz), {
-      message: "Invalid IANA timezone identifier",
-    }),
+    .refine(
+      (tz) => {
+        if (tz === null) return true;
+        if (!isValidTimezone(tz)) return false;
+        // Reject inverted Etc/GMT zones or legacy ambiguous zones
+        if (tz.startsWith("Etc/GMT") || tz.includes(" ")) return false;
+        return true;
+      },
+      {
+        message: "Invalid or unsupported IANA timezone identifier",
+      },
+    ),
 });
 
 export const getTenantSettingsHandler = factory.createHandlers(
@@ -64,25 +80,32 @@ export const updateTenantSettingsHandler = factory.createHandlers(
 
     try {
       const data = await withTenantContext(tenantId, async (tx) => {
+        // Read with row lock to prevent race conditions on concurrent saves (G4)
         const [before] = await tx
           .select({
             defaultTimezone: tenantSettings.defaultTimezone,
           })
           .from(tenantSettings)
           .where(eq(tenantSettings.tenantId, tenantId))
+          .for("update")
           .limit(1);
+
+        // Canonicalize valid timezone identifiers (e.g. "asia/kolkata" -> canonical IANA zone) (G5)
+        const canonicalTimezone = defaultTimezone
+          ? canonicalizeTimezone(defaultTimezone)
+          : null;
 
         const [row] = await tx
           .insert(tenantSettings)
           .values({
             tenantId,
-            defaultTimezone,
+            defaultTimezone: canonicalTimezone,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
             target: tenantSettings.tenantId,
             set: {
-              defaultTimezone,
+              defaultTimezone: canonicalTimezone,
               updatedAt: new Date(),
             },
           })
@@ -92,16 +115,20 @@ export const updateTenantSettingsHandler = factory.createHandlers(
           throw new Error("Failed to save tenant settings");
         }
 
-        await writeAuditEntry(tx, {
-          tenantId,
-          actorId: userId,
-          actorType: "user",
-          resourceType: "tenant_settings",
-          resourceId: tenantId,
-          action: "updated",
-          beforeSnapshot: { defaultTimezone: before?.defaultTimezone ?? null },
-          afterSnapshot: { defaultTimezone: row.defaultTimezone },
-        });
+        // Only write audit entry if the setting actually changed (G4)
+        const previousTimezone = before?.defaultTimezone ?? null;
+        if (previousTimezone !== row.defaultTimezone) {
+          await writeAuditEntry(tx, {
+            tenantId,
+            actorId: userId,
+            actorType: "user",
+            resourceType: "tenant_settings",
+            resourceId: tenantId,
+            action: "updated",
+            beforeSnapshot: { defaultTimezone: previousTimezone },
+            afterSnapshot: { defaultTimezone: row.defaultTimezone },
+          });
+        }
 
         return {
           defaultTimezone: row.defaultTimezone,

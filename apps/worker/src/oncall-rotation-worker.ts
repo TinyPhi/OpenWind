@@ -89,7 +89,7 @@ interface GenerationResult {
   capped: boolean;
 }
 
-async function generateForRotation(
+export async function generateForRotation(
   tenantId: string,
   rotationId: string,
   now: Date,

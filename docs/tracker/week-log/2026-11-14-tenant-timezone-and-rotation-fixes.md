@@ -37,17 +37,43 @@
 
 ---
 
-## 2. Test Coverage
+## 2. Review Follow-up & Fixes (PR #1187 Review Head `3217a85c`)
+
+- **M1 & M2 & S4 (Schedule PATCH Atomicity & Window Deletion)**:
+  - Ensured all validations (`already_started`, `end_in_past`, `bad_window`, member checks, `not_a_rotation`, `team_deleted`, `no_members`, missing rotation row) run **before** any database mutations.
+  - Passed `exceptId: id` to `releaseUpcomingWindows` so stopping a rotation from an upcoming window preserves the edited window as a one-off rather than deleting it and returning 404.
+  - If a schedule row vanishes during update, throws `ScheduleNotFoundError` which rolls back the transaction while mapping to HTTP 404.
+- **M3 (Migration Analytics Annotation)**:
+  - Added `-- analytics: excluded (tenant configuration, not business data)` to `packages/db/migrations/0164_tenant_settings.sql`, satisfying `check-analytics-annotations`.
+- **G1 & S1 & S2 (DST Semantics & Host TZ Independence)**:
+  - In `packages/teams/src/rotation-timezone.ts`, removed dependence on process host timezone by deriving UTC offsets purely via UTC components.
+  - Implemented RFC 5545 / Temporal compatible disambiguation for spring-forward gap (advances past gap) and fall-back overlap (picks earlier occurrence).
+  - Anchored window planning and projection to `input.nextStartsAt` so 1-hour gap adjustments on transition days do not permanently drift future shift handoffs.
+  - Cached `Intl.DateTimeFormat` per timezone and preserved timestamp milliseconds.
+- **G2 (Whole Cycle Matching)**:
+  - Updated whole cycle predicate in `apps/api/src/lib/rotation-windows.ts` to `diffFromDayMultiple <= 3_600_000`, matching Admin UI roster logic and supporting 30-minute DST shifts (`Australia/Lord_Howe`) and millisecond variances.
+- **G3 (Schedule Rules Modal Timezone Guard)**:
+  - Guarded `tenant-settings` fetch in `ScheduleFormModal` with an ignore flag and checked `prev.timezone === "UTC"` so user-selected timezones are not overwritten by late responses.
+- **G4 & G5 (Tenant Settings Audit Lock & Timezone Normalization)**:
+  - Added `for("update")` row lock on before-snapshot in `PATCH /admin/tenant-settings`.
+  - Skipped writing duplicate audit entries on no-op saves.
+  - Canonicalized timezone strings via `Intl.DateTimeFormat.resolvedOptions().timeZone` and rejected invalid/inverted `Etc/GMT` zones.
+- **S5 & S6 (i18n & Roster UI Local Timezone)**:
+  - Documented that Roster UI displays and calculates in the local operator's browser timezone. Translation follow-ups for non-English `settings.*` keys are tracked under #200.
+
+---
+
+## 3. Test Coverage
 
 - **Isolation Tests**: `apps/api/tests/isolation/tenant-settings.isolation.test.ts` (verifies cross-tenant RLS enforcement).
 - **Unit Tests**:
-  - `packages/teams/src/rotation-timezone.test.ts` (6 tests across Spring forward, Fall back, and leap years).
-  - `packages/teams/src/rotation.test.ts` (27 tests passing).
-  - `apps/worker/src/oncall-rotation-worker.test.ts` (5 tests passing).
-  - `apps/api/src/routes/admin/tenant-settings.test.ts` (7 tests passing).
-  - `apps/api/src/routes/admin/on-call-schedules.test.ts` (36 tests passing, including atomic rotation status updates).
-  - `apps/api/src/routes/admin/on-call-rotations.test.ts` (22 tests passing).
+  - `packages/teams/src/rotation-timezone.test.ts` (15 tests passing across Spring forward gap, Fall back overlap, Lord Howe 30m DST, Sydney, Kathmandu 45m, Havana midnight, millisecond preservation, 1-day/3-day transition cycles).
+  - `packages/teams/src/rotation.test.ts` (28 tests passing, including anchored multi-window transitions without permanent drift).
+  - `apps/worker/src/oncall-rotation-worker.test.ts` (7 tests passing, verifying tenant timezone propagation).
+  - `apps/api/src/routes/admin/tenant-settings.test.ts` (10 tests passing, including canonicalization and no-op audit skipping).
+  - `apps/api/src/routes/admin/on-call-schedules.test.ts` (38 tests passing, covering M1/M2 atomicity and `exceptId`).
+  - `apps/api/src/routes/admin/on-call-rotations.test.ts` (23 tests passing, covering tenant timezone projection).
   - `apps/admin-ui/src/pages/settings.test.tsx` (5 tests passing).
-  - `apps/admin-ui/src/pages/schedule-rules/index.test.tsx` (23 tests passing).
+  - `apps/admin-ui/src/pages/schedule-rules/index.test.tsx` (24 tests passing, covering G3 async race conditions).
   - `apps/admin-ui/src/pages/roster/index.test.tsx` (27 tests passing).
   - `apps/admin-ui/src/locales/locale-completeness.test.ts` (22 tests passing with 100% key parity across all 11 locales).

@@ -748,6 +748,7 @@ function RuleFormModal({
     rule && !isCronRepresentableByPicker(rule.cronExpr) ? rule.cronExpr : null;
 
   useEffect(() => {
+    let ignore = false;
     if (open) {
       if (rule) {
         setFormData(initialRuleFormData(rule));
@@ -755,21 +756,33 @@ function RuleFormModal({
         setFormData(initialRuleFormData(undefined, "UTC"));
         void fetchWithAuth(`${API_URL}/admin/tenant-settings`)
           .then((res) => {
-            const resData = res as {
-              data?: { defaultTimezone?: string | null };
-            };
-            const tz = resData.data?.defaultTimezone;
+            if (ignore) return;
+            const resData = res as
+              | { data?: { defaultTimezone?: string | null } }
+              | null
+              | undefined;
+            const tz = resData?.data?.defaultTimezone;
             if (tz) {
-              setFormData((prev) => ({
-                ...prev,
-                timezone: tz,
-              }));
+              setFormData((prev) => {
+                // Only default if user has not already picked another timezone
+                if (prev.timezone === "UTC") {
+                  return { ...prev, timezone: tz };
+                }
+                return prev;
+              });
             }
           })
-          .catch(() => {});
+          .catch((err: unknown) => {
+            if (!ignore) {
+              console.warn("Failed to fetch tenant default timezone:", err);
+            }
+          });
       }
       setError(null);
     }
+    return () => {
+      ignore = true;
+    };
   }, [open, rule]);
 
   function updateField<K extends keyof RuleFormData>(

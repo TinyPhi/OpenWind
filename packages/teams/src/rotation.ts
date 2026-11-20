@@ -114,7 +114,9 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
       ? input.escalationManager
       : null;
 
-  let startMs = input.nextStartsAt.getTime();
+  const anchor = input.nextStartsAt;
+  let currentStart = input.nextStartsAt;
+  let startMs = currentStart.getTime();
   let previous = input.previous;
   const windows: GeneratedWindow[] = [];
   let skippedEnded = 0;
@@ -137,14 +139,14 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
       steps++;
       const next = nextAssignment(input.members, previous) as NextAssignment; // members is non-empty here
       const end = addCalendarDays(
-        new Date(startMs),
-        input.cycleDays,
+        anchor,
+        steps * input.cycleDays,
         input.timeZone,
       );
       const endMs = end.getTime();
       if (endMs > nowMs) {
         windows.push({
-          startsAt: new Date(startMs),
+          startsAt: currentStart,
           endsAt: end,
           primary: next.primary,
           backup: next.backup,
@@ -154,6 +156,7 @@ export function planWindows(input: PlanWindowsInput): PlanWindowsResult {
         skippedEnded++;
       }
       previous = next;
+      currentStart = end;
       startMs = endMs;
     }
   }
@@ -197,24 +200,25 @@ export function projectWindows(input: ProjectWindowsInput): GeneratedWindow[] {
       ? input.escalationManager
       : null;
   const out: GeneratedWindow[] = [];
-  let startMs = input.nextStartsAt.getTime();
+  const anchor = input.nextStartsAt;
+  let currentStart = input.nextStartsAt;
+  let startMs = currentStart.getTime();
   let previous = input.previous;
+  let step = 0;
   while (out.length < input.count && startMs < startLimitMs) {
     const next = nextAssignment(input.members, previous);
     if (!next) break;
-    const end = addCalendarDays(
-      new Date(startMs),
-      input.cycleDays,
-      input.timeZone,
-    );
+    step++;
+    const end = addCalendarDays(anchor, step * input.cycleDays, input.timeZone);
     out.push({
-      startsAt: new Date(startMs),
+      startsAt: currentStart,
       endsAt: end,
       primary: next.primary,
       backup: next.backup,
       escalationManager,
     });
     previous = next;
+    currentStart = end;
     startMs = end.getTime();
   }
   return out;

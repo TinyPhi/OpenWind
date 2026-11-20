@@ -34,6 +34,7 @@ vi.mock("@platform/db", () => ({
       select: () => tx,
       from: () => tx,
       where: () => tx,
+      for: () => tx,
       limit: () => Promise.resolve(storedSetting ? [storedSetting] : []),
       insert: () => tx,
       values: (val: { defaultTimezone: string | null }) => {
@@ -163,6 +164,43 @@ describe("PATCH /admin/tenant-settings", () => {
     });
 
     expect(res.status).toBe(400);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("canonicalizes valid non-canonical timezone identifiers", async () => {
+    storedSetting = { defaultTimezone: null };
+    const res = await makeApp().request("/admin/tenant-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultTimezone: "utc" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: { defaultTimezone: "UTC" },
+    });
+  });
+
+  it("rejects inverted Etc/GMT timezone identifiers", async () => {
+    const res = await makeApp().request("/admin/tenant-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultTimezone: "Etc/GMT+5" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("skips writing audit entry on no-op save", async () => {
+    storedSetting = { defaultTimezone: "Europe/Berlin" };
+    const res = await makeApp().request("/admin/tenant-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultTimezone: "Europe/Berlin" }),
+    });
+
+    expect(res.status).toBe(200);
     expect(mockAudit).not.toHaveBeenCalled();
   });
 });
