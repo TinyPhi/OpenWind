@@ -2,8 +2,9 @@
 
 The runbook attests what reaches stdout and stderr, so these pin the behaviour it describes:
 the audit-failure log carries no SQL or bound parameters, no logger call names a login name or an
-email, and both compose files rotate the container logs and keep the query string out of the
-gunicorn access log.
+email or writes a traceback, and Flask-AppBuilder's sign-in errors lose their values. The compose
+files (log rotation, the access-log format) are pinned in apps/worker/src/superset-compose-logging.test.ts,
+because this file also runs in the built-image harness, which mounts only docker/superset.
 
 Run: python3 -m unittest docker/superset/test_log_hygiene.py
 """
@@ -18,7 +19,6 @@ from pathlib import Path
 from test_audit_mapping import ENV, load_config
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
 
 
 class AuditFailureLog(unittest.TestCase):
@@ -101,6 +101,19 @@ class AuditFailureLog(unittest.TestCase):
         self.assertNotIn("zitadel-subject-42", text)
         self.assertIsNone(captured.records[0].exc_info)
 
+    def test_error_type_logging_says_where_the_error_was_raised_without_its_text(self):
+        def raiser():
+            raise RuntimeError("[parameters: {'owsub': 'owsub:zitadel-subject-42'}]")
+
+        try:
+            raiser()
+        except RuntimeError as exc:
+            with self.assertLogs(self.config.logger, level="ERROR") as captured:
+                self.config.log_error_type("failed: %s", exc, "x")
+        text = "\n".join(captured.output)
+        self.assertRegex(text, r"failed: x \(RuntimeError at test_log_hygiene\.py:\d+\)")
+        self.assertNotIn("zitadel-subject-42", text)
+
     def test_flask_appbuilder_sign_in_logs_keep_the_message_and_lose_the_values(self):
         for name, message, value in (
             (
@@ -144,44 +157,6 @@ class AuditFailureLog(unittest.TestCase):
         source = (HERE / "superset_config.py").read_text()
         self.assertIn("log_audit_write_failure(mapped, exc)", source)
         self.assertNotIn("failed to record '%s' in the platform audit store\", mapped", source)
-
-
-def superset_block(compose_text: str) -> str:
-    """The text of the `superset:` service, up to the next service."""
-    match = re.search(r"^  superset:\n(.*?)(?=^  [a-z][a-z0-9-]*:\n)", compose_text, re.S | re.M)
-    assert match, "no superset service found"
-    return match.group(1)
-
-
-ACCESS_LOG_FORMAT = "%(m)s %(U)s %(s)s %(D)s"
-
-
-class ComposeLogSettings(unittest.TestCase):
-    base = (REPO / "docker-compose.yml").read_text()
-    prod = (REPO / "docker-compose.prod.yml").read_text()
-
-    def test_the_container_logs_are_rotated_by_size(self):
-        block = superset_block(self.base)
-        self.assertRegex(block, r"logging:\n\s+driver: json-file")
-        self.assertRegex(block, r'max-size: "10m"')
-        self.assertRegex(block, r'max-file: "5"')
-
-    def test_the_prod_override_does_not_replace_the_logging_options(self):
-        # docker-compose.prod.yml overrides `environment` and `networks` wholesale but not `logging`,
-        # so the base options stay in force; a `logging:` there would silently replace them.
-        self.assertNotRegex(superset_block(self.prod), r"^    logging:", re.M)
-
-    def test_both_files_keep_the_query_string_out_of_the_access_log(self):
-        # The prod file replaces `environment` with `!override`, so each file has to set it.
-        for name, text in (("base", self.base), ("prod", self.prod)):
-            with self.subTest(file=name):
-                block = superset_block(text)
-                match = re.search(r"GUNICORN_CMD_ARGS: \"(.*)\"", block)
-                self.assertIsNotNone(match, f"{name}: GUNICORN_CMD_ARGS not set")
-                args = match.group(1)
-                self.assertIn(f"--access-logformat '{ACCESS_LOG_FORMAT}'", args)
-                for field in ("%(q)s", "%(r)s", "%(f)s", "%(a)s", "%(h)s", "%(u)s", "%(l)s"):
-                    self.assertNotIn(field, args)
 
 
 if __name__ == "__main__":

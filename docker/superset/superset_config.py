@@ -14,6 +14,7 @@ import logging
 import json
 import os
 import re
+import traceback
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
@@ -649,15 +650,28 @@ for _fab_logger in (
     logging.getLogger(_fab_logger).addFilter(_ScrubFabSecurityLogs())
 
 
+def _failure_location(exc: BaseException) -> str:
+    """` at file.py:123` for the innermost frame of `exc`, or "" when it has no traceback.
+
+    The place an error happened is what an operator needs and carries no data, unlike the exception
+    text, so it is kept when the text and the traceback are dropped.
+    """
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return ""
+    last = frames[-1]
+    return f" at {os.path.basename(last.filename)}:{last.lineno}"
+
+
 def log_error_type(message: str, exc: BaseException, *args: object) -> None:
     """Logs an error with the exception's type, never its text or traceback.
 
     A SQLAlchemy `DBAPIError` message includes the statement's bound parameters, and nothing in this
     deployment sets `hide_parameters`, so a traceback written during a database error can carry a
     subject id, a username, an email or SQL text (#1140). `message` takes `%s` placeholders for
-    `args`, and the type name is appended.
+    `args`; the exception type and the file and line it was raised at are appended.
     """
-    logger.error(message + " (%s)", *args, type(exc).__name__)
+    logger.error(message + " (%s%s)", *args, type(exc).__name__, _failure_location(exc))
 
 
 def log_audit_write_failure(action: str, exc: BaseException) -> None:

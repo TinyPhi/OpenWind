@@ -326,9 +326,10 @@ What Superset writes to its container stdout and stderr, **from code and config*
   runs upstream `run-server.sh`, which passes only `--access-logfile`; both compose files set
   `GUNICORN_CMD_ARGS="--access-logformat '%(m)s %(U)s %(s)s %(D)s'"`. The default format would write the whole request
   line, and Superset's GET endpoints carry filter values and ad-hoc SQL in `q=` and `form_data=`. The client address and
-  the referer are not logged. Pinned by `docker/superset/test_log_hygiene.py`.
+  the referer are not logged. Pinned by `apps/worker/src/superset-compose-logging.test.ts`.
 - **Erasure endpoints** log the tenant id and `yes` or `whole-tenant` for the subject, never the subject id, and a failure
-  logs the exception **type** only (`log_error_type`): the exception text carries the bound `owsub:<subject>` parameter.
+  logs the exception **type** and the file and line it was raised at (`log_error_type`), never its text or traceback: the
+  exception text carries the bound `owsub:<subject>` parameter.
   Every failure log in `superset_config.py` is type-only, and a test forbids `logger.exception` and `exc_info` there.
 - **Flask-AppBuilder's own sign-in and user-management errors** log values: the whole `userinfo` dict, the username, an
   email address and the text of a failed `add_user`, at ERROR, which `SILENCE_FAB` does not hide. A logging filter on

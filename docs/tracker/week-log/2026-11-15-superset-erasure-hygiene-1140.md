@@ -52,9 +52,16 @@ This entry records what the code and runbook now say.
   `removeOnFail: { age: 1 }` and a failure older than 24 hours is still there with its payload when nothing else fails (the
   premise); the cleanup removes it, payload included; a job that failed inside the retention stays and goes once older; a job
   created long ago that failed just now is kept (age is `finishedOn`, not creation).
-- `docker/superset/test_log_hygiene.py`: the audit-failure log has no SQL, parameters or traceback; no `logger` call names a
-  login name or email (checked on the syntax tree); both compose files pin the rotation and the access-log format. Five of
-  its six tests fail against `main`'s config.
+- `docker/superset/test_log_hygiene.py` (runs in the built-image harness too): the audit-failure log has no SQL, parameters or
+  traceback; every failure log is type-only with the place it was raised; no `logger` call names a login name or email or
+  writes a traceback (checked on the syntax tree); Flask-AppBuilder's sign-in errors keep their message and lose their values.
+  Seven of its eight tests fail against `main`'s config.
+- `apps/worker/src/superset-compose-logging.test.ts`: both compose files keep the log rotation and the path-only access-log
+  format (three of its four tests fail against `main`'s compose files). This is a vitest, not a Python test, because the
+  built-image harness mounts only `docker/superset` and CI's host Python step runs a single file.
+- `docker/superset/test_sqllab_identity.py`: the #806 test that asserted a logged traceback now asserts the exception type and
+  location and the absence of its text. It needs Flask and Superset, so it only runs in CI's built image; the first push of this
+  PR failed there on that test and on the compose tests reading files the harness cannot see, both fixed.
 - `apps/worker/src/superset-erasure-removal-paths.test.ts`: a best-effort tripwire on the files that mention `deleteUser`,
   `deleteOrg` or delete `tenant_users`. It matches the identifier, so an aliased import, a method call, a function reference and a
   re-export all fail it (each verified); it does not track a new wrapper in an already-listed file.
