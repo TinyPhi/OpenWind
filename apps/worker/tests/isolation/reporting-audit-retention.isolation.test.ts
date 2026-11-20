@@ -5,7 +5,9 @@
  *
  * Verifies:
  * - app_user cannot DELETE reporting rows directly (append-only audit log).
- * - reporting_audit_retention_role can delete reporting.* rows older than cap.
+ * - reporting_audit_retention_role can delete reporting.* rows older than the 30-day floor.
+ * - reporting_audit_retention_role cannot see or delete a reporting row younger than the floor,
+ *   whatever window the caller asks for.
  * - reporting_audit_retention_role cannot see or delete non-reporting rows.
  * - reporting_audit_retention_role cannot INSERT, UPDATE, or touch other tables.
  * - reporting_audit_retention_role is NOLOGIN, NOT BYPASSRLS, and app_user
@@ -129,6 +131,62 @@ describe("reporting_audit_retention_role (migration 0164, #1139)", () => {
     await expectDenied(AS_APP_USER, DELETE_AUDIT);
   });
 
+  it("reporting_audit_retention_role cannot see or delete a reporting row younger than the 30-day floor", async () => {
+    const counts = await db.transaction(async (tx) => {
+      await setReportingAuditRetentionRole(tx);
+      const seen = await tx.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM admin_audit_log
+            WHERE tenant_id = ${TENANT_ID} AND action LIKE 'reporting.%'
+              AND created_at > now() - interval '30 days'`,
+      );
+      const del = await tx.execute<{ n: number }>(
+        sql`WITH d AS (DELETE FROM admin_audit_log WHERE tenant_id = ${TENANT_ID}
+            AND action LIKE 'reporting.%' AND created_at > now() - interval '30 days'
+            RETURNING 1) SELECT count(*)::int AS n FROM d`,
+      );
+      return { seen: seen[0]?.n, deleted: del[0]?.n };
+    });
+    expect(counts).toEqual({ seen: 0, deleted: 0 });
+
+    const [stillThere] = await db.execute<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM admin_audit_log
+          WHERE tenant_id = ${TENANT_ID} AND actor_id = 'rep-user-recent'`,
+    );
+    expect(stillThere?.n).toBe(1);
+  });
+
+  it("a sweep asked for a 1-day window still leaves reporting rows younger than the floor", async () => {
+    await runReportingAuditRetentionSweep(1);
+    const [stillThere] = await db.execute<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM admin_audit_log
+          WHERE tenant_id = ${TENANT_ID} AND actor_id = 'rep-user-recent'`,
+    );
+    expect(stillThere?.n).toBe(1);
+  });
+
+  it("reporting_audit_retention_role can delete a reporting row just past the floor", async () => {
+    const [pastFloor] = await db
+      .insert(adminAuditLog)
+      .values({
+        tenantId: TENANT_ID,
+        actorId: "rep-user-past-floor",
+        actorType: "user",
+        resourceType: "dashboard",
+        resourceId: RESOURCE_ID,
+        action: "reporting.exported",
+        createdAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      })
+      .returning({ id: adminAuditLog.id });
+    const deleted = await db.transaction(async (tx) => {
+      await setReportingAuditRetentionRole(tx);
+      return tx.execute<{ n: number }>(
+        sql`WITH d AS (DELETE FROM admin_audit_log
+            WHERE id = ${pastFloor?.id} RETURNING 1) SELECT count(*)::int AS n FROM d`,
+      );
+    });
+    expect(deleted[0]?.n).toBe(1);
+  });
+
   it("reporting_audit_retention_role can delete reporting rows", async () => {
     const marker = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
     await db.insert(adminAuditLog).values({
@@ -210,6 +268,46 @@ describe("reporting_audit_retention_role (migration 0164, #1139)", () => {
             AND member = 'app_user'::regrole`,
     );
     expect(m?.inherit_option).toBe(false);
+  });
+
+  it("keeps the same bounds when app.tenant_id was set before the role switch", async () => {
+    // Keep this the last test that reads admin_audit_log: set_config leaves app.tenant_id as ''
+    // on the pooled connection afterwards, and audit_log_tenant_isolation casts it to uuid with
+    // no NULLIF, so later role-switched reads of rows the role policy rejects would throw.
+    // audit_log_tenant_isolation applies to every role and permissive policies are OR'd, so a
+    // restrictive policy has to carry the bound for a session that set the tenant first.
+    const [pastFloor] = await db
+      .insert(adminAuditLog)
+      .values({
+        tenantId: TENANT_ID,
+        actorId: "rep-user-tenant-set",
+        actorType: "user",
+        resourceType: "dashboard",
+        resourceId: RESOURCE_ID,
+        action: "reporting.exported",
+        createdAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+      })
+      .returning({ id: adminAuditLog.id });
+
+    const deleted = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('app.tenant_id', ${TENANT_ID}, true)`,
+      );
+      await setReportingAuditRetentionRole(tx);
+      return tx.execute<{ id: string }>(
+        sql`DELETE FROM admin_audit_log WHERE tenant_id = ${TENANT_ID} RETURNING id`,
+      );
+    });
+    expect(deleted.map((r) => r.id)).toEqual([pastFloor?.id]);
+
+    const remaining = await db
+      .select({ actorId: adminAuditLog.actorId })
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_ID));
+    expect(remaining.map((r) => r.actorId).sort()).toEqual([
+      "core-user-old",
+      "rep-user-recent",
+    ]);
   });
 });
 

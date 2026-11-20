@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   type DbOrTx,
@@ -96,15 +96,14 @@ export const USER_REFERENCE_COLUMNS_EXEMPT: Readonly<Record<string, string>> = {
 };
 
 /**
- * Deterministic pseudonymous actor identifier for reporting.* audit rows (ADR-019 criterion 12, #1139).
- * Preserves cross-query attribution without storing readable subject or user id.
+ * Pseudonymous actor identifier for reporting.* audit rows (ADR-019 criterion 12, #1139).
+ * Random per erase, never derived from the user id: the id stays on the user's other audit
+ * rows, so any function of it would let those rows re-identify the pseudonymised ones.
+ * All of the erased user's reporting rows in one tenant share the token, which keeps them
+ * correlatable with each other; it does not link across tenants.
  */
-export function pseudonymiseActorId(actorId: string): string {
-  const hash = createHash("sha256")
-    .update(actorId, "utf8")
-    .digest("hex")
-    .slice(0, 16);
-  return `pseudonym:${hash}`;
+export function newReportingPseudonym(): string {
+  return `pseudonym:${randomBytes(16).toString("hex")}`;
 }
 
 export async function pseudonymiseReportingAuditActor(
@@ -112,20 +111,23 @@ export async function pseudonymiseReportingAuditActor(
   tenantId: string,
   targetUserId: string,
 ): Promise<number> {
-  const pseudonym = pseudonymiseActorId(targetUserId);
+  const pseudonym = newReportingPseudonym();
   let updatedCount = 0;
   await tx.transaction(async (sp) => {
     await sp.execute(sql`SET LOCAL ROLE tenant_purge_role`);
     const res = await sp.execute<{ count: number }>(sql`
       WITH updated AS (
         UPDATE admin_audit_log
-        SET actor_id = ${pseudonym},
+        SET actor_id = CASE
+              WHEN actor_id = ${targetUserId} THEN ${pseudonym}
+              ELSE actor_id
+            END,
             acting_person_id = CASE
               WHEN acting_person_id = ${targetUserId} THEN ${pseudonym}
               ELSE acting_person_id
             END
         WHERE tenant_id = ${tenantId}::uuid
-          AND (actor_id = ${targetUserId} OR actor_id = ${"owsub:" + targetUserId} OR acting_person_id = ${targetUserId})
+          AND (actor_id = ${targetUserId} OR acting_person_id = ${targetUserId})
           AND action LIKE 'reporting.%'
         RETURNING 1
       )

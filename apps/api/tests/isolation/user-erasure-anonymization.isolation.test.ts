@@ -5,6 +5,7 @@
  * redacted instead of deleting them. Runs the real eraseUserFromTenant in the
  * route's exact context (withTenantContext, app.user_id unset).
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -61,6 +62,9 @@ let soonKeyId: string;
 let reportingAuditId: string;
 let otherReportingAuditId: string;
 let generalAuditId: string;
+let secondReportingAuditId: string;
+let actingPersonOnlyAuditId: string;
+let bystanderReportingAuditId: string;
 const soonExpiry = new Date(Date.now() + 2 * 86_400_000);
 let erasureResult: UserErasureResult;
 let boundaryCommentId: string;
@@ -369,6 +373,53 @@ beforeAll(async () => {
   if (!otherReportingRow) throw new Error("seed: other reporting audit");
   otherReportingAuditId = otherReportingRow.id;
 
+  const [secondReportingRow] = await db
+    .insert(adminAuditLog)
+    .values({
+      tenantId: TENANT,
+      actorId: TARGET,
+      actorType: "user",
+      resourceType: "reporting",
+      resourceId: AUDIT_RESOURCE,
+      action: "reporting.exported",
+      metadata: { sql: "SELECT 3" },
+    })
+    .returning();
+  if (!secondReportingRow) throw new Error("seed: second reporting audit");
+  secondReportingAuditId = secondReportingRow.id;
+
+  const [actingPersonOnlyRow] = await db
+    .insert(adminAuditLog)
+    .values({
+      tenantId: TENANT,
+      actorId: OTHER,
+      actingPersonId: TARGET,
+      actorType: "user",
+      resourceType: "reporting",
+      resourceId: AUDIT_RESOURCE,
+      action: "reporting.query_executed",
+      metadata: { sql: "SELECT 4" },
+    })
+    .returning();
+  if (!actingPersonOnlyRow) throw new Error("seed: acting person audit");
+  actingPersonOnlyAuditId = actingPersonOnlyRow.id;
+
+  const [bystanderReportingRow] = await db
+    .insert(adminAuditLog)
+    .values({
+      tenantId: BYSTANDER,
+      actorId: TARGET,
+      actorType: "user",
+      resourceType: "reporting",
+      resourceId: AUDIT_RESOURCE,
+      action: "reporting.query_executed",
+      metadata: { sql: "SELECT 5" },
+    })
+    .returning();
+  if (!bystanderReportingRow)
+    throw new Error("seed: bystander reporting audit");
+  bystanderReportingAuditId = bystanderReportingRow.id;
+
   const [generalAuditRow] = await db
     .insert(adminAuditLog)
     .values({
@@ -579,7 +630,7 @@ describe("per-user erasure anonymizes rather than deletes (#688)", () => {
       .from(adminAuditLog)
       .where(eq(adminAuditLog.id, reportingAuditId));
     expect(reporting?.actorId).not.toBe(TARGET);
-    expect(reporting?.actorId).toMatch(/^pseudonym:[0-9a-f]{16}$/);
+    expect(reporting?.actorId).toMatch(/^pseudonym:[0-9a-f]{32}$/);
 
     // Other user's reporting row is untouched
     const [other] = await db
@@ -607,5 +658,51 @@ describe("per-user erasure anonymizes rather than deletes (#688)", () => {
         ),
       );
     expect(targetReportingRows).toHaveLength(0);
+  });
+
+  it("gives all of the erased user's reporting rows in the tenant one shared pseudonym", async () => {
+    const [first] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, reportingAuditId));
+    const [second] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, secondReportingAuditId));
+    expect(second?.actorId).toMatch(/^pseudonym:[0-9a-f]{32}$/);
+    expect(second?.actorId).toBe(first?.actorId);
+  });
+
+  it("does not derive the pseudonym from the user id", async () => {
+    const [reporting] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, reportingAuditId));
+    const token = (reporting?.actorId ?? "").replace("pseudonym:", "");
+    const inputs = [TARGET, `owsub:${TARGET}`, `${TENANT}:${TARGET}`];
+    for (const alg of ["sha256", "sha1", "md5"]) {
+      for (const input of inputs) {
+        const digest = createHash(alg).update(input).digest("hex");
+        expect(digest.startsWith(token)).toBe(false);
+        expect(token).not.toBe(digest.slice(0, token.length));
+      }
+    }
+  });
+
+  it("leaves the same user's reporting rows in another tenant untouched", async () => {
+    const [bystander] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, bystanderReportingAuditId));
+    expect(bystander?.actorId).toBe(TARGET);
+  });
+
+  it("pseudonymises acting_person_id without overwriting another actor's actor_id", async () => {
+    const [row] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.id, actingPersonOnlyAuditId));
+    expect(row?.actorId).toBe(OTHER);
+    expect(row?.actingPersonId).toMatch(/^pseudonym:[0-9a-f]{32}$/);
   });
 });

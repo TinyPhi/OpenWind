@@ -209,6 +209,7 @@ describe("tenant purge scrubs person identifiers from audit JSON (#860)", () => 
     expect(
       (r?.metadata as Record<string, unknown> | undefined)?.sql,
     ).toBeUndefined();
+    // Kept on purpose: sql_hash fingerprints the redacted statement, so it carries no literal.
     expect((r?.metadata as Record<string, unknown> | undefined)?.sql_hash).toBe(
       "abcd1234ef567890",
     );

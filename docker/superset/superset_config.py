@@ -390,46 +390,109 @@ def classify_audit_event(action, record):
 
 
 # ─── SQL literal redaction for reporting audit trail (#1139, ADR-019 criterion 11) ────
-# String and numeric literals are stripped from SQL text before a reporting.*
-# audit row is written, so personal data typed into SQL Lab queries is never stored
-# in the audit trail. Comments, quoted identifiers, keywords, table and column names,
-# and statement structure remain intact.
+# String and numeric literals and comment bodies are stripped from SQL text before a
+# reporting.* audit row is written, so personal data typed into SQL Lab queries is
+# never stored in the audit trail. Quoted identifiers, keywords, table and column
+# names, and statement structure remain intact. The scanner fails closed: anything it
+# cannot see the end of (a string, dollar-quote, quoted identifier or block comment)
+# is redacted to the end of the statement. Strings follow Postgres'
+# standard_conforming_strings = on (the default): a backslash escapes a quote only
+# inside E'...'.
+_DIGITS = r"\d+(?:_\d+)*"
+# Postgres identifier and dollar-quote tag characters include every character >= U+0080.
+_NON_ASCII = "\u0080-\U0010ffff"
+_DOLLAR_TAG = rf"\$(?:[A-Za-z_{_NON_ASCII}][A-Za-z0-9_{_NON_ASCII}]*)?\$"
+# A dollar-quote may open right after a digit (`1$a$ ...` is the number 1, then a quote), so
+# digits are not excluded here; an identifier such as `t1$x$` is over-redacted, which is safe.
+_NOT_AFTER_IDENT = rf"(?<![A-Za-z_${_NON_ASCII}])"
 _SQL_TOKEN_RE = re.compile(
-    r"""
-      (?P<BLOCK_COMMENT>/\*[\s\S]*?\*/)
+    rf"""
+      (?P<BLOCK_COMMENT>/\*)
     | (?P<LINE_COMMENT>--[^\r\n]*)
     | (?P<QUOTED_IDENT>"(?:""|[^"])*")
-    | (?P<DOLLAR_STRING>(?P<TAG>\$[a-zA-Z0-9_]*\$)[\s\S]*?(?P=TAG))
-    | (?P<STRING_LITERAL>[eE]?'(?:\\'|''|[^'])*')
-    | (?P<NUMERIC_LITERAL>\b0[xX][0-9a-fA-F]+\b|(?:\b\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\b)
+    | (?P<DOLLAR_STRING>{_NOT_AFTER_IDENT}(?P<TAG>{_DOLLAR_TAG})[\s\S]*?(?P=TAG))
+    | (?P<ESCAPE_STRING>(?<![A-Za-z0-9_${_NON_ASCII}])[eE]'(?:\\[\s\S]|''|[^'\\])*')
+    | (?P<STRING_LITERAL>'(?:''|[^'])*')
+    | (?P<NUMERIC_LITERAL>(?<![\w$])(?:0[xXoObB](?:_?[0-9a-fA-F])+|(?:{_DIGITS}(?:\.(?:{_DIGITS})?)?|\.{_DIGITS})(?:[eE][+-]?{_DIGITS})?)\w*)
+    | (?P<UNTERMINATED>(?<![A-Za-z0-9_${_NON_ASCII}])[eE]'[\s\S]*|{_NOT_AFTER_IDENT}{_DOLLAR_TAG}[\s\S]*|'[\s\S]*|"[\s\S]*)
     | (?P<OTHER>[\s\S])
     """,
     re.VERBOSE,
 )
+# Postgres continues a string across a newline: `E'a'<newline>'b'` is one escape string, and the
+# second piece keeps backslash-escape mode. Only whitespace and `--` comments may sit between.
+_ESCAPE_CONTINUATION_RE = re.compile(r"[ \t\f\r]*(?:--[^\n]*)?\n(?:[ \t\f\r\n]|--[^\n]*)*(?=')")
+_ESCAPE_BODY_RE = re.compile(r"'(?:\\[\s\S]|''|[^'\\])*'")
+
+
+def _block_comment_end(sql: str, start: int) -> int:
+    """Index just past the block comment that opens at `start`; len(sql) if it never closes.
+
+    Postgres nests block comments, so `/* a /* b */ c */` is one comment.
+    """
+    depth = 0
+    i = start
+    n = len(sql)
+    while i < n:
+        if sql.startswith("/*", i):
+            depth += 1
+            i += 2
+        elif sql.startswith("*/", i):
+            depth -= 1
+            i += 2
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return n
 
 
 def redact_sql_literals(sql: str) -> str:
-    """Redacts string and numeric literals from SQL text, preserving structure, comments and identifiers."""
+    """Redacts literals and comment bodies from SQL text, preserving structure and identifiers."""
     if not sql:
         return ""
     pieces = []
-    for m in _SQL_TOKEN_RE.finditer(sql):
+    pos = 0
+    n = len(sql)
+    while pos < n:
+        m = _SQL_TOKEN_RE.match(sql, pos)
         kind = m.lastgroup
-        val = m.group(0)
-        if kind in ("STRING_LITERAL", "DOLLAR_STRING"):
-            pieces.append("'[REDACTED]'")
+        if kind == "BLOCK_COMMENT":
+            pos = _block_comment_end(sql, pos)
+            pieces.append("/* [REDACTED] */")
+            continue
+        pos = m.end()
+        if kind == "ESCAPE_STRING":
+            while cont := _ESCAPE_CONTINUATION_RE.match(sql, pos):
+                body = _ESCAPE_BODY_RE.match(sql, cont.end())
+                pos = body.end() if body else n
+                if not body:
+                    break
+        if kind in ("STRING_LITERAL", "ESCAPE_STRING", "DOLLAR_STRING", "UNTERMINATED"):
+            if kind == "UNTERMINATED" and m.group(0)[0] == '"':
+                pieces.append('"[REDACTED]"')
+            else:
+                pieces.append("'[REDACTED]'")
+        elif kind == "LINE_COMMENT":
+            pieces.append("-- [REDACTED]")
         elif kind == "NUMERIC_LITERAL":
             pieces.append("[REDACTED]")
         else:
-            pieces.append(val)
+            pieces.append(m.group(0))
     return "".join(pieces)
 
 
 def compute_sql_hash(sql: str) -> str:
-    """Deterministic statement hash for audited SQL text."""
+    """Statement fingerprint: sha256 of the redacted, whitespace-normalised SQL.
+
+    Takes raw SQL but hashes only what redaction leaves, so statements that differ
+    only in a literal or a comment share a fingerprint and the hash cannot be used
+    to test guesses against the redacted values (#1139, ADR-019 criterion 11/13).
+    """
     if not sql:
         return ""
-    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+    normalised = re.sub(r"\s+", " ", redact_sql_literals(sql)).strip()
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
 def posted_chart_body():

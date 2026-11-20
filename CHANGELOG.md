@@ -7,10 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security & Privacy
 
-- Redacted string, numeric, hex, and scientific literals from SQL statements before `reporting.*` audit rows are recorded in `admin_audit_log`, preserving statement structure, identifiers, comments, and SHA-256 statement hash (ADR-019 Stage 2 criterion 11, #1139).
-- Pseudonymised actor ID (`pseudonym:<sha256[:16]>`) on `reporting.*` rows during user erasure via `tenant_purge_role`, complying with GDPR without Art. 17(3)(b) exception for security logs under legitimate interest (ADR-019 Stage 2 criterion 12, #1139).
+- Redacted string, numeric, hex and scientific literals and comment bodies from SQL statements before `reporting.*` audit rows are recorded in `admin_audit_log`, preserving statement structure and identifiers (ADR-019 Stage 2 criterion 11, #1139). The redactor fails closed: an unterminated string, dollar-quote, quoted identifier or block comment is redacted to the end of the statement. A backslash escapes a quote only inside `E'...'`, and block comments nest, as in Postgres.
+- `sql_hash` is now a fingerprint of the redacted, whitespace-normalised statement, not of the raw SQL, so it cannot be used to test guesses against redacted values; statements that differ only in a literal or comment share a hash (#1139).
+- On user erasure, `reporting.*` rows for that user in that tenant get one random `pseudonym:<32 hex>` actor, set via `tenant_purge_role`. It is not derived from the user id, so it cannot be re-identified from the user's other audit rows or linked across tenants (ADR-019 Stage 2 criterion 12, #1139). Rows where the user appears only as the acting person keep their own `actor_id`.
 - Ensured tenant purge strips SQL text from audit rows (`metadata = metadata - 'sql'`) (ADR-019 Stage 2 criterion 13, #1139).
-- Introduced configurable retention cap for `reporting.*` rows (`REPORTING_AUDIT_RETENTION_DAYS`, default 90 days), swept atomically in batches via narrow `reporting_audit_retention_role` (migration 0164, ADR-019 Stage 2 criterion 14, #1139).
+- Introduced a retention cap for `reporting.*` rows (`REPORTING_AUDIT_RETENTION_DAYS`, default 90, allowed range 30–90), swept in batches via the narrow `reporting_audit_retention_role` (migration 0164, ADR-019 Stage 2 criterion 14, #1139). The role's policies only expose rows older than 30 days, including for a session that had `app.tenant_id` set before switching role (a restrictive policy carries the bound), so it cannot delete recent reporting audit evidence. The 90-day ceiling exists because the access-log sweep deletes every `admin_audit_log` row older than 90 days.
 
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
