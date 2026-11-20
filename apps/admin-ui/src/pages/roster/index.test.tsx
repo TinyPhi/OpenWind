@@ -479,6 +479,35 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     );
   });
 
+  it("keeps the form open and reloads the roster when the repeat change fails after the window saved (#1161)", async () => {
+    rotations = [ROTATION];
+    await openRotationEdit();
+    const base = mockFetchWithAuth.getMockImplementation();
+    mockFetchWithAuth.mockImplementation((...args: unknown[]) => {
+      const init = args[1] as { method?: string } | undefined;
+      if (
+        String(args[0]).includes("/admin/on-call-rotations/rot-1") &&
+        init?.method === "PATCH"
+      )
+        return Promise.reject(new Error("network down"));
+      return base?.(...args) ?? Promise.resolve({ data: {} });
+    });
+    const reloads = (): number =>
+      mockFetchWithAuth.mock.calls.filter((c) =>
+        String(c[0]).includes("/admin/on-call-rotations?"),
+      ).length;
+    const reloadsBefore = reloads();
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
+    fireEvent.click(screen.getByLabelText("Save changes"));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/The window was saved, but the repeat/),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByLabelText("Save changes")).toBeTruthy();
+    expect(reloads()).toBeGreaterThan(reloadsBefore);
+  });
+
   it("resumes a stopped rotation when repeat is ticked and the window is saved", async () => {
     rotations = [{ ...ROTATION, status: "stopped" }];
     await openRotationEdit();

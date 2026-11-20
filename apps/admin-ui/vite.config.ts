@@ -39,7 +39,9 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             // Vite/Rollup normalises module IDs to forward slashes across all platforms
-            if (id.includes("/locales/")) {
+            // English only: the other locales are dynamic imports (see loadLocale in
+            // src/i18n.ts) and must stay separate chunks to load on demand (#1120).
+            if (id.includes("/locales/en/")) {
               return "locales";
             }
           },

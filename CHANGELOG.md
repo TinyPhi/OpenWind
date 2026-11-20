@@ -13,6 +13,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Ensured tenant purge strips SQL text from audit rows (`metadata = metadata - 'sql'`) (ADR-019 Stage 2 criterion 13, #1139).
 - Introduced a retention cap for `reporting.*` rows (`REPORTING_AUDIT_RETENTION_DAYS`, default 90, allowed range 30–90), swept in batches via the narrow `reporting_audit_retention_role` (migration 0164, ADR-019 Stage 2 criterion 14, #1139). The role's policies only expose rows older than 30 days, including for a session that had `app.tenant_id` set before switching role (a restrictive policy carries the bound), so it cannot delete recent reporting audit evidence. The 90-day ceiling exists because the access-log sweep deletes every `admin_audit_log` row older than 90 days.
 
+## [Unreleased — on-call roster partial-save handling (#1161)]
+
+### Fixed
+
+- Editing a repeating on-call roster no longer leaves the repeat toggle out of sync when the window saves but the repeat change fails: the roster reloads to the persisted state and the form stays open with a retry message (#1161).
+
+## [Unreleased — lazy-load non-English admin-ui locales (#1120)]
+
+### Changed
+
+- Non-English locale bundles are now separate on-demand chunks (`loadLocale` in `apps/admin-ui/src/i18n.ts`) instead of one all-locales chunk preloaded on every page load. Initial-load JS drops from about 431 kB to 205 kB gzip; the entry chunk is unchanged. Only English is bundled up front, and a saved non-English language is loaded before first render (#1120, #200).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed
