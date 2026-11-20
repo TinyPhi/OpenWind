@@ -172,6 +172,16 @@ const EnvSchema = z
     RETENTION_DEFAULT_DAYS: z.coerce.number().int().min(1).default(90),
     RETENTION_COMMENT_DAYS: z.coerce.number().int().min(1).default(365),
     RETENTION_EVIDENCE_DAYS: z.coerce.number().int().min(1).default(2555),
+    // ADR-019 Stage 2 criterion 14 (#1139): reporting.* audit row retention cap (default 90 days).
+    // The floor matches the age bound in migration 0164's RLS policies, so the role could not
+    // delete a younger row anyway. The ceiling is 90 because the access-log sweep deletes every
+    // admin_audit_log row older than 90 days, so a longer window could not be honoured.
+    REPORTING_AUDIT_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(30)
+      .max(90)
+      .default(90),
     RETENTION_BATCH_SIZE: z.coerce
       .number()
       .int()

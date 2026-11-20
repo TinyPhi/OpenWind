@@ -389,6 +389,112 @@ def classify_audit_event(action, record):
     return None
 
 
+# ─── SQL literal redaction for reporting audit trail (#1139, ADR-019 criterion 11) ────
+# String and numeric literals and comment bodies are stripped from SQL text before a
+# reporting.* audit row is written, so personal data typed into SQL Lab queries is
+# never stored in the audit trail. Quoted identifiers, keywords, table and column
+# names, and statement structure remain intact. The scanner fails closed: anything it
+# cannot see the end of (a string, dollar-quote, quoted identifier or block comment)
+# is redacted to the end of the statement. Strings follow Postgres'
+# standard_conforming_strings = on (the default): a backslash escapes a quote only
+# inside E'...'.
+_DIGITS = r"\d+(?:_\d+)*"
+# Postgres identifier and dollar-quote tag characters include every character >= U+0080.
+_NON_ASCII = "\u0080-\U0010ffff"
+_DOLLAR_TAG = rf"\$(?:[A-Za-z_{_NON_ASCII}][A-Za-z0-9_{_NON_ASCII}]*)?\$"
+# A dollar-quote may open right after a digit (`1$a$ ...` is the number 1, then a quote), so
+# digits are not excluded here; an identifier such as `t1$x$` is over-redacted, which is safe.
+_NOT_AFTER_IDENT = rf"(?<![A-Za-z_${_NON_ASCII}])"
+_SQL_TOKEN_RE = re.compile(
+    rf"""
+      (?P<BLOCK_COMMENT>/\*)
+    | (?P<LINE_COMMENT>--[^\r\n]*)
+    | (?P<QUOTED_IDENT>"(?:""|[^"])*")
+    | (?P<DOLLAR_STRING>{_NOT_AFTER_IDENT}(?P<TAG>{_DOLLAR_TAG})[\s\S]*?(?P=TAG))
+    | (?P<ESCAPE_STRING>(?<![A-Za-z0-9_${_NON_ASCII}])[eE]'(?:\\[\s\S]|''|[^'\\])*')
+    | (?P<STRING_LITERAL>'(?:''|[^'])*')
+    | (?P<NUMERIC_LITERAL>(?<![\w$])(?:0[xXoObB](?:_?[0-9a-fA-F])+|(?:{_DIGITS}(?:\.(?:{_DIGITS})?)?|\.{_DIGITS})(?:[eE][+-]?{_DIGITS})?)\w*)
+    | (?P<UNTERMINATED>(?<![A-Za-z0-9_${_NON_ASCII}])[eE]'[\s\S]*|{_NOT_AFTER_IDENT}{_DOLLAR_TAG}[\s\S]*|'[\s\S]*|"[\s\S]*)
+    | (?P<OTHER>[\s\S])
+    """,
+    re.VERBOSE,
+)
+# Postgres continues a string across a newline: `E'a'<newline>'b'` is one escape string, and the
+# second piece keeps backslash-escape mode. Only whitespace and `--` comments may sit between.
+_ESCAPE_CONTINUATION_RE = re.compile(r"[ \t\f\r]*(?:--[^\n]*)?\n(?:[ \t\f\r\n]|--[^\n]*)*(?=')")
+_ESCAPE_BODY_RE = re.compile(r"'(?:\\[\s\S]|''|[^'\\])*'")
+
+
+def _block_comment_end(sql: str, start: int) -> int:
+    """Index just past the block comment that opens at `start`; len(sql) if it never closes.
+
+    Postgres nests block comments, so `/* a /* b */ c */` is one comment.
+    """
+    depth = 0
+    i = start
+    n = len(sql)
+    while i < n:
+        if sql.startswith("/*", i):
+            depth += 1
+            i += 2
+        elif sql.startswith("*/", i):
+            depth -= 1
+            i += 2
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return n
+
+
+def redact_sql_literals(sql: str) -> str:
+    """Redacts literals and comment bodies from SQL text, preserving structure and identifiers."""
+    if not sql:
+        return ""
+    pieces = []
+    pos = 0
+    n = len(sql)
+    while pos < n:
+        m = _SQL_TOKEN_RE.match(sql, pos)
+        kind = m.lastgroup
+        if kind == "BLOCK_COMMENT":
+            pos = _block_comment_end(sql, pos)
+            pieces.append("/* [REDACTED] */")
+            continue
+        pos = m.end()
+        if kind == "ESCAPE_STRING":
+            while cont := _ESCAPE_CONTINUATION_RE.match(sql, pos):
+                body = _ESCAPE_BODY_RE.match(sql, cont.end())
+                pos = body.end() if body else n
+                if not body:
+                    break
+        if kind in ("STRING_LITERAL", "ESCAPE_STRING", "DOLLAR_STRING", "UNTERMINATED"):
+            if kind == "UNTERMINATED" and m.group(0)[0] == '"':
+                pieces.append('"[REDACTED]"')
+            else:
+                pieces.append("'[REDACTED]'")
+        elif kind == "LINE_COMMENT":
+            pieces.append("-- [REDACTED]")
+        elif kind == "NUMERIC_LITERAL":
+            pieces.append("[REDACTED]")
+        else:
+            pieces.append(m.group(0))
+    return "".join(pieces)
+
+
+def compute_sql_hash(sql: str) -> str:
+    """Statement fingerprint: sha256 of the redacted, whitespace-normalised SQL.
+
+    Takes raw SQL but hashes only what redaction leaves, so statements that differ
+    only in a literal or a comment share a fingerprint and the hash cannot be used
+    to test guesses against the redacted values (#1139, ADR-019 criterion 11/13).
+    """
+    if not sql:
+        return ""
+    normalised = re.sub(r"\s+", " ", redact_sql_literals(sql)).strip()
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
+
 def posted_chart_body():
     """The chart-data request body as the browser sent it, or {} when there is none.
 
@@ -514,6 +620,105 @@ def chart_export_detail(record, slice_id, fmt, body=None):
     }
 
 
+class _ScrubFabSecurityLogs(logging.Filter):
+    """Keeps Flask-AppBuilder's sign-in and user-management log messages, drops the values in them.
+
+    FAB 5 logs the whole `userinfo` dict, the username, and an email address at ERROR (for example
+    "OAUTH userinfo does not have username or email %s", "Error creating a new OAuth user %s",
+    "Multiple results found for user with email %s"), and the exception from a failed `add_user`, whose
+    text includes the bound username, email and names. `SILENCE_FAB` only raises the level to ERROR,
+    so these still reach stderr, and in Stage 2 the username is the Zitadel `preferred_username`. Each
+    placeholder becomes `[REDACTED]` and any traceback is dropped, so an operator still sees which
+    step failed (#1140).
+    """
+
+    _PLACEHOLDER = re.compile(r"%[sdr]")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = self._PLACEHOLDER.sub("[REDACTED]", str(record.msg))
+        record.args = ()
+        record.exc_info = None
+        record.exc_text = None
+        return True
+
+
+for _fab_logger in (
+    "flask_appbuilder.security.manager",
+    "flask_appbuilder.security.sqla.manager",
+):
+    logging.getLogger(_fab_logger).addFilter(_ScrubFabSecurityLogs())
+
+
+def log_error_type(message: str, exc: BaseException, *args: object) -> None:
+    """Logs an error with the exception's type, never its text or traceback.
+
+    A SQLAlchemy `DBAPIError` message includes the statement's bound parameters, and nothing in this
+    deployment sets `hide_parameters`, so a traceback written during a database error can carry a
+    subject id, a username, an email or SQL text (#1140). `message` takes `%s` placeholders for
+    `args`, and the type name is appended.
+    """
+    logger.error(message + " (%s)", *args, type(exc).__name__)
+
+
+def log_audit_write_failure(action: str, exc: BaseException) -> None:
+    """Logs that an audit write failed, without the exception's text or traceback.
+
+    A SQLAlchemy `DBAPIError` message includes the statement's bound parameters, and nothing in this
+    deployment sets `hide_parameters`. The parameters here are the audit row's `meta` JSON, whose
+    `sql` field holds the user's SQL Lab query, so logging the exception would write query text to
+    stderr during a brief database outage (#1140). The exception type is enough to triage.
+    """
+    logger.error(
+        "failed to record '%s' in the platform audit store (%s)",
+        action,
+        type(exc).__name__,
+    )
+
+
+def build_reporting_audit_payload(action, record, kwargs=None, user=None, lookup_sql_fn=None):
+    """The `metadata` of one audit row. No database access of its own."""
+    record = record if isinstance(record, dict) else {}
+    kwargs = kwargs if isinstance(kwargs, dict) else {}
+    sql = record.get("sql")
+    withheld = False
+    if not sql and record.get("client_id") and lookup_sql_fn is not None:
+        found = lookup_sql_fn(record.get("client_id"), user)
+        if found is None:
+            sql, withheld = "", True
+        else:
+            sql = found
+    raw_sql = str(sql or "")
+    redacted_sql = redact_sql_literals(raw_sql) if raw_sql else ""
+    payload = {
+        "action": action,
+        # SQL Lab: the query text is the point of the record, "who
+        # exported what", not just "who exported". Truncated so one
+        # pathological query cannot bloat the audit table. Literals are
+        # redacted before storage (#1139, ADR-019 criterion 11). Never taken
+        # from a query the caller does not own (see _lookup_export_sql).
+        "sql": str(redacted_sql)[:4000],
+        "database_id": record.get("database_id") or kwargs.get("database_id"),
+        "schema": record.get("schema"),
+        "client_id": record.get("client_id"),
+        "slice_id": kwargs.get("slice_id"),
+        "duration_ms": kwargs.get("duration_ms"),
+    }
+    if raw_sql:
+        payload["sql_hash"] = compute_sql_hash(raw_sql)
+    if withheld:
+        payload["sql_withheld"] = True
+    if action == "reporting.exported" and not record.get("client_id"):
+        # A chart export: say which chart and dataset, since it has no SQL.
+        payload["export"] = chart_export_detail(
+            record,
+            kwargs.get("slice_id"),
+            # POST shapes carry `result_format`; the GET carries `format`; the
+            # real button's logged record carries neither, so ask the request.
+            record.get("result_format") or record.get("format") or requested_result_format(),
+        )
+    return payload
+
+
 _PRINCIPAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,255}$")
 
 _TENANT_ID_RE = re.compile(
@@ -548,12 +753,12 @@ def _session_user():
         if not getattr(user, "is_authenticated", False):
             return None
         return user
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Still fails closed (no user, so no tenant is stamped), but logged, so an
         # unexpected error here is not mistaken for "this user has no tenant".
-        logger.warning(
+        log_error_type(
             "could not resolve the Superset user for this request; failing closed",
-            exc_info=True,
+            exc,
         )
         return None
 
@@ -738,9 +943,8 @@ def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contr
             # so a genuinely unidentified data query stands out instead of
             # being buried in routine noise.
             logger.info(
-                "reporting connection for '%s' carries no tenant — app.tenant_id "
+                "reporting connection carries no tenant — app.tenant_id "
                 "left unset, so RLS returns no rows",
-                username,
             )
         return sqlalchemy_url, params
 
@@ -1177,9 +1381,11 @@ if _OAUTH_CLIENT_ID:
             # recoverable after the fact. A missing org claim usually means the
             # resourceowner scope was not requested or not granted.
             if not org_id:
+                # The opaque subject id, never `preferred_username`: that is usually a
+                # login name or an email address, and these lines are never erased.
                 logger.warning(
-                    "userinfo for '%s' carried no org claim; claims present: %s",
-                    data.get("preferred_username"),
+                    "userinfo for subject '%s' carried no org claim; claims present: %s",
+                    data.get("sub"),
                     sorted(data.keys()),
                 )
             roles = list(
@@ -1227,8 +1433,8 @@ if _OAUTH_CLIENT_ID:
                             {"org": org_id},
                         ).fetchone()
                 return str(row[0]) if row and row[0] else None
-            except Exception:  # noqa: BLE001
-                logger.exception("tenant lookup failed for org %s", org_id)
+            except Exception as exc:  # noqa: BLE001
+                log_error_type("tenant lookup failed for org %s", exc, org_id)
                 return None
 
         def auth_user_oauth(self, userinfo):
@@ -1306,8 +1512,8 @@ if _OAUTH_CLIENT_ID:
                 user.roles.append(role)
             else:
                 logger.warning(
-                    "login for '%s' resolved to no tenant — session will see no rows",
-                    userinfo.get("username"),
+                    "login for subject '%s' resolved to no tenant — session will see no rows",
+                    userinfo.get("subject_id"),
                 )
 
             # Superset's own session, not the security manager's: FAB moved
@@ -1364,10 +1570,8 @@ if _OAUTH_CLIENT_ID:
                 return
             try:
                 self._append_platform_audit(mapped, record, kwargs)
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    "failed to record '%s' in the platform audit store", mapped
-                )
+            except Exception as exc:  # noqa: BLE001
+                log_audit_write_failure(mapped, exc)
 
         def _lookup_export_sql(self, client_id, user):
             """The SQL behind an SQL Lab export, which the request does not carry.
@@ -1411,39 +1615,9 @@ if _OAUTH_CLIENT_ID:
 
         def build_audit_payload(self, action, record, kwargs, user):
             """The `metadata` of one audit row. No database access of its own."""
-            sql = record.get("sql")
-            withheld = False
-            if not sql and record.get("client_id"):
-                found = self._lookup_export_sql(record.get("client_id"), user)
-                if found is None:
-                    sql, withheld = "", True
-                else:
-                    sql = found
-            payload = {
-                "action": action,
-                # SQL Lab: the query text is the point of the record, "who
-                # exported what", not just "who exported". Truncated so one
-                # pathological query cannot bloat the audit table. Never taken
-                # from a query the caller does not own (see _lookup_export_sql).
-                "sql": str(sql or "")[:4000],
-                "database_id": record.get("database_id") or kwargs.get("database_id"),
-                "schema": record.get("schema"),
-                "client_id": record.get("client_id"),
-                "slice_id": kwargs.get("slice_id"),
-                "duration_ms": kwargs.get("duration_ms"),
-            }
-            if withheld:
-                payload["sql_withheld"] = True
-            if action == "reporting.exported" and not record.get("client_id"):
-                # A chart export: say which chart and dataset, since it has no SQL.
-                payload["export"] = chart_export_detail(
-                    record,
-                    kwargs.get("slice_id"),
-                    # POST shapes carry `result_format`; the GET carries `format`; the
-                    # real button's logged record carries neither, so ask the request.
-                    record.get("result_format") or record.get("format") or requested_result_format(),
-                )
-            return payload
+            return build_reporting_audit_payload(
+                action, record, kwargs, user, lookup_sql_fn=self._lookup_export_sql
+            )
 
         def _append_platform_audit(self, action, record, kwargs):
             from sqlalchemy import text as _text
@@ -1796,12 +1970,15 @@ def _erasure_blueprint():
             result = erase_superset_data(_db.engine, tenant_id, subject)
         except ValueError as err:
             return jsonify({"message": str(err)}), 400
-        except Exception:  # noqa: BLE001
-            # Ids only in the log, as everywhere in this feature. The caller
-            # retries; the operator needs to know which erasure is failing.
-            logger.exception(
+        except Exception as exc:  # noqa: BLE001
+            # The tenant id and whether a subject was named, never the subject id, and the
+            # exception's type only: its text carries the bound `owsub:<subject>` parameter.
+            # The caller retries; the operator needs to know which erasure is failing.
+            log_error_type(
                 "superset erasure failed: tenant=%s subject=%s",
-                tenant_id, "yes" if subject else "whole-tenant",
+                exc,
+                tenant_id,
+                "yes" if subject else "whole-tenant",
             )
             return jsonify({"message": "erasure failed"}), 500
         # Flushed once, by the finishing call, and only when someone was erased:

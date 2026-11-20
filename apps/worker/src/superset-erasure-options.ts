@@ -22,9 +22,20 @@ export function supersetErasureBackoff(attemptsMade: number): number {
   );
 }
 
+/**
+ * How long a failed erasure job, whose payload names the subject, may stay in Redis. BullMQ applies
+ * `removeOnFail.age` lazily: old jobs are trimmed only at the moment another job in the same queue
+ * moves to `failed`, and nothing removes one on a timer. So this bound is enforced by the reconcile
+ * sweep (superset-erasure-failed-cleanup.ts), and `removeOnFail` below is only a second line.
+ */
+export const SUPERSET_ERASURE_FAILED_RETENTION_SECONDS = 86_400;
+
+/** How long a completed erasure job, whose payload also names the subject, may stay in Redis. */
+export const SUPERSET_ERASURE_COMPLETED_RETENTION_SECONDS = 3_600;
+
 export const SUPERSET_ERASURE_JOB_OPTIONS = {
   attempts: SUPERSET_ERASURE_ATTEMPTS,
   backoff: { type: "custom" },
-  removeOnComplete: { age: 3_600 },
-  removeOnFail: { age: 86_400 },
+  removeOnComplete: { age: SUPERSET_ERASURE_COMPLETED_RETENTION_SECONDS },
+  removeOnFail: { age: SUPERSET_ERASURE_FAILED_RETENTION_SECONDS },
 } as const;

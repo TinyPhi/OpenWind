@@ -197,9 +197,10 @@ runs whenever `DATABASE_URL` is set. To prove the lock holds under PgBouncer tra
 create and drop its scratch table.
 
 **Node version.** CI runs Node 22. On Node 25 and later, Node's own `localStorage` global
-replaces jsdom's, and `oidc-client-ts` breaks in `admin-ui` tests (for example,
-`src/pages/reporting.test.tsx` fails with `Cannot read properties of undefined (reading
-'getItem')`). Use Node 22, or set `NODE_OPTIONS=--no-webstorage` for test runs.
+replaces jsdom's (`Cannot read properties of undefined (reading 'getItem')`). The `admin-ui`
+vitest config passes `--no-webstorage` to its test workers on those versions (#1189), so
+`pnpm test` works on any supported Node. If you run jsdom some other way on Node 25 or later and
+see that error, use Node 22 or set `NODE_OPTIONS=--no-webstorage`.
 
 **Clean up** throwaway databases when you're done:
 

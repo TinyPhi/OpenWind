@@ -7,13 +7,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- Bounded failed Superset erasure job retention in Redis (`removeOnFail`) from 7 days to 24 hours (`age: 86_400`) in both worker and API queue configurations (`SUPERSET_ERASURE_JOB_OPTIONS`), fulfilling ADR-019 Stage 2 gate criterion 15 (#1140).
-- Updated ADR-019 ("Negative and mitigations") to reflect that export files do not persist on disk (streaming CSV downloads without Celery or `RESULTS_BACKEND`).
+- Finished Superset erasure jobs, whose payload names the person being erased, are now removed on a schedule: the `superset-erasure-reconcile` sweep (every 5 minutes, in any erasure mode) removes failed jobs more than 24 hours after they failed and completed jobs more than 1 hour after they completed (`cleanSupersetErasureFinishedJobs`). BullMQ's own `removeOnFail.age` (lowered from 7 days to 24 hours in both queue configurations) and `removeOnComplete.age` only trim when another job in the same queue finishes, so neither was a bound by itself; they stay as a second line (ADR-019 Stage 2 criterion 15, #1140).
+
+### Security & Privacy
+
+- Superset process logs hold less personal data. The gunicorn access log no longer carries the query string (both compose files set `GUNICORN_CMD_ARGS` to method, path, status and duration), a failed audit write logs the exception type and no longer its SQL parameters, and every failure log in the Superset config is type-only (the erasure endpoint, the user and tenant lookups), because a traceback carries the bound parameters, which can be a subject id. Sign-in warnings log the opaque Zitadel subject instead of `preferred_username` or an email, and a logging filter on Flask-AppBuilder's `security.manager` and `security.sqla.manager` loggers replaces the values in its own sign-in and user-management errors (the whole `userinfo` dict, the username, an email, a failed `add_user`'s text) with `[REDACTED]`. Container logs are rotated by size (`json-file`, 5 × 10 MB); that bounds their volume, not their age.
 
 ### Added
 
-- Documented enumeration of all user-removal paths (per-user erase, tenant purge, sandbox delete, sandbox reset, sandbox handover, org-directory sync, platform admin) and Superset erasure coverage in `docs/runbooks/superset-erasure.md` (ADR-019 criterion 16, #1140).
-- Documented Superset process log retention and confirmation of absent verbatim SQL logging and export file persistence in `docs/runbooks/superset-erasure.md` (#1140).
+- `docs/runbooks/superset-erasure.md`: a corrected enumeration of every user-removal path with the code it was read from (ADR-019 criterion 16), watched by a best-effort tripwire, `apps/worker/src/superset-erasure-removal-paths.test.ts`, that matches the removal identifiers (an alias, a method call and a re-export count) and fails when a new file mentions them; it adds a platform-admin path marked not yet confirmed and records that a user removed directly in the Zitadel console is not covered; recovery of a failed job now points at the audit log, which outlasts the queue; the process-log and export-file sections state what is confirmed from code and config and mark what is **not yet confirmed** on a running instance, with the commands to confirm it.
+- A promtool case showing `SupersetErasureJobFailedInQueue` resolves when the failed job is removed.
+
+## [Unreleased — redact audited SQL literals, pseudonymise actor, and cap reporting retention (#1139)]
+
+### Security & Privacy
+
+- Redacted string, numeric, hex and scientific literals and comment bodies from SQL statements before `reporting.*` audit rows are recorded in `admin_audit_log`, preserving statement structure and identifiers (ADR-019 Stage 2 criterion 11, #1139). The redactor fails closed: an unterminated string, dollar-quote, quoted identifier or block comment is redacted to the end of the statement. A backslash escapes a quote only inside `E'...'`, and block comments nest, as in Postgres.
+- `sql_hash` is now a fingerprint of the redacted, whitespace-normalised statement, not of the raw SQL, so it cannot be used to test guesses against redacted values; statements that differ only in a literal or comment share a hash (#1139).
+- On user erasure, `reporting.*` rows for that user in that tenant get one random `pseudonym:<32 hex>` actor, set via `tenant_purge_role`. It is not derived from the user id, so it cannot be re-identified from the user's other audit rows or linked across tenants (ADR-019 Stage 2 criterion 12, #1139). Rows where the user appears only as the acting person keep their own `actor_id`.
+- Ensured tenant purge strips SQL text from audit rows (`metadata = metadata - 'sql'`) (ADR-019 Stage 2 criterion 13, #1139).
+- Introduced a retention cap for `reporting.*` rows (`REPORTING_AUDIT_RETENTION_DAYS`, default 90, allowed range 30–90), swept in batches via the narrow `reporting_audit_retention_role` (migration 0164, ADR-019 Stage 2 criterion 14, #1139). The role's policies only expose rows older than 30 days, including for a session that had `app.tenant_id` set before switching role (a restrictive policy carries the bound), so it cannot delete recent reporting audit evidence. The 90-day ceiling exists because the access-log sweep deletes every `admin_audit_log` row older than 90 days.
+
+## [Unreleased — on-call roster partial-save handling (#1161)]
+
+### Fixed
+
+- Editing a repeating on-call roster no longer leaves the repeat toggle out of sync when the window saves but the repeat change fails: the roster reloads to the persisted state and the form stays open with a retry message (#1161).
+
+## [Unreleased — lazy-load non-English admin-ui locales (#1120)]
+
+### Changed
+
+- Non-English locale bundles are now separate on-demand chunks (`loadLocale` in `apps/admin-ui/src/i18n.ts`) instead of one all-locales chunk preloaded on every page load. Initial-load JS drops from about 431 kB to 205 kB gzip; the entry chunk is unchanged. Only English is bundled up front, and a saved non-English language is loaded before first render (#1120, #200).
 
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
