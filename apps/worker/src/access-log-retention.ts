@@ -23,6 +23,7 @@ import { db, setAccessLogRetentionRole } from "@platform/db";
 import { logger } from "@platform/logger";
 import { Worker, Queue } from "@platform/telemetry";
 import { connection } from "./queues.js";
+import { runReportingAuditRetentionSweep } from "./reporting-audit-retention.js";
 
 const QUEUE_NAME = "access-log-retention";
 // Also hard-coded in migration 0158's admin_audit_log retention policies -- change both together.
@@ -96,6 +97,7 @@ export async function runAccessLogRetentionSweep(): Promise<void> {
     { totalDeleted, retentionDays: RETENTION_DAYS },
     "access-log-retention: sweep complete",
   );
+  await runReportingAuditRetentionSweep();
 }
 
 export const accessLogRetentionWorker = new Worker(
