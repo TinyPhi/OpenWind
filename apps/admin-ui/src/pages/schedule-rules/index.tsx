@@ -51,8 +51,7 @@ type Frequency = "daily" | "weekly" | "monthly";
 // exhaustive: an existing rule's stored zone that isn't in this list (e.g.
 // set before this picker existed, or a less-common zone) is added as an
 // extra option on the fly so editing never silently changes it.
-// New rules default to India time; an existing rule keeps whatever zone it was saved with.
-const DEFAULT_TIMEZONE = "Asia/Kolkata";
+// New rules default to the tenant's default timezone (or UTC fallback); an existing rule keeps whatever zone it was saved with (#1158).
 
 const TIMEZONE_OPTIONS = [
   { value: "UTC", labelKey: "scheduleRules.tz.UTC" },
@@ -686,7 +685,10 @@ export interface RuleFormData {
   remark: string;
 }
 
-export function initialRuleFormData(rule?: ScheduleRule): RuleFormData {
+export function initialRuleFormData(
+  rule?: ScheduleRule,
+  defaultTimezone?: string,
+): RuleFormData {
   const freq = parseCronToFrequency(rule?.cronExpr ?? "0 9 * * *");
   return {
     step: 1,
@@ -696,7 +698,7 @@ export function initialRuleFormData(rule?: ScheduleRule): RuleFormData {
     timeOfDay: freq.timeOfDay,
     dayOfWeek: freq.dayOfWeek,
     dayOfMonth: freq.dayOfMonth,
-    timezone: rule?.timezone ?? DEFAULT_TIMEZONE,
+    timezone: rule?.timezone ?? defaultTimezone ?? "UTC",
     workflowId: rule?.workflowId ?? "",
     catchUp: rule?.catchUp ?? false,
     templateTitle: rule?.template.title ?? "",
@@ -747,7 +749,25 @@ function RuleFormModal({
 
   useEffect(() => {
     if (open) {
-      setFormData(initialRuleFormData(rule));
+      if (rule) {
+        setFormData(initialRuleFormData(rule));
+      } else {
+        setFormData(initialRuleFormData(undefined, "UTC"));
+        void fetchWithAuth(`${API_URL}/admin/tenant-settings`)
+          .then((res) => {
+            const resData = res as {
+              data?: { defaultTimezone?: string | null };
+            };
+            const tz = resData.data?.defaultTimezone;
+            if (tz) {
+              setFormData((prev) => ({
+                ...prev,
+                timezone: tz,
+              }));
+            }
+          })
+          .catch(() => {});
+      }
       setError(null);
     }
   }, [open, rule]);

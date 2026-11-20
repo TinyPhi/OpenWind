@@ -3,29 +3,44 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-const { mockAuth, mockWriteAuditEntry, mockResolveTenantMembers, callOrder } =
-  vi.hoisted(() => ({
-    mockAuth: {
-      tenantId: "t-aaa",
-      userId: "u-bbb",
-      orgId: "org-1",
-      roles: ["admin"] as string[],
-      email: "test@example.com",
-    },
-    mockWriteAuditEntry: vi.fn(),
-    mockResolveTenantMembers:
-      vi.fn<
-        (
-          tenantId: string,
-          ids: string[],
-          orgId: string | undefined,
-        ) => Promise<Set<string>>
-      >(),
-    callOrder: [] as string[],
-  }));
+const {
+  mockAuth,
+  mockWriteAuditEntry,
+  mockResolveTenantMembers,
+  mockReleaseUpcomingWindows,
+  mockAlignRotationCursor,
+  callOrder,
+} = vi.hoisted(() => ({
+  mockAuth: {
+    tenantId: "t-aaa",
+    userId: "u-bbb",
+    orgId: "org-1",
+    roles: ["admin"] as string[],
+    email: "test@example.com",
+  },
+  mockWriteAuditEntry: vi.fn(),
+  mockResolveTenantMembers:
+    vi.fn<
+      (
+        tenantId: string,
+        ids: string[],
+        orgId: string | undefined,
+      ) => Promise<Set<string>>
+    >(),
+  mockReleaseUpcomingWindows: vi.fn(),
+  mockAlignRotationCursor: vi.fn(),
+  callOrder: [] as string[],
+}));
 
 let orgRoles = new Map<string, string[]>();
 let rolesLookupFails = false;
+
+vi.mock("../../lib/rotation-windows.js", () => ({
+  alignRotationCursor: (...args: unknown[]) => mockAlignRotationCursor(...args),
+  releaseWindowsAfter: vi.fn(),
+  releaseUpcomingWindows: (...args: unknown[]) =>
+    mockReleaseUpcomingWindows(...args),
+}));
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listUserRolesByUserId: () =>
@@ -76,10 +91,21 @@ const mockScheduleRow = {
   primaryUserId: "u-bbb",
   backupUserId: null,
   escalationManagerUserId: null,
+  rotationId: null as string | null,
   createdBy: "u-bbb",
   createdAt: new Date(),
   updatedAt: new Date(),
   deletedAt: null,
+};
+
+const mockRotationRow = {
+  id: "rot-1",
+  tenantId: "t-aaa",
+  teamId: "11111111-1111-4111-8111-111111111111",
+  status: "active",
+  cycleDays: 7,
+  endsOn: null,
+  blockedReason: null as string | null,
 };
 
 let overlapConflict = false;
@@ -170,10 +196,24 @@ vi.mock("@platform/db", () => ({
               ? [mockScheduleRow]
               : [],
         ),
+      for: () =>
+        Promise.resolve(
+          (fromTable as { isRotations?: boolean } | undefined)?.isRotations
+            ? [{ ...mockRotationRow }]
+            : [{ ...mockScheduleRow }],
+        ),
       insert: () => tx,
       values: () => tx,
-      update: () => tx,
-      set: () => tx,
+      update: (table?: unknown) => {
+        if (table !== undefined) fromTable = table;
+        return tx;
+      },
+      set: (patch: Record<string, unknown>) => {
+        if ((fromTable as { isRotations?: boolean } | undefined)?.isRotations) {
+          Object.assign(mockRotationRow, patch);
+        }
+        return tx;
+      },
       returning: () => {
         if (overlapConflict) {
           const err = new Error("overlapping range");
@@ -181,6 +221,9 @@ vi.mock("@platform/db", () => ({
             code: "23P01",
           };
           throw err;
+        }
+        if ((fromTable as { isRotations?: boolean } | undefined)?.isRotations) {
+          return Promise.resolve([mockRotationRow]);
         }
         return Promise.resolve(updateMatchesNoRow ? [] : [mockScheduleRow]);
       },
@@ -526,6 +569,76 @@ describe("PATCH /admin/on-call-schedules/:id — a window running now", () => {
     mockScheduleRow.startsAt = new Date(Date.now() - 3 * 24 * 3_600_000);
     mockScheduleRow.endsAt = new Date(Date.now() - 24 * 3_600_000);
     expect((await patch({ label: "late" })).status).toBe(422);
+  });
+});
+
+describe("PATCH /admin/on-call-schedules/:id — atomic rotationStatus update (#1161)", () => {
+  const url = `/admin/on-call-schedules/${mockScheduleRow.id}`;
+  const patch = (body: object): Promise<Response> =>
+    makeApp().request(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => {
+    mockScheduleRow.rotationId = null;
+    mockRotationRow.status = "active";
+    teamMemberIds = ["u-bbb"];
+    mockReleaseUpcomingWindows.mockClear();
+    mockWriteAuditEntry.mockClear();
+  });
+
+  it("refuses rotationStatus when schedule is not part of a repeating rotation", async () => {
+    mockScheduleRow.rotationId = null;
+    const res = await patch({ rotationStatus: "stopped" });
+    expect(res.status).toBe(422);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("stops rotation atomically and releases upcoming windows", async () => {
+    mockScheduleRow.rotationId = "rot-1";
+    mockRotationRow.status = "active";
+    const res = await patch({
+      rotationStatus: "stopped",
+      label: "Updated Label",
+    });
+    expect(res.status).toBe(200);
+    expect(mockRotationRow.status).toBe("stopped");
+    expect(mockReleaseUpcomingWindows).toHaveBeenCalledTimes(1);
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: "on_call_rotation",
+        action: "updated",
+        afterSnapshot: expect.objectContaining({ status: "stopped" }),
+      }),
+    );
+  });
+
+  it("resumes rotation atomically when rotationStatus is active", async () => {
+    mockScheduleRow.rotationId = "rot-1";
+    mockRotationRow.status = "stopped";
+    const res = await patch({ rotationStatus: "active" });
+    expect(res.status).toBe(200);
+    expect(mockRotationRow.status).toBe("active");
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: "on_call_rotation",
+        action: "updated",
+        afterSnapshot: expect.objectContaining({ status: "active" }),
+      }),
+    );
+  });
+
+  it("refuses to resume rotation if team has no members", async () => {
+    mockScheduleRow.rotationId = "rot-1";
+    mockRotationRow.status = "stopped";
+    teamMemberIds = [];
+    const res = await patch({ rotationStatus: "active" });
+    expect(res.status).toBe(422);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 });
 

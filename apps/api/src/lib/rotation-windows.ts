@@ -150,12 +150,17 @@ export async function alignRotationCursor(
   const rotation = await loadRotation(tx, tenantId, window.rotationId);
   if (!rotation) return;
 
-  const days = (window.endsAt.getTime() - window.startsAt.getTime()) / DAY_MS;
+  const ms = window.endsAt.getTime() - window.startsAt.getTime();
+  const roundedDays = Math.round(ms / DAY_MS);
+  const diffFromDayMultiple = Math.abs(ms - roundedDays * DAY_MS);
+  // Whole-day check: exactly N days, or N days +/- 1 hour across a DST boundary (#1162).
+  const isWholeDayCycle =
+    diffFromDayMultiple === 0 || diffFromDayMultiple === 3_600_000;
   const wholeCycle =
-    Number.isInteger(days) &&
-    days >= ROTATION_MIN_CYCLE_DAYS &&
-    days <= ROTATION_MAX_CYCLE_DAYS
-      ? days
+    isWholeDayCycle &&
+    roundedDays >= ROTATION_MIN_CYCLE_DAYS &&
+    roundedDays <= ROTATION_MAX_CYCLE_DAYS
+      ? roundedDays
       : rotation.cycleDays;
 
   await tx

@@ -93,6 +93,10 @@ vi.mock("@platform/db", () => ({
     scheduleId: "nscheduleId",
   },
   teams: { id: "id", tenantId: "tenantId", deletedAt: "deletedAt" },
+  tenantSettings: {
+    tenantId: "tenantId",
+    defaultTimezone: "defaultTimezone",
+  },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
     let fromTable: unknown;
     const tx = {
@@ -115,12 +119,15 @@ vi.mock("@platform/db", () => ({
       limit: () =>
         Object.assign(
           Promise.resolve(
-            (fromTable as { deletedAt?: string } | undefined)?.deletedAt &&
-              teamDeleted
-              ? []
-              : found
-                ? [existingRow]
-                : [],
+            (fromTable as { defaultTimezone?: string } | undefined)
+              ?.defaultTimezone
+              ? [{ defaultTimezone: "UTC" }]
+              : (fromTable as { deletedAt?: string } | undefined)?.deletedAt &&
+                  teamDeleted
+                ? []
+                : found
+                  ? [existingRow]
+                  : [],
           ),
           {
             for: (mode: string) => {

@@ -434,7 +434,7 @@ describe("ScheduleRulesPage", () => {
     expect(tzSelect.value).toBe("Europe/London");
   });
 
-  it("defaults a new rule to India time, not UTC", async () => {
+  it("defaults a new rule to UTC fallback when no tenant timezone is set (#1158)", async () => {
     queueRefresh([]);
     renderPage();
     await waitFor(() =>
@@ -444,7 +444,26 @@ describe("ScheduleRulesPage", () => {
     fireEvent.click(screen.getByText("New Rule"));
 
     expect((screen.getByLabelText(/Timezone/) as HTMLSelectElement).value).toBe(
-      "Asia/Kolkata",
+      "UTC",
+    );
+  });
+
+  it("defaults a new rule to tenant default timezone when configured (#1158)", async () => {
+    queueRefresh([]);
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: { defaultTimezone: "America/New_York" },
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("No schedule rules yet")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByText("New Rule"));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/Timezone/) as HTMLSelectElement).value,
+      ).toBe("America/New_York"),
     );
   });
 

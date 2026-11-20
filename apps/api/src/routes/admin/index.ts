@@ -12,6 +12,10 @@ import {
   updatePlatformSettingsHandler,
 } from "./platform-settings.js";
 import {
+  getTenantSettingsHandler,
+  updateTenantSettingsHandler,
+} from "./tenant-settings.js";
+import {
   listTenantsHandlers,
   createTenantHandlers,
   getTenantHandlers,
@@ -31,6 +35,8 @@ router.get("/view-configs/:entityType", ...getViewConfigHandler);
 router.patch("/view-configs/:entityType", ...updateViewConfigHandler);
 router.get("/platform-settings", ...getPlatformSettingsHandler);
 router.patch("/platform-settings", ...updatePlatformSettingsHandler);
+router.get("/tenant-settings", ...getTenantSettingsHandler);
+router.patch("/tenant-settings", ...updateTenantSettingsHandler);
 
 // Tenant lifecycle
 router.get("/tenants", ...listTenantsHandlers);

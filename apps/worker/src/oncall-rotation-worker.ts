@@ -37,6 +37,7 @@ import {
   notifications,
   notificationRecipients,
   teams,
+  tenantSettings,
   isOutboundNotificationsEnabled,
 } from "@platform/db";
 import {
@@ -142,6 +143,12 @@ async function generateForRotation(
 
     const members = await loadTeamMemberIds(tx, tenantId, rotation.teamId);
     const previous = await loadPreviousHolders(tx, tenantId, rotation);
+    const [settings] = await tx
+      .select({ defaultTimezone: tenantSettings.defaultTimezone })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.tenantId, tenantId))
+      .limit(1);
+
     const plan = planWindows({
       members,
       cycleDays: rotation.cycleDays,
@@ -150,6 +157,7 @@ async function generateForRotation(
       escalationManager: rotation.escalationManagerUserId,
       now,
       endsOn: rotation.endsOn,
+      timeZone: settings?.defaultTimezone ?? null,
     });
 
     // A manual window overlapping one we would create stops generation at that window.

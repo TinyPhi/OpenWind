@@ -28,6 +28,8 @@ export {
   type RotationCursor,
 } from "./rotation-state.js";
 
+export { addCalendarDays } from "./rotation-timezone.js";
+
 export {
   nextAssignment,
   planWindows,

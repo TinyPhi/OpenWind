@@ -91,6 +91,20 @@ function startOfWeek(d: Date): Date {
   return monday;
 }
 
+/** Calendar day difference robust to DST transitions (#1162). */
+function calendarDayDiff(a: Date, b: Date): number {
+  const utc1 = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const utc2 = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.floor((utc1 - utc2) / DAY_MS);
+}
+
+/** Calendar day addition preserving wall-clock time across DST (#1162). */
+function addCalendarDaysLocal(date: Date, days: number): Date {
+  const res = new Date(date);
+  res.setDate(res.getDate() + days);
+  return res;
+}
+
 /**
  * Roster — visual weekly on-call coverage per team (docs/specs/oncall-
  * routing.md T18). No third-party calendar library: a lightweight 7-column
@@ -384,18 +398,14 @@ export function RosterPage(): React.ReactElement {
                   // (review finding: startOffset previously had no upper clamp).
                   const startOffset = Math.min(
                     6,
-                    Math.max(
-                      0,
-                      Math.floor(
-                        (start.getTime() - weekStart.getTime()) / DAY_MS,
-                      ),
-                    ),
+                    Math.max(0, calendarDayDiff(start, weekStart)),
                   );
                   const endOffset = Math.min(
                     7,
                     Math.max(
                       startOffset + 1,
-                      Math.ceil((end.getTime() - weekStart.getTime()) / DAY_MS),
+                      calendarDayDiff(new Date(end.getTime() - 1), weekStart) +
+                        1,
                     ),
                   );
                   const span = endOffset - startOffset;
@@ -453,18 +463,13 @@ export function RosterPage(): React.ReactElement {
                 const end = new Date(p.endsAt);
                 const startOffset = Math.min(
                   6,
-                  Math.max(
-                    0,
-                    Math.floor(
-                      (start.getTime() - weekStart.getTime()) / DAY_MS,
-                    ),
-                  ),
+                  Math.max(0, calendarDayDiff(start, weekStart)),
                 );
                 const endOffset = Math.min(
                   7,
                   Math.max(
                     startOffset + 1,
-                    Math.ceil((end.getTime() - weekStart.getTime()) / DAY_MS),
+                    calendarDayDiff(new Date(end.getTime() - 1), weekStart) + 1,
                   ),
                 );
                 const color = avatarColor(p.primaryUserId);
@@ -655,15 +660,14 @@ interface ScheduleFormData {
 }
 
 // A window made before cycles existed may not be a whole number of days; those keep a typed end.
+// Accounts for DST boundaries (+/- 1 hour drift) so a 7-day cycle across DST is recognized (#1162).
 function wholeCycleDays(schedule: OnCallSchedule): number | null {
-  const days =
-    (new Date(schedule.endsAt).getTime() -
-      new Date(schedule.startsAt).getTime()) /
-    DAY_MS;
-  return Number.isInteger(days) &&
-    days >= MIN_CYCLE_DAYS &&
-    days <= MAX_CYCLE_DAYS
-    ? days
+  const diffMs =
+    new Date(schedule.endsAt).getTime() - new Date(schedule.startsAt).getTime();
+  const rounded = Math.round(diffMs / DAY_MS);
+  const isClose = Math.abs(diffMs - rounded * DAY_MS) <= 3_600_000;
+  return isClose && rounded >= MIN_CYCLE_DAYS && rounded <= MAX_CYCLE_DAYS
+    ? rounded
     : null;
 }
 
@@ -824,8 +828,9 @@ function ScheduleFormModal({
     startsAt &&
     !Number.isNaN(new Date(startsAt).getTime())
       ? toLocalInputValue(
-          new Date(
-            new Date(startsAt).getTime() + cycleDaysNumber * DAY_MS,
+          addCalendarDaysLocal(
+            new Date(startsAt),
+            cycleDaysNumber,
           ).toISOString(),
         )
       : endsAt;
@@ -900,21 +905,13 @@ function ScheduleFormModal({
           ...(!schedule && repeating
             ? { repeat: { cycleDays: cycleDaysNumber } }
             : {}),
+          ...(schedule &&
+          rotation &&
+          repeating !== (rotation.status === "active")
+            ? { rotationStatus: repeating ? "active" : "stopped" }
+            : {}),
         }),
       });
-      if (
-        schedule &&
-        rotation &&
-        repeating !== (rotation.status === "active")
-      ) {
-        await fetchWithAuth(
-          `${API_URL}/admin/on-call-rotations/${rotation.id}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({ status: repeating ? "active" : "stopped" }),
-          },
-        );
-      }
       onSaved();
     } catch (err) {
       // 5xx already surfaced via the global error banner (lib/api.ts) --

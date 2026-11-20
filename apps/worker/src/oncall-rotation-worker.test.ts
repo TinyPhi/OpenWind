@@ -15,6 +15,7 @@ vi.mock("@platform/db", () => ({
   notifications: {},
   notificationRecipients: {},
   teams: {},
+  tenantSettings: {},
   isOutboundNotificationsEnabled: () => Promise.resolve(false),
 }));
 vi.mock("@platform/teams", () => ({
