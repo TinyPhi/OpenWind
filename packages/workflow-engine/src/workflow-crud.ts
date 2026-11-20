@@ -524,7 +524,7 @@ export async function deleteWorkflow(
 
 // ── State CRUD ────────────────────────────────────────────────────────────────
 
-async function assertWorkflowOwned(
+export async function assertWorkflowOwned(
   db: DbOrTx,
   tenantId: string,
   workflowId: string,
@@ -892,7 +892,7 @@ async function assertRuleStatesExist(
  * for everything that happened before it, and a deletion would leave it matching nothing at all.
  * Change the rule first.
  */
-async function assertStateNotNamedByRule(
+export async function assertStateNotNamedByRule(
   db: DbOrTx,
   tenantId: string,
   workflowId: string,

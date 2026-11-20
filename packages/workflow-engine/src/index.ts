@@ -30,6 +30,8 @@ export {
   addWorkflowTransition,
   updateWorkflowTransition,
   deleteWorkflowTransition,
+  assertWorkflowOwned,
+  assertStateNotNamedByRule,
 } from "./workflow-crud.js";
 export {
   hasEntityReadAccess,
