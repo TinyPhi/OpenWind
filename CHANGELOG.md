@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - Editing a repeating on-call roster no longer leaves the repeat toggle out of sync when the window saves but the repeat change fails: the roster reloads to the persisted state and the form stays open with a retry message (#1161).
+
 ## [Unreleased — lazy-load non-English admin-ui locales (#1120)]
 
 ### Changed
