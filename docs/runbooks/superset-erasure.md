@@ -74,10 +74,48 @@ A persistent gap raises **`SupersetErasureUnreconciled`**: fires when any commit
 or uncompleted after 1 hour. Unlike the 1-hour `increase()` counter, this gauge alert remains active as long as personal data
 remains in Superset without an audit completion record.
 
-A third alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state, which
-lasts 7 days or until the job is removed. It also catches a job BullMQ failed because the worker died
-twice while running it: that job has no `failed` audit row, so look for it in the queue
-(`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
+A third alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state. A failed job is
+removed by the `superset-erasure-reconcile` sweep (every 5 minutes) once it has been failed for 24 hours, so the alert
+clears within about 5 minutes after that. A completed job, whose payload names the person just the same, is removed by
+the same sweep one hour after it completed. BullMQ's own `removeOnFail.age` is **not** relied on: it trims old failed jobs
+only at the moment another job in the same queue fails, so a failure that no later failure follows would keep its payload
+(`{kind, tenantId, subject}`, which names the person) in Redis indefinitely. If the worker or the sweep is down, the job
+stays until it is back. The alert also catches a job BullMQ failed because the worker died twice while running it: that job
+has no `failed` audit row.
+
+**The lasting record is the audit log, not Redis.** A failed job is gone from the queue after 24 hours, and the alert
+resolves with it, so a "resolved" notice does not mean the person was erased. To find an erasure that never completed,
+look in `admin_audit_log` for a `deleted` (user) or `purge.completed` (tenant) row with no `superset_erasure.completed`
+sibling for the same tenant and subject: that gives the tenant and subject to run by hand as below. The reconcile sweep
+re-queues **user** rows by itself; it does not yet cover **tenant** purge rows (that is #1182), so a stalled tenant
+erasure has to be found this way until #1182 lands.
+
+A terminal failure also leaves **no standing alert**: the job is gone after 24 hours and `SupersetErasureFailed` clears
+after an hour. So check the audit log on a schedule that fits the 30-day target (weekly is enough), for erasures that
+failed for good and were never completed:
+
+```sql
+SELECT f.tenant_id, f.resource_type, f.resource_id, f.created_at,
+       d.metadata->>'userId' AS subject          -- the Zitadel subject, from the user's `deleted` row
+FROM admin_audit_log f
+LEFT JOIN admin_audit_log d
+  ON d.tenant_id = f.tenant_id AND d.resource_type = 'user'
+ AND d.resource_id = f.resource_id AND d.action = 'deleted'
+WHERE f.action = 'superset_erasure.failed'
+  AND (f.metadata->>'status' IS NULL OR f.metadata->>'status' <> 'unverified')  -- terminal, as the reconciler reads it
+  AND f.created_at > now() - interval '30 days'
+  AND NOT EXISTS (
+    SELECT 1 FROM admin_audit_log c
+    WHERE c.tenant_id = f.tenant_id
+      AND c.resource_type = f.resource_type
+      AND c.resource_id = f.resource_id
+      AND c.action = 'superset_erasure.completed'
+      AND c.created_at > f.created_at);
+```
+
+Run it through the platform's admin database access. Each row is a person (or a tenant, `resource_type = 'tenant'`) whose
+Superset data may still be there: run the erase by hand, as in step 2 below. This query has not been run against a
+production database; it follows the matching the reconciler uses (`superset-erasure-reconcile.ts`).
 
 1. **Find the cause in the worker log** (`ow-worker`), the line before the final one. Usual causes:
 
@@ -90,8 +128,8 @@ twice while running it: that job has no `failed` audit row, so look for it in th
    | `Superset erase call failed with 400`          | CSRF or request problem: check the Superset version still matches the one in `docker/superset/Dockerfile`.                                                 |
    | an `insert into "admin_audit_log"` error       | Migration `0156_superset_erasure_audit_actions` is not applied. Apply migrations; the job keeps Superset's result and retries, so the counts are not lost. |
 
-2. **Fix it, then run the erase by hand.** The failed job is kept for 7 days but is not retried
-   again. Erasing the same user again from OpenWind does **not** queue a new job: the first erase
+2. **Fix it, then run the erase by hand.** The failed job is not retried again, and the sweep removes it 24 hours
+   after it failed. Erasing the same user again from OpenWind does **not** queue a new job: the first erase
    already removed them from the organisation, so the API answers "not found". Run it from a shell on
    the host that runs Superset:
 
@@ -218,6 +256,127 @@ and schedule jobs, so a missing key stops all of them. It is required even when 
 Also recommended: do not route `/openwind/erasure/*` through the public proxy. Only the worker calls
 it, inside the docker network. The endpoints already refuse every caller except the service account
 (role checked, CSRF required), so this is a second layer.
+
+## Enumeration of user-removal paths (#1140, ADR-019 criterion 16)
+
+Every path where a user is removed or their account is deleted, whether it runs the Superset erasure, and if not why it
+cannot leave a Superset account behind. Each path cites the code it was read from. A new caller of `deleteUser`,
+`deleteOrg`, or a delete of `tenant_users` fails `apps/worker/src/superset-erasure-removal-paths.test.ts`. That test is a
+best-effort tripwire, not a proof: it fails until its expected file set is edited, which is the prompt to update this list.
+It matches the identifiers (an aliased import, a method call and a re-export count) and does not track a new wrapper
+function in an already-listed file.
+
+1. **Per-user GDPR erasure (`DELETE /users/:userId`)**, `apps/api/src/routes/platform/users.ts`.
+   - Erases the person's data across the tenant (`eraseUserFromTenant`, which deletes the `tenant_users` row at
+     `apps/api/src/services/user-erasure.ts:713`), removes their Zitadel sign-in (`deleteUser`, `users.ts:239`) and calls
+     `eraseUserInSuperset({ tenantId, subject, wasMember })` (`users.ts:266`).
+   - For a **member** of the tenant, `eraseUserInSuperset` queues a `kind: "user"` job
+     (`apps/api/src/lib/superset-erasure-queue.ts:212`). If queueing fails, the reconcile sweep re-queues the `deleted`
+     audit row within 5 minutes.
+   - For a **non-member** it queues nothing and answers `not_member` (`superset-erasure-queue.ts:200-211`): an admin must not
+     reach a person outside their organisation through Superset. This is the accepted "held account" case; only the cache
+     flush runs.
+2. **Tenant purge (`tenant-purge` worker)**, `apps/worker/src/tenant-purge.ts`.
+   - Purges the tenant's tables (the `tenant_users` delete is at `:514`) and enqueues `kind: "tenant"` erasure (`:258`).
+     `/openwind/erasure/tenant` deletes every Superset account bound to the tenant's role (`tenant:<uuid>`) and flushes the
+     result cache.
+3. **Tenant deletion (`DELETE /admin/tenants/:id`)**, `apps/api/src/routes/admin/index.ts:43`.
+   - Schedules deletion (`scheduleTenantDeletion`, `apps/api/src/lib/tenant-lifecycle.ts:319-359`) and a delayed purge job.
+     **Superset accounts stay until the purge runs**, by default 30 days later (`DEFAULT_DELETION_DELAY_DAYS`,
+     `tenant-lifecycle.ts:88`); the purge then removes them as in path 2. The window is deliberate.
+4. **Sandbox delete (`sandbox-delete` worker)**, `apps/worker/src/sandbox-delete-worker.ts`.
+   - Deletes the sandbox's Zitadel organisation (`deleteOrg`, `:126`), which removes every seeded account, and enqueues an
+     immediate `tenant-purge` job, so the tenant erasure of path 2 runs.
+5. **Sandbox provisioning rollback**, `apps/worker/src/sandbox-provisioning-worker.ts:586`.
+   - On a failed provisioning job, `deleteOrg` removes the half-created organisation and every account seeded into it.
+     No Superset account can exist for them: Superset creates an account at first sign-in, and the credentials were never
+     handed over (handover is only offered for a provisioning job that finished). This follows from the code; it was not
+     checked on a running instance.
+6. **Sandbox reset (`sandbox-reset` worker)**, `apps/worker/src/sandbox-reset-worker.ts`.
+   - Wipes business records and reseeds demo tickets. **Removes no user**: accounts, teams, `tenant_users` and org-directory
+     employees are kept so prospect sign-in is undisturbed, so no account is left behind.
+7. **Sandbox handover (`GET /platform-admin/sandboxes/:jobId/handover`)**,
+   `apps/api/src/routes/platform-admin/sandboxes.ts`. Read-only retrieval of the seeded credentials within 7 days; creates,
+   changes and removes no account.
+8. **Org-directory sync (`syncOrgDirectory`)**, `packages/org-directory/src/sync.ts`.
+   - The importer builds the org chart from **Zitadel** metadata (`packages/org-directory/src/zitadel-importer.ts`). When a
+     person drops out of it, sync removes them from the `org_employees` tree. It deletes no `tenant_users` row and no
+     Zitadel login, so no account is removed.
+9. **Platform admin accounts**. **NOT YET CONFIRMED.** `PLATFORM_ORG_ID` is a `tenants.id` compared with the caller's
+   `auth.tenantId` (`apps/api/src/lib/platform-operator.ts:12`), not a Zitadel organisation. A platform admin gets a
+   Superset account, and a `tenant:<uuid>` role, only if that platform tenant maps to a Zitadel organisation
+   (`tenant_for_org`, migration 0114) and they sign in to Superset. No code path removes a platform admin's Superset account
+   when the person is removed. To check whether any exist: list the Superset users and compare them with the platform admins.
+10. **Removal outside OpenWind (not covered).** A user deleted or deactivated directly in the Zitadel console or management
+    API is removed from the sign-in but nothing in OpenWind reacts to it (no handler for a Zitadel user-removal event was
+    found), so their Superset account and queries stay until someone runs `superset openwind-erase` for them (see "When it
+    did not finish", step 2). Treat a removal done outside OpenWind as needing that step.
+
+## Process logs and export files (#1140, ADR-019 items 2–3)
+
+Status key: **From code and config** means read from this repository. **NOT YET CONFIRMED** means no check on a running
+instance has been made; the commands to make it are given, for the gate owner to run and record here with the date and
+the Superset image digest.
+
+### Process logs
+
+What Superset writes to its container stdout and stderr, **from code and config**:
+
+- **Gunicorn access log.** Method, path **without the query string**, status and duration in microseconds. Production
+  runs upstream `run-server.sh`, which passes only `--access-logfile`; both compose files set
+  `GUNICORN_CMD_ARGS="--access-logformat '%(m)s %(U)s %(s)s %(D)s'"`. The default format would write the whole request
+  line, and Superset's GET endpoints carry filter values and ad-hoc SQL in `q=` and `form_data=`. The client address and
+  the referer are not logged. Pinned by `apps/worker/src/superset-compose-logging.test.ts`.
+- **Erasure endpoints** log the tenant id and `yes` or `whole-tenant` for the subject, never the subject id, and a failure
+  logs the exception **type** and the file and line it was raised at (`log_error_type`), never its text or traceback: the
+  exception text carries the bound `owsub:<subject>` parameter.
+  Every failure log in `superset_config.py` is type-only, and a test forbids `logger.exception` and `exc_info` there.
+- **Flask-AppBuilder's own sign-in and user-management errors** log values: the whole `userinfo` dict, the username, an
+  email address and the text of a failed `add_user`, at ERROR, which `SILENCE_FAB` does not hide. A logging filter on
+  `flask_appbuilder.security.manager` and `flask_appbuilder.security.sqla.manager` keeps each message and replaces its values
+  with `[REDACTED]`, and drops any traceback (`_ScrubFabSecurityLogs`, pinned by `test_log_hygiene.py` on synthetic records of
+  the FAB 5.0.2 messages). **NOT YET CONFIRMED on a running instance**: that Superset's logging setup leaves the filter in
+  place. Cause a sign-in failure for a throwaway account (for example two accounts with one email) and check `docker logs`
+  for `[REDACTED]` and for the absence of the email.
+- **Sign-in warnings** log the opaque Zitadel subject id, never `preferred_username` or an email address (a Stage 2
+  username is the `preferred_username`, usually a login name or an email). The per-query "no tenant" line logs no identity.
+  **Residual personal data:** the subject id is pseudonymous, not anonymous, and these lines are not touched by an erasure.
+  They age out only with the log rotation below.
+- **A failed audit write** logs the action and the exception type only (`log_audit_write_failure`). A SQLAlchemy error
+  message includes the bound parameters, which here are the audit row's JSON, whose `sql` field is the user's SQL Lab query,
+  and nothing in this deployment sets `hide_parameters`.
+- **Verbatim SQL** is not logged by Superset's engine (`echo` is off). SQL Lab query audit rows go to `admin_audit_log`
+  through `PlatformAuditEventLogger`, with literals and comments redacted (#1139).
+- **Not controlled here:** messages and tracebacks Superset, Flask, SQLAlchemy and gunicorn write from their own code. No
+  log level is set in this repository, so the library default applies.
+
+**Retention is bounded by size, not by age.** The `superset` service sets Docker's `json-file` driver with
+`max-size: 10m` and `max-file: 5` (`docker-compose.yml`, inherited by `docker-compose.prod.yml`), so the container logs hold
+at most about 50 MB. On a busy instance that is days of logs; on a quiet one it can be months. State the retention you
+need to a regulator in those terms, or move the logs to a store with an age limit.
+
+**NOT YET CONFIRMED on a running instance** (commands for the gate owner):
+
+```
+docker inspect ow-superset --format '{{json .HostConfig.LogConfig}}'          # expect json-file, max-size 10m, max-file 5
+docker exec ow-superset env | grep GUNICORN_CMD_ARGS                          # expect the --access-logformat above
+# run one SQL Lab query containing a literal email and one CSV export as a test user, then:
+docker logs ow-superset --since 15m | grep -E "[?]q=|form_data|@"             # expect no query string and no email
+```
+
+### Export files
+
+**From code and config:** CSV exports from SQL Lab (`SqlLabRestApi.export_streaming_csv`) and chart CSV downloads are
+streamed in the HTTP response. No Celery worker and no `RESULTS_BACKEND` is configured in `superset_config.py` or the
+compose files, and the `superset` service mounts no export volume (only `superset_config.py`, read-only).
+
+**NOT YET CONFIRMED on a running instance:**
+
+```
+docker inspect ow-superset --format '{{json .Mounts}}'                        # expect only superset_config.py
+# after a test export:
+docker exec ow-superset find / -xdev -newer /app/pythonpath/superset_config.py \( -name '*.csv' -o -name '*.xlsx' \) 2>/dev/null
+```
 
 ## What it does not cover
 

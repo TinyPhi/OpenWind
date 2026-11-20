@@ -14,6 +14,7 @@ import logging
 import json
 import os
 import re
+import traceback
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
@@ -620,6 +621,74 @@ def chart_export_detail(record, slice_id, fmt, body=None):
     }
 
 
+class _ScrubFabSecurityLogs(logging.Filter):
+    """Keeps Flask-AppBuilder's sign-in and user-management log messages, drops the values in them.
+
+    FAB 5 logs the whole `userinfo` dict, the username, and an email address at ERROR (for example
+    "OAUTH userinfo does not have username or email %s", "Error creating a new OAuth user %s",
+    "Multiple results found for user with email %s"), and the exception from a failed `add_user`, whose
+    text includes the bound username, email and names. `SILENCE_FAB` only raises the level to ERROR,
+    so these still reach stderr, and in Stage 2 the username is the Zitadel `preferred_username`. Each
+    placeholder becomes `[REDACTED]` and any traceback is dropped, so an operator still sees which
+    step failed (#1140).
+    """
+
+    _PLACEHOLDER = re.compile(r"%[sdr]")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = self._PLACEHOLDER.sub("[REDACTED]", str(record.msg))
+        record.args = ()
+        record.exc_info = None
+        record.exc_text = None
+        return True
+
+
+for _fab_logger in (
+    "flask_appbuilder.security.manager",
+    "flask_appbuilder.security.sqla.manager",
+):
+    logging.getLogger(_fab_logger).addFilter(_ScrubFabSecurityLogs())
+
+
+def _failure_location(exc: BaseException) -> str:
+    """` at file.py:123` for the innermost frame of `exc`, or "" when it has no traceback.
+
+    The place an error happened is what an operator needs and carries no data, unlike the exception
+    text, so it is kept when the text and the traceback are dropped.
+    """
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return ""
+    last = frames[-1]
+    return f" at {os.path.basename(last.filename)}:{last.lineno}"
+
+
+def log_error_type(message: str, exc: BaseException, *args: object) -> None:
+    """Logs an error with the exception's type, never its text or traceback.
+
+    A SQLAlchemy `DBAPIError` message includes the statement's bound parameters, and nothing in this
+    deployment sets `hide_parameters`, so a traceback written during a database error can carry a
+    subject id, a username, an email or SQL text (#1140). `message` takes `%s` placeholders for
+    `args`; the exception type and the file and line it was raised at are appended.
+    """
+    logger.error(message + " (%s%s)", *args, type(exc).__name__, _failure_location(exc))
+
+
+def log_audit_write_failure(action: str, exc: BaseException) -> None:
+    """Logs that an audit write failed, without the exception's text or traceback.
+
+    A SQLAlchemy `DBAPIError` message includes the statement's bound parameters, and nothing in this
+    deployment sets `hide_parameters`. The parameters here are the audit row's `meta` JSON, whose
+    `sql` field holds the user's SQL Lab query, so logging the exception would write query text to
+    stderr during a brief database outage (#1140). The exception type is enough to triage.
+    """
+    logger.error(
+        "failed to record '%s' in the platform audit store (%s)",
+        action,
+        type(exc).__name__,
+    )
+
+
 def build_reporting_audit_payload(action, record, kwargs=None, user=None, lookup_sql_fn=None):
     """The `metadata` of one audit row. No database access of its own."""
     record = record if isinstance(record, dict) else {}
@@ -698,12 +767,12 @@ def _session_user():
         if not getattr(user, "is_authenticated", False):
             return None
         return user
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Still fails closed (no user, so no tenant is stamped), but logged, so an
         # unexpected error here is not mistaken for "this user has no tenant".
-        logger.warning(
+        log_error_type(
             "could not resolve the Superset user for this request; failing closed",
-            exc_info=True,
+            exc,
         )
         return None
 
@@ -888,9 +957,8 @@ def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contr
             # so a genuinely unidentified data query stands out instead of
             # being buried in routine noise.
             logger.info(
-                "reporting connection for '%s' carries no tenant — app.tenant_id "
+                "reporting connection carries no tenant — app.tenant_id "
                 "left unset, so RLS returns no rows",
-                username,
             )
         return sqlalchemy_url, params
 
@@ -1327,9 +1395,11 @@ if _OAUTH_CLIENT_ID:
             # recoverable after the fact. A missing org claim usually means the
             # resourceowner scope was not requested or not granted.
             if not org_id:
+                # The opaque subject id, never `preferred_username`: that is usually a
+                # login name or an email address, and these lines are never erased.
                 logger.warning(
-                    "userinfo for '%s' carried no org claim; claims present: %s",
-                    data.get("preferred_username"),
+                    "userinfo for subject '%s' carried no org claim; claims present: %s",
+                    data.get("sub"),
                     sorted(data.keys()),
                 )
             roles = list(
@@ -1377,8 +1447,8 @@ if _OAUTH_CLIENT_ID:
                             {"org": org_id},
                         ).fetchone()
                 return str(row[0]) if row and row[0] else None
-            except Exception:  # noqa: BLE001
-                logger.exception("tenant lookup failed for org %s", org_id)
+            except Exception as exc:  # noqa: BLE001
+                log_error_type("tenant lookup failed for org %s", exc, org_id)
                 return None
 
         def auth_user_oauth(self, userinfo):
@@ -1456,8 +1526,8 @@ if _OAUTH_CLIENT_ID:
                 user.roles.append(role)
             else:
                 logger.warning(
-                    "login for '%s' resolved to no tenant — session will see no rows",
-                    userinfo.get("username"),
+                    "login for subject '%s' resolved to no tenant — session will see no rows",
+                    userinfo.get("subject_id"),
                 )
 
             # Superset's own session, not the security manager's: FAB moved
@@ -1514,10 +1584,8 @@ if _OAUTH_CLIENT_ID:
                 return
             try:
                 self._append_platform_audit(mapped, record, kwargs)
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    "failed to record '%s' in the platform audit store", mapped
-                )
+            except Exception as exc:  # noqa: BLE001
+                log_audit_write_failure(mapped, exc)
 
         def _lookup_export_sql(self, client_id, user):
             """The SQL behind an SQL Lab export, which the request does not carry.
@@ -1916,12 +1984,15 @@ def _erasure_blueprint():
             result = erase_superset_data(_db.engine, tenant_id, subject)
         except ValueError as err:
             return jsonify({"message": str(err)}), 400
-        except Exception:  # noqa: BLE001
-            # Ids only in the log, as everywhere in this feature. The caller
-            # retries; the operator needs to know which erasure is failing.
-            logger.exception(
+        except Exception as exc:  # noqa: BLE001
+            # The tenant id and whether a subject was named, never the subject id, and the
+            # exception's type only: its text carries the bound `owsub:<subject>` parameter.
+            # The caller retries; the operator needs to know which erasure is failing.
+            log_error_type(
                 "superset erasure failed: tenant=%s subject=%s",
-                tenant_id, "yes" if subject else "whole-tenant",
+                exc,
+                tenant_id,
+                "yes" if subject else "whole-tenant",
             )
             return jsonify({"message": "erasure failed"}), 500
         # Flushed once, by the finishing call, and only when someone was erased:

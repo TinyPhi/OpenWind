@@ -1,20 +1,36 @@
 import { describe, it, expect } from "vitest";
 import {
   SUPERSET_ERASURE_ATTEMPTS,
+  SUPERSET_ERASURE_COMPLETED_RETENTION_SECONDS,
+  SUPERSET_ERASURE_FAILED_RETENTION_SECONDS,
   SUPERSET_ERASURE_JOB_OPTIONS,
   supersetErasureBackoff,
 } from "./superset-erasure-options.js";
 
 // apps/api/src/lib/superset-erasure-options.test.ts pins the same object: the queue that adds a job
 // sets its options, so the two files must not drift apart.
-describe("superset-erasure job options (#728)", () => {
-  it("are 32 attempts on the custom backoff, keeping a finished job for 1 hour and a failed one for 7 days", () => {
+describe("superset-erasure job options (#728, #1140)", () => {
+  it("are 32 attempts on the custom backoff, keeping a finished job for 1 hour and a failed one for 24 hours", () => {
     expect(SUPERSET_ERASURE_JOB_OPTIONS).toEqual({
       attempts: 32,
       backoff: { type: "custom" },
       removeOnComplete: { age: 3_600 },
-      removeOnFail: { age: 604_800 },
+      removeOnFail: { age: 86_400 },
     });
+  });
+
+  it("keep a failed job for 24 hours, the bound the reconcile sweep enforces (BullMQ's own removal is lazy)", () => {
+    expect(SUPERSET_ERASURE_FAILED_RETENTION_SECONDS).toBe(86_400);
+    expect(SUPERSET_ERASURE_JOB_OPTIONS.removeOnFail.age).toBe(
+      SUPERSET_ERASURE_FAILED_RETENTION_SECONDS,
+    );
+  });
+
+  it("keep a completed job for 1 hour, the bound the reconcile sweep also enforces", () => {
+    expect(SUPERSET_ERASURE_COMPLETED_RETENTION_SECONDS).toBe(3_600);
+    expect(SUPERSET_ERASURE_JOB_OPTIONS.removeOnComplete.age).toBe(
+      SUPERSET_ERASURE_COMPLETED_RETENTION_SECONDS,
+    );
   });
 
   it("use the attempts constant the backoff schedule is checked against", () => {
