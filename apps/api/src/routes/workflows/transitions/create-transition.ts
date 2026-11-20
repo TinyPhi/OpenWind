@@ -3,12 +3,16 @@ import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { workflowTransitions, withTenantContext } from "@platform/db";
 import { and, eq } from "drizzle-orm";
-import { addWorkflowTransition } from "@platform/workflow-engine";
+import {
+  addWorkflowTransition,
+  assertWorkflowOwned,
+} from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { TransitionConditionsSchema } from "./condition-schema.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import {
-  assertMayAddTransitionOnEdge,
+  assertMayEditRuledWorkflow,
+  assertMaySetActorRules,
   SodRuleForbiddenError,
 } from "../../../lib/sod-rule-gate.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
@@ -38,30 +42,30 @@ export const createTransitionHandler = factory.createHandlers(
     const { tenantId } = auth;
     try {
       const transition = await withTenantContext(tenantId, async (tx) => {
-        const existingOnEdge = await tx
-          .select({
-            id: workflowTransitions.id,
-            conditions: workflowTransitions.conditions,
-          })
+        // Ownership first: a caller who does not administer the workflow gets the same 404 whatever
+        // the stored rule state, so the response never depends on a workflow they cannot manage.
+        const caller = toWorkflowCaller(auth);
+        await assertWorkflowOwned(tx, tenantId, workflowId, caller);
+        const workflowTransitionRows = await tx
+          .select({ conditions: workflowTransitions.conditions })
           .from(workflowTransitions)
           .where(
             and(
               eq(workflowTransitions.workflowId, workflowId),
               eq(workflowTransitions.tenantId, tenantId),
-              eq(workflowTransitions.fromState, input.fromState),
-              eq(workflowTransitions.toState, input.toState),
             ),
           );
-        assertMayAddTransitionOnEdge(
+        assertMaySetActorRules(auth, null, input.conditions ?? null);
+        assertMayEditRuledWorkflow(
           auth,
-          existingOnEdge,
-          input.conditions ?? null,
+          workflowTransitionRows,
+          "add a transition",
         );
         const created = await addWorkflowTransition(
           tx,
           tenantId,
           workflowId,
-          toWorkflowCaller(auth),
+          caller,
           {
             fromState: input.fromState,
             toState: input.toState,

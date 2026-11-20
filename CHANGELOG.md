@@ -7,8 +7,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
-- Enforced person-admin authorization when modifying `allowedRoles` on transitions protected by actor rules across `PATCH /workflows/:id/transitions/:transitionId` and `PUT /workflows/:id/canvas` (#1132).
-- Prevented non-admin callers from adding parallel or duplicate transitions along edges carrying actor rules in `POST /workflows/:id/transitions` and `PUT /workflows/:id/canvas`, eliminating Segregation of Duties bypasses (#1132).
+- On a workflow where any transition carries an `actor_*` rule, only a person admin (not an API key) may add a transition, re-point one, or change `allowedRoles` or `conditions` on **any** transition of that workflow (`POST` and `PATCH /workflows/:id/transitions…`, `PUT /workflows/:id/canvas`). This closes the single-edge bypass, the two-hop detour through a new step, a skip edge to a later step, and widening roles on an unruled sibling of a ruled edge (#1132).
+- Changing a workflow's initial step (`PATCH /workflows/:id` with `initialState`) is admin-only on a workflow that carries an actor rule: moving it past a ruled edge would start every new record beyond the rule. Re-sending the current value is not a change.
+- A canvas save can no longer delete a step that an actor rule names, as the standalone delete route already refused; it left the rule naming a step that no longer exists.
+- A caller who does not administer the workflow now gets `404` from create and update transition whatever the stored rule state; before, a ruled edge answered them with `403`.
+
+### Changed
+
+- Non-admin workflow admins can no longer add or re-point transitions, or change who may take any transition, on a workflow that carries an actor rule. Adding a step alone, editing labels, requiresComment/requiresFields and deleting an unruled transition stay open to them, and a workflow with no actor rule is unchanged.
+- Still not covered, as documented in `docs/specs/segregation-of-duties.md` §K: a concurrent edit (the check reads the stored rule without a row lock), module and plugin install and seed paths, and self-loop transitions.
+
+## [Unreleased — redact audited SQL literals, pseudonymise actor, and cap reporting retention (#1139)]
+
+### Security & Privacy
+
+- Redacted string, numeric, hex and scientific literals and comment bodies from SQL statements before `reporting.*` audit rows are recorded in `admin_audit_log`, preserving statement structure and identifiers (ADR-019 Stage 2 criterion 11, #1139). The redactor fails closed: an unterminated string, dollar-quote, quoted identifier or block comment is redacted to the end of the statement. A backslash escapes a quote only inside `E'...'`, and block comments nest, as in Postgres.
+- `sql_hash` is now a fingerprint of the redacted, whitespace-normalised statement, not of the raw SQL, so it cannot be used to test guesses against redacted values; statements that differ only in a literal or comment share a hash (#1139).
+- On user erasure, `reporting.*` rows for that user in that tenant get one random `pseudonym:<32 hex>` actor, set via `tenant_purge_role`. It is not derived from the user id, so it cannot be re-identified from the user's other audit rows or linked across tenants (ADR-019 Stage 2 criterion 12, #1139). Rows where the user appears only as the acting person keep their own `actor_id`.
+- Ensured tenant purge strips SQL text from audit rows (`metadata = metadata - 'sql'`) (ADR-019 Stage 2 criterion 13, #1139).
+- Introduced a retention cap for `reporting.*` rows (`REPORTING_AUDIT_RETENTION_DAYS`, default 90, allowed range 30–90), swept in batches via the narrow `reporting_audit_retention_role` (migration 0164, ADR-019 Stage 2 criterion 14, #1139). The role's policies only expose rows older than 30 days, including for a session that had `app.tenant_id` set before switching role (a restrictive policy carries the bound), so it cannot delete recent reporting audit evidence. The 90-day ceiling exists because the access-log sweep deletes every `admin_audit_log` row older than 90 days.
+
+## [Unreleased — on-call roster partial-save handling (#1161)]
+
+### Fixed
+
+- Editing a repeating on-call roster no longer leaves the repeat toggle out of sync when the window saves but the repeat change fails: the roster reloads to the persisted state and the form stays open with a retry message (#1161).
+
+## [Unreleased — lazy-load non-English admin-ui locales (#1120)]
+
+### Changed
+
+- Non-English locale bundles are now separate on-demand chunks (`loadLocale` in `apps/admin-ui/src/i18n.ts`) instead of one all-locales chunk preloaded on every page load. Initial-load JS drops from about 431 kB to 205 kB gzip; the entry chunk is unchanged. Only English is bundled up front, and a saved non-English language is loaded before first render (#1120, #200).
 
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 

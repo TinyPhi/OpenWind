@@ -1,12 +1,20 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { workflows, withTenantContext } from "@platform/db";
+import {
+  workflows,
+  workflowTransitions,
+  withTenantContext,
+} from "@platform/db";
 import { and, eq } from "drizzle-orm";
-import { updateWorkflow } from "@platform/workflow-engine";
+import { assertWorkflowOwned, updateWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
+import {
+  assertMayEditRuledWorkflow,
+  SodRuleForbiddenError,
+} from "../../lib/sod-rule-gate.js";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { logger } from "@platform/logger";
 import {
@@ -105,6 +113,33 @@ export const updateWorkflowHandler = factory.createHandlers(
                 )
                 .limit(1)
             : [];
+        // Moving the initial step past a ruled edge starts every new record beyond it, so the rule
+        // never runs: on a workflow that carries an actor rule that is admin-only, like rewiring
+        // a transition (#1132). Ownership first, so a non-owner gets 404 whatever the rule state.
+        if (input.initialState !== undefined) {
+          await assertWorkflowOwned(tx, tenantId, id, toWorkflowCaller(auth));
+          const [current] = await tx
+            .select({ initialState: workflows.initialState })
+            .from(workflows)
+            .where(and(eq(workflows.id, id), eq(workflows.tenantId, tenantId)))
+            .limit(1);
+          if (current && current.initialState !== input.initialState) {
+            const transitions = await tx
+              .select({ conditions: workflowTransitions.conditions })
+              .from(workflowTransitions)
+              .where(
+                and(
+                  eq(workflowTransitions.workflowId, id),
+                  eq(workflowTransitions.tenantId, tenantId),
+                ),
+              );
+            assertMayEditRuledWorkflow(
+              auth,
+              transitions,
+              "change the initial step",
+            );
+          }
+        }
         const updated = await updateWorkflow(
           tx,
           tenantId,
@@ -134,6 +169,9 @@ export const updateWorkflowHandler = factory.createHandlers(
       });
       return c.json({ data: workflow });
     } catch (err) {
+      if (err instanceof SodRuleForbiddenError) {
+        return c.json({ error: "FORBIDDEN", message: err.message }, 403);
+      }
       return handleWorkflowError(c, err);
     }
   },

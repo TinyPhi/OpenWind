@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import type { AuthContext } from "@platform/auth";
 import {
-  assertMayAddTransitionOnEdge,
-  assertMayModifyRuledRoles,
+  assertMayEditRuledWorkflow,
   assertMaySetActorRules,
   isPersonAdmin,
   SodRuleForbiddenError,
   usesActorRule,
+  workflowCarriesActorRule,
 } from "./sod-rule-gate.js";
 
 const auth = (roles: string[], userId = "u-1"): AuthContext => ({
@@ -78,95 +78,78 @@ describe("assertMaySetActorRules", () => {
   });
 });
 
-describe("assertMayModifyRuledRoles (#1132)", () => {
+describe("workflowCarriesActorRule (#1132)", () => {
+  it("is true when any transition, on any edge, carries an actor rule", () => {
+    expect(
+      workflowCarriesActorRule([
+        { conditions: null },
+        { conditions: PLAIN },
+        { conditions: { op: "and", children: [PLAIN, RULE] } },
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false for no transitions, no conditions, or only other conditions", () => {
+    expect(workflowCarriesActorRule([])).toBe(false);
+    expect(
+      workflowCarriesActorRule([{ conditions: null }, { conditions: PLAIN }]),
+    ).toBe(false);
+  });
+});
+
+describe("assertMayEditRuledWorkflow (#1132)", () => {
   const agent = auth(["agent"]);
   const personAdmin = auth(["admin"]);
   const apiKeyAdmin = auth(["admin"], "apikey:k1");
+  // The rule sits on one edge; the edit is on an unrelated, unruled one.
+  const ruledWorkflow = [
+    { conditions: RULE },
+    { conditions: null },
+    { conditions: PLAIN },
+  ];
 
-  it("refuses a non-admin changing allowedRoles on a transition that carries an actor rule", () => {
+  it("refuses a non-admin on a workflow that carries a rule, whichever transition is edited", () => {
     expect(() =>
-      assertMayModifyRuledRoles(agent, RULE, ["admin"], ["agent"]),
+      assertMayEditRuledWorkflow(agent, ruledWorkflow, "add a transition"),
     ).toThrow(SodRuleForbiddenError);
   });
 
-  it("refuses an API key carrying admin from changing allowedRoles on a ruled transition", () => {
+  it("names the action in the message", () => {
     expect(() =>
-      assertMayModifyRuledRoles(apiKeyAdmin, RULE, ["admin"], ["agent"]),
+      assertMayEditRuledWorkflow(agent, ruledWorkflow, "change allowed roles"),
+    ).toThrow(/change allowed roles/);
+  });
+
+  it("refuses an API key carrying admin", () => {
+    expect(() =>
+      assertMayEditRuledWorkflow(
+        apiKeyAdmin,
+        ruledWorkflow,
+        "add a transition",
+      ),
     ).toThrow(SodRuleForbiddenError);
   });
 
-  it("lets a person admin change allowedRoles on a ruled transition", () => {
+  it("lets a person admin edit a ruled workflow", () => {
     expect(() =>
-      assertMayModifyRuledRoles(personAdmin, RULE, ["admin"], ["agent"]),
-    ).not.toThrow();
-  });
-
-  it("lets a non-admin edit allowedRoles on a transition without an actor rule", () => {
-    expect(() =>
-      assertMayModifyRuledRoles(agent, PLAIN, ["admin"], ["agent"]),
-    ).not.toThrow();
-    expect(() =>
-      assertMayModifyRuledRoles(agent, null, ["admin"], ["agent"]),
-    ).not.toThrow();
-  });
-
-  it("lets a non-admin resubmit the identical allowedRoles on a ruled transition", () => {
-    expect(() =>
-      assertMayModifyRuledRoles(agent, RULE, ["admin"], ["admin"]),
-    ).not.toThrow();
-  });
-
-  it("treats re-sending allowedRoles in a different order as unchanged (#1132)", () => {
-    expect(() =>
-      assertMayModifyRuledRoles(
-        agent,
-        RULE,
-        ["admin", "agent"],
-        ["agent", "admin"],
+      assertMayEditRuledWorkflow(
+        personAdmin,
+        ruledWorkflow,
+        "add a transition",
       ),
     ).not.toThrow();
   });
 
-  it("ignores writes where nextRoles is undefined", () => {
+  it("lets a non-admin edit a workflow that carries no actor rule", () => {
     expect(() =>
-      assertMayModifyRuledRoles(agent, RULE, ["admin"], undefined),
+      assertMayEditRuledWorkflow(
+        agent,
+        [{ conditions: PLAIN }, { conditions: null }],
+        "add a transition",
+      ),
     ).not.toThrow();
-  });
-});
-
-describe("assertMayAddTransitionOnEdge (#1132)", () => {
-  const agent = auth(["agent"]);
-  const personAdmin = auth(["admin"]);
-  const apiKeyAdmin = auth(["admin"], "apikey:k1");
-
-  it("refuses a non-admin adding a transition alongside an existing transition with an actor rule", () => {
     expect(() =>
-      assertMayAddTransitionOnEdge(agent, [{ conditions: RULE }], null),
-    ).toThrow(SodRuleForbiddenError);
-  });
-
-  it("refuses an API key carrying admin from adding a transition on an edge with an actor rule", () => {
-    expect(() =>
-      assertMayAddTransitionOnEdge(apiKeyAdmin, [{ conditions: RULE }], null),
-    ).toThrow(SodRuleForbiddenError);
-  });
-
-  it("refuses a non-admin adding a transition that carries an actor rule even on an unruled edge", () => {
-    expect(() => assertMayAddTransitionOnEdge(agent, [], RULE)).toThrow(
-      SodRuleForbiddenError,
-    );
-  });
-
-  it("lets a person admin add an alternate transition on an edge with an actor rule", () => {
-    expect(() =>
-      assertMayAddTransitionOnEdge(personAdmin, [{ conditions: RULE }], null),
+      assertMayEditRuledWorkflow(agent, [], "add a transition"),
     ).not.toThrow();
-  });
-
-  it("lets a non-admin add a transition on an edge with no actor rules", () => {
-    expect(() =>
-      assertMayAddTransitionOnEdge(agent, [{ conditions: PLAIN }], null),
-    ).not.toThrow();
-    expect(() => assertMayAddTransitionOnEdge(agent, [], null)).not.toThrow();
   });
 });

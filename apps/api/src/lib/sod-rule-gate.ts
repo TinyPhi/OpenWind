@@ -1,6 +1,6 @@
 import type { AuthContext } from "@platform/auth";
 import { treeUsesActorRule } from "@platform/workflow-engine";
-import { sameJson, sameMembers } from "./audit-workflow-access.js";
+import { sameJson } from "./audit-workflow-access.js";
 
 type ConditionTree = Parameters<typeof treeUsesActorRule>[0];
 
@@ -47,44 +47,28 @@ export function assertMaySetActorRules(
   throw new SodRuleForbiddenError();
 }
 
-/**
- * Throws unless the caller is a person admin, when a transition carries an actor rule and the write
- * changes its allowedRoles. Changing allowedRoles on a ruled transition touches department or role
- * gating for a segregation-of-duties control (#1132).
- */
-export function assertMayModifyRuledRoles(
-  auth: AuthContext,
-  conditions: unknown,
-  beforeRoles: readonly string[] | null | undefined,
-  nextRoles: readonly string[] | null | undefined,
-): void {
-  if (isPersonAdmin(auth)) return;
-  if (nextRoles === undefined) return;
-  if (!usesActorRule(conditions)) return;
-  if (sameMembers(beforeRoles, nextRoles)) return;
-  throw new SodRuleForbiddenError(
-    "Only an admin can change allowed roles on a transition with an actor rule",
-  );
+/** True when any of a workflow's transitions carries an `actor_*` condition. */
+export function workflowCarriesActorRule(
+  transitions: ReadonlyArray<{ conditions: unknown }>,
+): boolean {
+  return transitions.some((t) => usesActorRule(t.conditions));
 }
 
 /**
- * Throws unless the caller is a person admin, when adding a transition between two states where
- * an existing transition already carries an actor rule. Adding an unruled transition alongside
- * an existing ruled transition creates a parallel unruled bypass edge around segregation-of-duties (#1132).
+ * Throws unless the caller is a person admin, when the workflow carries an actor rule and the write
+ * edits who may take a step: adding a transition, re-pointing one, or changing a transition's
+ * allowedRoles or conditions. A segregation-of-duties rule only holds if the graph around it cannot
+ * be rewired, so on such a workflow these edits are admin-only for every transition, not only the
+ * ruled one (#1132). `transitions` is the workflow's transitions as they will survive the write.
  */
-export function assertMayAddTransitionOnEdge(
+export function assertMayEditRuledWorkflow(
   auth: AuthContext,
-  existingTransitionsOnEdge: Array<{ conditions: unknown }>,
-  nextConditions: unknown,
+  transitions: ReadonlyArray<{ conditions: unknown }>,
+  action: string,
 ): void {
   if (isPersonAdmin(auth)) return;
-  assertMaySetActorRules(auth, null, nextConditions ?? null);
-  const edgeHasRule = existingTransitionsOnEdge.some((t) =>
-    usesActorRule(t.conditions),
+  if (!workflowCarriesActorRule(transitions)) return;
+  throw new SodRuleForbiddenError(
+    `Only an admin can ${action} on a workflow that carries an actor rule`,
   );
-  if (edgeHasRule) {
-    throw new SodRuleForbiddenError(
-      "Only an admin can add an alternate transition between steps protected by an actor rule",
-    );
-  }
 }

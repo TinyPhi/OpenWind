@@ -4,21 +4,24 @@ import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
 import { workflows, workflowStates, workflowTransitions } from "@platform/db";
 import { and, eq, inArray } from "drizzle-orm";
-import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
+import {
+  assertStateNotNamedByRule,
+  getWorkflow,
+  isWorkflowAdmin,
+} from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import {
-  assertMayAddTransitionOnEdge,
-  assertMayModifyRuledRoles,
+  assertMayEditRuledWorkflow,
   assertMaySetActorRules,
   SodRuleForbiddenError,
-  usesActorRule,
 } from "../../lib/sod-rule-gate.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 import {
   auditTransitionRoleChanges,
   auditTransitionConditionChanges,
+  sameMembers,
   type TransitionRoleChange,
   type TransitionConditionChange,
 } from "../../lib/audit-workflow-access.js";
@@ -124,6 +127,19 @@ export const canvasSaveHandler = factory.createHandlers(
           throw err;
         }
 
+        // A step a segregation rule names cannot be deleted, here as on the standalone delete route:
+        // deleting it with its unruled edges leaves the rule naming a step that no longer exists, so
+        // it matches nothing for new records.
+        for (const deleted of deletedStates) {
+          await assertStateNotNamedByRule(
+            tx,
+            tenantId,
+            workflowId,
+            deleted.name,
+            deleted.id,
+          );
+        }
+
         const newTransitions = input.transitions.filter((t) =>
           t.id.startsWith(NEW_PREFIX),
         );
@@ -145,55 +161,61 @@ export const canvasSaveHandler = factory.createHandlers(
           )
           .map((t) => t.id);
 
+        const priorById = new Map(current.transitions.map((t) => [t.id, t]));
+        const deletedIds = new Set(deletedTransitionIds);
+
         for (const t of current.transitions) {
-          if (deletedTransitionIds.includes(t.id)) {
+          if (deletedIds.has(t.id)) {
             assertMaySetActorRules(auth, t.conditions, null);
           }
         }
         // Moving a ruled transition to other steps strands the rule on the wrong edge.
-        for (const t of existingTransitions) {
-          const prior = current.transitions.find((p) => p.id === t.id);
-          if (
-            prior &&
+        const repointedTransitions = existingTransitions.filter((t) => {
+          const prior = priorById.get(t.id);
+          return (
+            prior !== undefined &&
             (prior.fromState !== t.fromState || prior.toState !== t.toState)
-          ) {
-            assertMaySetActorRules(auth, prior.conditions, null);
-          }
-        }
-        // Changing allowedRoles on a ruled transition touches segregation-of-duties permissions (#1132).
-        for (const t of existingTransitions) {
-          const prior = current.transitions.find((p) => p.id === t.id);
-          if (prior) {
-            assertMayModifyRuledRoles(
-              auth,
-              prior.conditions,
-              prior.allowedRoles,
-              t.allowedRoles,
-            );
-          }
-        }
-        // Adding an alternate transition alongside a step protected by an actor rule creates a bypass (#1132).
-        const survivingRuledTransitions = current.transitions.filter(
-          (t) =>
-            usesActorRule(t.conditions) && !deletedTransitionIds.includes(t.id),
-        );
-        for (const ruled of survivingRuledTransitions) {
-          const duplicateOnRuledEdge = input.transitions.filter(
-            (t) =>
-              t.id !== ruled.id &&
-              t.fromState === ruled.fromState &&
-              t.toState === ruled.toState,
           );
-          const newlyPlacedOnEdge = duplicateOnRuledEdge.filter((t) => {
-            const prior = current.transitions.find((p) => p.id === t.id);
-            if (!prior) return true;
-            return (
-              prior.fromState !== t.fromState || prior.toState !== t.toState
-            );
-          });
-          if (newlyPlacedOnEdge.length > 0) {
-            assertMayAddTransitionOnEdge(auth, [ruled], null);
-          }
+        });
+        for (const t of repointedTransitions) {
+          assertMaySetActorRules(auth, priorById.get(t.id)?.conditions, null);
+        }
+        // A segregation-of-duties rule only holds if the graph around it cannot be rewired, so on a
+        // workflow that still carries an actor rule after this save, adding or re-pointing a
+        // transition and changing who may take one are admin-only for every transition, not only the
+        // ruled one: an unruled path through a new step or a skip edge would never run the rule
+        // (#1132). The sets are the write path's own partition (`newTransitions`, known
+        // `existingTransitions`), so the gate and the write agree.
+        const survivingTransitions = current.transitions.filter(
+          (t) => !deletedIds.has(t.id),
+        );
+        const rolesChangedTransitions = existingTransitions.filter((t) => {
+          const prior = priorById.get(t.id);
+          return (
+            prior !== undefined &&
+            !sameMembers(prior.allowedRoles, t.allowedRoles)
+          );
+        });
+        if (newTransitions.length > 0) {
+          assertMayEditRuledWorkflow(
+            auth,
+            survivingTransitions,
+            "add a transition",
+          );
+        }
+        if (repointedTransitions.length > 0) {
+          assertMayEditRuledWorkflow(
+            auth,
+            survivingTransitions,
+            "re-point a transition",
+          );
+        }
+        if (rolesChangedTransitions.length > 0) {
+          assertMayEditRuledWorkflow(
+            auth,
+            survivingTransitions,
+            "change allowed roles",
+          );
         }
 
         if (deletedTransitionIds.length > 0) {
