@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
 import { initTheme } from "./lib/theme.js";
-import "./i18n.js";
+import { i18nReady } from "./i18n.js";
 
 initTheme();
 
@@ -25,8 +25,10 @@ window.addEventListener("vite:preloadError", (event) => {
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element not found");
 
-ReactDOM.createRoot(rootEl).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+void i18nReady.then(() => {
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+});
