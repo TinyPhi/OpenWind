@@ -17,6 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Eliminated non-atomic schedule and rotation update race condition by supporting `rotationStatus` in `PATCH /admin/on-call-schedules/:id`, ensuring schedule and rotation status changes execute atomically within a single transaction (#1161).
 - Replaced fixed `DAY_MS = 86_400_000` date addition across `packages/teams/src/rotation.ts`, `apps/worker/src/oncall-rotation-worker.ts`, `apps/api/src/lib/rotation-windows.ts`, and `apps/admin-ui/src/pages/roster/index.tsx` with DST-aware calendar day arithmetic (`addCalendarDays`), preserving local wall-clock shift start/end times across daylight saving spring-forward (23h) and fall-back (25h) transitions (#1162).
 
+## [Unreleased — lazy-load non-English admin-ui locales (#1120)]
+
+### Changed
+
+- Non-English locale bundles are now separate on-demand chunks (`loadLocale` in `apps/admin-ui/src/i18n.ts`) instead of one all-locales chunk preloaded on every page load. Initial-load JS drops from about 431 kB to 205 kB gzip; the entry chunk is unchanged. Only English is bundled up front, and a saved non-English language is loaded before first render (#1120, #200).
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed
