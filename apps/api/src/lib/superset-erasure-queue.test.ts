@@ -198,6 +198,7 @@ describe("enqueueSupersetErasure (#728)", () => {
 
   it("starts the not-queued count at 0, so the first one still moves increase()", () => {
     expect(initialCounts).toContainEqual([0, { outcome: "not_queued" }]);
+    expect(initialCounts).toContainEqual([0, { outcome: "reconciled" }]);
   });
 
   it("still queues when another request removed the old job a moment earlier", async () => {
@@ -401,7 +402,7 @@ describe("eraseUserInSuperset (#728): what the admin is told", () => {
     mockAdd.mockRejectedValueOnce(new Error("redis down"));
     const outcome = await run();
     expect(outcome.status).toBe("queue_failed");
-    expect(outcome.message).toMatch(/operator must run it/);
+    expect(outcome.message).toMatch(/retried automatically/);
   });
 
   it("never puts the subject or the tenant in the message", async () => {

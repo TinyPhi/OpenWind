@@ -1,6 +1,10 @@
 import { metrics } from "@opentelemetry/api";
 import { Queue } from "./bullmq.js";
-import { getRedis, readSupersetSelfcheck } from "@platform/redis";
+import {
+  getRedis,
+  readSupersetSelfcheck,
+  readSupersetUnreconciledCount,
+} from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
 import { PrometheusSerializer } from "@opentelemetry/exporter-prometheus";
@@ -43,6 +47,7 @@ const queueNames = [
   "connector-poll",
   "mention-resolution",
   "superset-erasure",
+  "superset-erasure-reconcile",
 ];
 
 // Cache Queue instances to avoid re-creating them on every scrape
@@ -451,6 +456,25 @@ supersetErasureConfigMismatchGauge.addCallback(async (observableResult) => {
   try {
     const check = await readSupersetSelfcheck();
     if (check) observableResult.observe(check.mismatch ? 1 : 0);
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
+// #1138: count of unreconciled deleted user audit rows older than 1 hour, computed by
+// apps/worker/src/superset-erasure-reconcile.ts every 5 minutes and stored in Redis.
+const supersetErasureUnreconciledGauge = meter.createObservableGauge(
+  "openwind_superset_erasure_unreconciled_older_than_1h",
+  {
+    description:
+      "Count of unreconciled user erasures lacking Superset completion older than 1 hour",
+  },
+);
+
+supersetErasureUnreconciledGauge.addCallback(async (observableResult) => {
+  try {
+    const count = await readSupersetUnreconciledCount();
+    if (count !== null) observableResult.observe(count);
   } catch {
     // Ignore redis/telemetry errors during scrape callbacks
   }

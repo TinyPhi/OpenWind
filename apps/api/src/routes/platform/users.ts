@@ -228,7 +228,7 @@ usersRouter.delete(
         // insert throw and rolled the whole erasure back.
         resourceId: auditResourceId(targetUserId),
         action: "deleted",
-        metadata: { userId: targetUserId },
+        metadata: { userId: targetUserId, wasMember },
       });
     });
 

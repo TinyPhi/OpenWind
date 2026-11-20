@@ -17,6 +17,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Eliminated non-atomic schedule and rotation update race condition by supporting `rotationStatus` in `PATCH /admin/on-call-schedules/:id`, ensuring schedule and rotation status changes execute atomically within a single transaction (#1161).
 - Replaced fixed `DAY_MS = 86_400_000` date addition across `packages/teams/src/rotation.ts`, `apps/worker/src/oncall-rotation-worker.ts`, `apps/api/src/lib/rotation-windows.ts`, and `apps/admin-ui/src/pages/roster/index.tsx` with DST-aware calendar day arithmetic (`addCalendarDays`), preserving local wall-clock shift start/end times across daylight saving spring-forward (23h) and fall-back (25h) transitions (#1162).
 
+## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
+
+### Fixed
+
+- Made per-user Superset erasure durable by adding a repeatable worker reconciliation sweep (`superset-erasure-reconcile`, every 5 minutes) over `deleted` user audit rows lacking Superset erasure completion (#1138).
+- Automatically re-enqueues unqueued erasures caused by Redis failures, API restarts between commit and enqueue, or unverified self-check states, eliminating manual shell workarounds.
+- Stored `wasMember` in user deletion audit row metadata (`metadata: { userId, wasMember }`) to bound out pre-Stage-2 rows.
+- Added telemetry metric `openwind_superset_erasure_total{outcome="reconciled"}` and observable gauge `openwind_superset_erasure_unreconciled_older_than_1h` with Prometheus alert `SupersetErasureUnreconciled`.
+
 ## [Unreleased — batch queries in on-call rotations list (#1163)]
 
 ### Performance Improvements

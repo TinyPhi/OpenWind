@@ -420,7 +420,7 @@ describe("GET /users", () => {
           resourceType: "user",
           resourceId: auditResourceId("target-user-123"),
           action: "deleted",
-          metadata: { userId: "target-user-123" },
+          metadata: { userId: "target-user-123", wasMember: true },
         }),
       );
       expect(mockInvalidateUserCache).toHaveBeenCalled();
@@ -473,7 +473,10 @@ describe("GET /users", () => {
       expect(deleted.resourceId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       );
-      expect(deleted.metadata).toEqual({ userId: "256000000000000001" });
+      expect(deleted.metadata).toEqual({
+        userId: "256000000000000001",
+        wasMember: true,
+      });
     });
 
     it("does not audit or touch Zitadel when the erasure fails", async () => {

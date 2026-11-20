@@ -66,12 +66,16 @@ export async function closeRedis(): Promise<void> {
 
 export {
   SUPERSET_SELFCHECK_KEY,
+  SUPERSET_UNRECONCILED_KEY,
+  SUPERSET_UNRECONCILED_TTL_SECONDS,
   supersetSelfcheckTtlSeconds,
   SUPERSET_SELFCHECK_OUTCOMES,
   writeSupersetSelfcheck,
   readSupersetSelfcheck,
   parseSupersetSelfcheck,
   resolveSupersetErasureMode,
+  writeSupersetUnreconciledCount,
+  readSupersetUnreconciledCount,
 } from "./superset-selfcheck.js";
 export type {
   SupersetSelfcheckOutcome,

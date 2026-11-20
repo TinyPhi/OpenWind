@@ -59,19 +59,25 @@ with `superset openwind-erase --tenant <that tenant> --subject <id>`.
 
 ## When it did not finish
 
-The `SupersetErasureFailed` alert fires in two cases, told apart by its `outcome` label:
+The `SupersetErasureFailed` alert fires when an erasure did not complete, told apart by its `outcome` label:
 
-- `failed`: a job spent its last retry. The job log line says "superset erasure failed on its last
+- `failed`: a job spent its last retry (about 26 hours). The job log line says "superset erasure failed on its last
   attempt" and a `superset_erasure.failed` row exists.
-- `not_queued`: the job could not even be queued (Redis was down at that moment). The log line says
-  "superset erasure could not be queued"; there is no job and no audit row. For a tenant purge, the
-  purge job fails and its own retry queues the erasure again. For a user, nothing retries it: run
-  the erase by hand as below.
-  A second
-  alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state, which
-  lasts 7 days or until the job is removed. It also catches a job BullMQ failed because the worker died
-  twice while running it: that job has no `failed` audit row, so look for it in the queue
-  (`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
+- `not_queued`: the job could not be queued immediately when the API processed the deletion (e.g. Redis blip or
+  API restart). For a tenant purge, the purge job fails and retries. For a user, the reconciliation worker sweep
+  (`superset-erasure-reconcile`, every 5 minutes) sweeps `deleted` user audit rows lacking a `superset_erasure.completed`
+  sibling and re-queues the erasure automatically.
+- `unverified`: Superset's Stage 2 state could not be confirmed at erasure time. The reconciler retries the row once the
+  self-check is green.
+
+A persistent gap raises **`SupersetErasureUnreconciled`**: fires when any committed user erasure remains unreconciled
+or uncompleted after 1 hour. Unlike the 1-hour `increase()` counter, this gauge alert remains active as long as personal data
+remains in Superset without an audit completion record.
+
+A third alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state, which
+lasts 7 days or until the job is removed. It also catches a job BullMQ failed because the worker died
+twice while running it: that job has no `failed` audit row, so look for it in the queue
+(`bull:superset-erasure:*` in Redis) and run the erase by hand as below.
 
 1. **Find the cause in the worker log** (`ow-worker`), the line before the final one. Usual causes:
 
@@ -142,10 +148,7 @@ was `ok`. With `SUPERSET_DEPLOYMENT=off` neither alert can fire unless Superset 
   Superset holds an account. The API counts it as `openwind_superset_erasure_total{outcome="unverified"}`
   (alert `SupersetErasureFailed`). The API also writes a `superset_erasure.failed` audit row on the user
   (as the system, `metadata`: `kind: "user"`, `status: "unverified"`, `userId`), which is what the
-  reconciler (#1138, not built yet) will use to retry once the check is green. Until it exists: once the
-  self-check is `ok`, check Superset for the person (step 3 under "When it did not finish") and run the
-  erase by hand if an account is there. Nothing queues it again, because the person is no longer a member.
-  Search the audit log for `superset_erasure.failed` rows with status `unverified` to find them.
+  reconciler (#1138) automatically sweeps and retries once the self-check is green.
 - A tenant purge in the same state fails with "the Superset erasure could not be verified" and retries
   (3 attempts). The database purge has already committed, so a retry only repeats the cleanup outside the
   database. Once the self-check is `ok`, add the purge job again (the "already purged" path queues the

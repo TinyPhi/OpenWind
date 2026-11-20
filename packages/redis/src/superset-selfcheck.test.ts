@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 
-vi.mock("ioredis", () => ({ default: vi.fn() }));
+vi.mock("ioredis", () => ({
+  default: vi.fn().mockImplementation(function () {
+    return {
+      on: vi.fn(),
+      set: vi.fn(),
+      get: vi.fn(),
+    };
+  }),
+}));
 vi.mock("@platform/config", () => ({
   env: {
     REDIS_URL: "redis://localhost:6379",
@@ -16,6 +24,10 @@ const {
   resolveSupersetErasureMode,
   parseSupersetSelfcheck,
   supersetSelfcheckTtlSeconds,
+  writeSupersetUnreconciledCount,
+  readSupersetUnreconciledCount,
+  SUPERSET_UNRECONCILED_KEY,
+  SUPERSET_UNRECONCILED_TTL_SECONDS,
 } = await import("./superset-selfcheck.js");
 
 const { env } = (await import("@platform/config")) as unknown as {
@@ -152,5 +164,41 @@ describe("parseSupersetSelfcheck", () => {
     JSON.stringify({ checkedAt: 1, outcome: "ok", stage2: true }),
   ])("treats %j as no result", (raw) => {
     expect(parseSupersetSelfcheck(raw)).toBeNull();
+  });
+});
+
+describe("unreconciled count in Redis (#1138)", () => {
+  it("writes and reads back the count", async () => {
+    const { getRedis } = await import("./index.js");
+    const client = getRedis();
+    const setSpy = vi.fn().mockResolvedValue("OK");
+    const getSpy = vi.fn().mockResolvedValue("42");
+    client.set = setSpy as never;
+    client.get = getSpy as never;
+
+    await writeSupersetUnreconciledCount(42);
+    expect(setSpy).toHaveBeenCalledWith(
+      SUPERSET_UNRECONCILED_KEY,
+      "42",
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    );
+
+    const count = await readSupersetUnreconciledCount();
+    expect(getSpy).toHaveBeenCalledWith(SUPERSET_UNRECONCILED_KEY);
+    expect(count).toBe(42);
+  });
+
+  it("returns null when key does not exist or on parse failure", async () => {
+    const { getRedis } = await import("./index.js");
+    const client = getRedis();
+    client.get = vi.fn().mockResolvedValue(null) as never;
+    expect(await readSupersetUnreconciledCount()).toBeNull();
+
+    client.get = vi.fn().mockResolvedValue("not-a-number") as never;
+    expect(await readSupersetUnreconciledCount()).toBeNull();
+
+    client.get = vi.fn().mockRejectedValue(new Error("redis down")) as never;
+    expect(await readSupersetUnreconciledCount()).toBeNull();
   });
 });
