@@ -1058,6 +1058,7 @@
     "close": "Close",
     "deleteDescRepeating": "\"{{label}}\" is part of a repeating roster. Deleting it removes this window from the roster and nobody is on call for that time unless you cover it. The roster will not make it again and keeps repeating after it. To stop the repeat, pause the roster instead. This cannot be undone.",
     "failedToUpdateRoster": "Failed to update the roster",
+    "windowSavedRepeatFailed": "The window was saved, but the repeat setting could not be changed. Check the roster and try again.",
     "cycleLength": "Cycle length (days) *",
     "cycleLengthAria": "Cycle length in days",
     "runningHint": "This window is already running, so only its end can be changed.",
