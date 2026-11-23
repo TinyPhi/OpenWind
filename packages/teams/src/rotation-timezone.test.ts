@@ -208,4 +208,179 @@ describe("addCalendarDays (#1162)", () => {
       71 * 60 * 60 * 1000,
     );
   });
+
+  describe("transition day targets in far-east zones (Australia/NZ, #1162 M1)", () => {
+    const tableCases: Array<{
+      zone: string;
+      desc: string;
+      startIso: string;
+      step: number;
+      expectedIso: string;
+      expectedLocalHourMin: string;
+    }> = [
+      // Australia/Sydney Fall-Back: Sun Apr 5, 2026 (AEDT UTC+11 -> AEST UTC+10 at 03:00)
+      // 00:00 AEDT on Apr 5 is 2026-04-04T13:00:00Z
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney fall-back, 00:00 AEDT, 1-day step",
+        startIso: "2026-04-03T13:00:00.000Z",
+        step: 1,
+        expectedIso: "2026-04-04T13:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney fall-back, 00:00 AEDT, 7-day step",
+        startIso: "2026-03-28T13:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-04-04T13:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney fall-back, 00:00 AEDT, 14-day step",
+        startIso: "2026-03-21T13:00:00.000Z",
+        step: 14,
+        expectedIso: "2026-04-04T13:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      // 01:00 AEDT on Apr 5 is 2026-04-04T14:00:00Z
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney fall-back, 01:00 AEDT, 7-day step",
+        startIso: "2026-03-28T14:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-04-04T14:00:00.000Z",
+        expectedLocalHourMin: "01:00",
+      },
+      // 02:00 AEDT on Apr 5 is 2026-04-04T15:00:00Z
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney fall-back, 02:00 AEDT, 7-day step",
+        startIso: "2026-03-28T15:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-04-04T15:00:00.000Z",
+        expectedLocalHourMin: "02:00",
+      },
+
+      // Australia/Sydney Spring-Forward: Sun Oct 4, 2026 (AEST UTC+10 -> AEDT UTC+11 at 02:00)
+      // 00:00 AEST on Oct 4 is 2026-10-03T14:00:00Z
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney spring-forward, 00:00 AEST, 1-day step",
+        startIso: "2026-10-02T14:00:00.000Z",
+        step: 1,
+        expectedIso: "2026-10-03T14:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney spring-forward, 00:00 AEST, 7-day step",
+        startIso: "2026-09-26T14:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-10-03T14:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney spring-forward, 00:00 AEST, 14-day step",
+        startIso: "2026-09-19T14:00:00.000Z",
+        step: 14,
+        expectedIso: "2026-10-03T14:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      // 01:00 AEST on Oct 4 is 2026-10-03T15:00:00Z
+      {
+        zone: "Australia/Sydney",
+        desc: "Sydney spring-forward, 01:00 AEST, 7-day step",
+        startIso: "2026-09-26T15:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-10-03T15:00:00.000Z",
+        expectedLocalHourMin: "01:00",
+      },
+
+      // Pacific/Auckland Fall-Back: Sun Apr 5, 2026 (NZDT UTC+13 -> NZST UTC+12 at 03:00)
+      // 00:00 NZDT on Apr 5 is 2026-04-04T11:00:00Z
+      {
+        zone: "Pacific/Auckland",
+        desc: "Auckland fall-back, 00:00 NZDT, 1-day step",
+        startIso: "2026-04-03T11:00:00.000Z",
+        step: 1,
+        expectedIso: "2026-04-04T11:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      {
+        zone: "Pacific/Auckland",
+        desc: "Auckland fall-back, 00:00 NZDT, 7-day step",
+        startIso: "2026-03-28T11:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-04-04T11:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      {
+        zone: "Pacific/Auckland",
+        desc: "Auckland fall-back, 00:00 NZDT, 14-day step",
+        startIso: "2026-03-21T11:00:00.000Z",
+        step: 14,
+        expectedIso: "2026-04-04T11:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+
+      // Pacific/Auckland Spring-Forward: Sun Sep 27, 2026 (NZST UTC+12 -> NZDT UTC+13 at 02:00)
+      // 00:00 NZST on Sep 27 is 2026-09-26T12:00:00Z
+      {
+        zone: "Pacific/Auckland",
+        desc: "Auckland spring-forward, 00:00 NZST, 7-day step",
+        startIso: "2026-09-19T12:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-09-26T12:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+
+      // Australia/Lord_Howe (30 min transition)
+      // Fall-back: Sun Apr 5, 2026 (UTC+11:00 -> UTC+10:30 at 02:00)
+      // 00:00 on Apr 5 is 2026-04-04T13:00:00Z
+      {
+        zone: "Australia/Lord_Howe",
+        desc: "Lord Howe fall-back, 00:00, 7-day step",
+        startIso: "2026-03-28T13:00:00.000Z",
+        step: 7,
+        expectedIso: "2026-04-04T13:00:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+      // Spring-forward: Sun Oct 4, 2026 (UTC+10:30 -> UTC+11:00 at 02:00)
+      // 00:00 on Oct 4 is 2026-10-03T13:30:00Z
+      {
+        zone: "Australia/Lord_Howe",
+        desc: "Lord Howe spring-forward, 00:00, 7-day step",
+        startIso: "2026-09-26T13:30:00.000Z",
+        step: 7,
+        expectedIso: "2026-10-03T13:30:00.000Z",
+        expectedLocalHourMin: "00:00",
+      },
+    ];
+
+    for (const {
+      zone,
+      desc,
+      startIso,
+      step,
+      expectedIso,
+      expectedLocalHourMin,
+    } of tableCases) {
+      it(`correctly computes ${desc}`, () => {
+        const start = new Date(startIso);
+        const end = addCalendarDays(start, step, zone);
+        expect(end.toISOString()).toBe(expectedIso);
+
+        const formatted = new Intl.DateTimeFormat("en-US", {
+          timeZone: zone,
+          hour: "numeric",
+          minute: "numeric",
+          hour12: false,
+        }).format(end);
+        expect(formatted).toBe(expectedLocalHourMin);
+      });
+    }
+  });
 });

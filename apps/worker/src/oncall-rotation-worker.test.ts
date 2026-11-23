@@ -232,4 +232,67 @@ describe("generateForRotation tenant timezone (#1162)", () => {
       expect.objectContaining({ timeZone: null }),
     );
   });
+
+  it("passes updated timeZone when tenant settings change between generation runs (G2)", async () => {
+    mockPlanWindows.mockReturnValue({
+      windows: [],
+      skippedEnded: 0,
+      capped: false,
+      stoppedBy: null,
+      cursor: { nextStartsAt: new Date() },
+    });
+
+    let currentTz = "Asia/Kolkata";
+    mockWithTenantContext.mockImplementation(
+      async (
+        _tenantId: string,
+        fn: (tx: Record<string, unknown>) => unknown,
+      ) => {
+        let fromTable = "";
+        const makeLimit = (data: unknown[]) =>
+          Object.assign(Promise.resolve(data), {
+            for: () => Promise.resolve(data),
+          });
+
+        const tx = {
+          select: () => tx,
+          from: (table: { defaultTimezone?: string }) => {
+            fromTable = table?.defaultTimezone ? "settings" : "other";
+            return tx;
+          },
+          where: () => tx,
+          update: () => tx,
+          set: () => tx,
+          limit: () =>
+            makeLimit(
+              fromTable === "settings"
+                ? [{ defaultTimezone: currentTz }]
+                : [
+                    {
+                      id: "rot-1",
+                      teamId: "team-1",
+                      status: "active",
+                      cycleDays: 7,
+                      nextStartsAt: new Date(Date.now() - 1000),
+                    },
+                  ],
+            ),
+        };
+        return fn(tx);
+      },
+    );
+
+    // Run 1: with Asia/Kolkata
+    await generateForRotation("t-1", "rot-1", new Date());
+    expect(mockPlanWindows).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeZone: "Asia/Kolkata" }),
+    );
+
+    // Run 2: tenant changes default timezone to Europe/London
+    currentTz = "Europe/London";
+    await generateForRotation("t-1", "rot-1", new Date());
+    expect(mockPlanWindows).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeZone: "Europe/London" }),
+    );
+  });
 });

@@ -12,6 +12,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added Organization settings tab in Admin UI with Default Timezone picker and mirrored i18n keys across all 11 locales (#1158).
 - Updated Schedule Rules authoring to fetch tenant default timezone on rule creation, falling back to UTC instead of hardcoded `Asia/Kolkata` (#1158).
 
+### Changed
+
+- Schedule rule default timezone for tenants without an explicit configuration changed to UTC (previously `Asia/Kolkata`). Existing tenants wishing to preserve India Standard Time should configure `Asia/Kolkata` under Organization Settings (#1158).
+
 ### Fixed
 
 - Eliminated non-atomic schedule and rotation update race condition by supporting `rotationStatus` in `PATCH /admin/on-call-schedules/:id`, ensuring schedule and rotation status changes execute atomically within a single transaction (#1161).

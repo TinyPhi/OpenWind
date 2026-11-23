@@ -16,6 +16,7 @@ import {
   teamMembers,
   onCallRotations,
   onCallSchedules,
+  adminAuditLog,
   withTenantContext,
 } from "@platform/db";
 import type { AuthContext } from "@platform/auth";
@@ -602,5 +603,132 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
       send("PATCH", { endsOn: "not-a-date" }),
     );
     expect(bad.status).toBe(400);
+  });
+
+  it("atomic rollback: stopping rotation with invalid end date returns 422, leaves rotation active, upcoming windows intact, and writes no audit row", async () => {
+    const teamId = await newTeam([ASHA, BEN]);
+    const DAY = 86_400_000;
+    const base = new Date(Date.now() + 2 * DAY);
+    base.setMilliseconds(0);
+    const { rotationId, scheduleId } = await createRotation(teamId, {
+      label: "W1",
+      startsAt: base.toISOString(),
+      endsAt: new Date(base.getTime() + 7 * DAY).toISOString(),
+    });
+    const [w2] = await db
+      .insert(onCallSchedules)
+      .values({
+        tenantId: TENANT_A,
+        teamId,
+        rotationId,
+        label: "W2",
+        startsAt: new Date(base.getTime() + 7 * DAY),
+        endsAt: new Date(base.getTime() + 14 * DAY),
+        primaryUserId: BEN,
+        backupUserId: ASHA,
+        createdBy: ADMIN_A,
+      })
+      .returning();
+
+    const auditsBefore = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_A));
+
+    const res = await appA.request(
+      `/admin/on-call-schedules/${scheduleId}`,
+      send("PATCH", {
+        rotationStatus: "stopped",
+        endsAt: "2020-01-01T00:00:00Z",
+      }),
+    );
+    expect(res.status).toBe(422);
+
+    const [rotAfter] = await db
+      .select()
+      .from(onCallRotations)
+      .where(eq(onCallRotations.id, rotationId));
+    expect(rotAfter!.status).toBe("active");
+
+    const remainingWindows = await db
+      .select()
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.rotationId, rotationId));
+    expect(remainingWindows.map((w) => w.id).sort()).toEqual(
+      [scheduleId, w2.id].sort(),
+    );
+
+    const auditsAfter = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_A));
+    expect(auditsAfter.length).toBe(auditsBefore.length);
+  });
+
+  it("atomic success: stopping rotation with valid edit on upcoming window stops rotation, keeps edited window, and writes audit rows", async () => {
+    const teamId = await newTeam([ASHA, BEN]);
+    const DAY = 86_400_000;
+    const base = new Date(Date.now() + 2 * DAY);
+    base.setMilliseconds(0);
+    const { rotationId, scheduleId } = await createRotation(teamId, {
+      label: "W1",
+      startsAt: base.toISOString(),
+      endsAt: new Date(base.getTime() + 7 * DAY).toISOString(),
+    });
+    const [w2] = await db
+      .insert(onCallSchedules)
+      .values({
+        tenantId: TENANT_A,
+        teamId,
+        rotationId,
+        label: "W2",
+        startsAt: new Date(base.getTime() + 7 * DAY),
+        endsAt: new Date(base.getTime() + 14 * DAY),
+        primaryUserId: BEN,
+        backupUserId: ASHA,
+        createdBy: ADMIN_A,
+      })
+      .returning();
+
+    const auditsBefore = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_A));
+
+    const newEnd = new Date(base.getTime() + 5 * DAY);
+    const res = await appA.request(
+      `/admin/on-call-schedules/${scheduleId}`,
+      send("PATCH", {
+        rotationStatus: "stopped",
+        endsAt: newEnd.toISOString(),
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const [rotAfter] = await db
+      .select()
+      .from(onCallRotations)
+      .where(eq(onCallRotations.id, rotationId));
+    expect(rotAfter!.status).toBe("stopped");
+
+    const remainingWindows = await db
+      .select()
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.rotationId, rotationId));
+    expect(remainingWindows.length).toBe(1);
+    expect(remainingWindows[0]!.id).toBe(scheduleId);
+    expect(remainingWindows[0]!.endsAt.getTime()).toBe(newEnd.getTime());
+
+    const auditsAfter = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_A));
+    expect(auditsAfter.length).toBeGreaterThan(auditsBefore.length);
+
+    const newAudits = auditsAfter.slice(auditsBefore.length);
+    const actions = newAudits.map((a) => `${a.resourceType}:${a.action}`);
+    expect(actions).toContain("on_call_rotation:updated");
+    expect(actions).toContain("on_call_schedule:deleted");
+    expect(actions).toContain("on_call_schedule:updated");
   });
 });

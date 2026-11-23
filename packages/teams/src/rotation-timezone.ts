@@ -21,6 +21,10 @@
  * - Preserves milliseconds from the input date.
  */
 
+import { logger } from "@platform/logger";
+
+const warnedZones = new Set<string>();
+
 const dtfCache = new Map<string, Intl.DateTimeFormat>();
 
 function getDateTimeFormat(timeZone: string): Intl.DateTimeFormat {
@@ -41,7 +45,10 @@ function getDateTimeFormat(timeZone: string): Intl.DateTimeFormat {
   return dtf;
 }
 
-function getUtcOffsetMs(date: Date, dtf: Intl.DateTimeFormat): number {
+function getLocalParts(
+  date: Date,
+  dtf: Intl.DateTimeFormat,
+): { y: number; m: number; d: number; h: number; min: number; s: number } {
   const parts = dtf.formatToParts(date);
   let y = 0,
     m = 0,
@@ -57,6 +64,11 @@ function getUtcOffsetMs(date: Date, dtf: Intl.DateTimeFormat): number {
     else if (p.type === "minute") min = parseInt(p.value, 10);
     else if (p.type === "second") s = parseInt(p.value, 10);
   }
+  return { y, m, d, h, min, s };
+}
+
+function getUtcOffsetMs(date: Date, dtf: Intl.DateTimeFormat): number {
+  const { y, m, d, h, min, s } = getLocalParts(date, dtf);
   const localAsUtc = Date.UTC(
     y,
     m - 1,
@@ -85,54 +97,62 @@ export function addCalendarDays(
 
   try {
     const dtf = getDateTimeFormat(timeZone);
-    const parts = dtf.formatToParts(startDate);
-    let y = 0,
-      m = 0,
-      d = 0,
-      h = 0,
-      min = 0,
-      s = 0;
-    for (const p of parts) {
-      if (p.type === "year") y = parseInt(p.value, 10);
-      else if (p.type === "month") m = parseInt(p.value, 10);
-      else if (p.type === "day") d = parseInt(p.value, 10);
-      else if (p.type === "hour") h = parseInt(p.value, 10);
-      else if (p.type === "minute") min = parseInt(p.value, 10);
-      else if (p.type === "second") s = parseInt(p.value, 10);
-    }
+    const { y, m, d, h, min, s } = getLocalParts(startDate, dtf);
     const ms = startDate.getUTCMilliseconds();
 
-    // Target date in local time components
+    // Target date in local time components represented as naive UTC timestamp
     const targetLocalAsUtc = Date.UTC(y, m - 1, d + days, h, min, s, ms);
 
-    // Compute boundaries of the target day to sample UTC offsets
-    const dayStartUtc = Date.UTC(y, m - 1, d + days, 0, 0, 0, 0);
-    const dayEndUtc = Date.UTC(y, m - 1, d + days, 23, 59, 59, 999);
-    const offsetDayStart = getUtcOffsetMs(new Date(dayStartUtc), dtf);
-    const offsetDayEnd = getUtcOffsetMs(new Date(dayEndUtc), dtf);
+    // Multi-pass offset resolution:
+    // Sample offsets across potential transition boundaries (startDate, targetLocalAsUtc +/- 1 day).
+    const offsets = new Set<number>();
+    offsets.add(getUtcOffsetMs(startDate, dtf));
+    offsets.add(getUtcOffsetMs(new Date(targetLocalAsUtc), dtf));
+    offsets.add(getUtcOffsetMs(new Date(targetLocalAsUtc - 86_400_000), dtf));
+    offsets.add(getUtcOffsetMs(new Date(targetLocalAsUtc + 86_400_000), dtf));
 
-    // Evaluate candidates with pre- and post-transition offsets
-    const cand1 = new Date(targetLocalAsUtc - offsetDayStart);
-    const cand2 = new Date(targetLocalAsUtc - offsetDayEnd);
-
-    const off1 = getUtcOffsetMs(cand1, dtf);
-    if (targetLocalAsUtc - off1 === cand1.getTime()) {
-      return cand1;
+    // Sample offsets at candidate instants generated from the initial set
+    for (const off of Array.from(offsets)) {
+      offsets.add(getUtcOffsetMs(new Date(targetLocalAsUtc - off), dtf));
     }
 
-    const off2 = getUtcOffsetMs(cand2, dtf);
-    if (targetLocalAsUtc - off2 === cand2.getTime()) {
-      return cand2;
+    const validMatches: Date[] = [];
+    const allCandidates: Date[] = [];
+
+    for (const off of offsets) {
+      const cand = new Date(targetLocalAsUtc - off);
+      allCandidates.push(cand);
+      const actualOff = getUtcOffsetMs(cand, dtf);
+      if (targetLocalAsUtc - actualOff === cand.getTime()) {
+        if (!validMatches.some((m) => m.getTime() === cand.getTime())) {
+          validMatches.push(cand);
+        }
+      }
     }
 
-    // Gap (nonexistent local time): cand1 places the instant with pre-transition offset,
-    // which advances past the nonexistent gap into the first valid instant (compatible semantics).
-    return cand1;
+    if (validMatches.length > 1) {
+      // Overlap (fall-back): ambiguous local time occurs twice.
+      // RFC 5545 / Temporal "compatible" rule: choose earlier instant (pre-transition).
+      validMatches.sort((a, b) => a.getTime() - b.getTime());
+      return validMatches[0]!;
+    }
+    if (validMatches.length === 1) {
+      return validMatches[0]!;
+    }
+
+    // Gap (spring-forward): target local time is nonexistent (skipped by transition).
+    // RFC 5545 / Temporal "compatible" rule: advance past the gap into the first
+    // valid instant after the gap (the later candidate instant).
+    allCandidates.sort((a, b) => b.getTime() - a.getTime());
+    return allCandidates[0]!;
   } catch (err: unknown) {
-    console.warn(
-      `[rotation-timezone] Failed to resolve timezone "${timeZone}", falling back to 24h days:`,
-      err,
-    );
+    if (!warnedZones.has(timeZone)) {
+      warnedZones.add(timeZone);
+      logger.warn(
+        { timeZone, err },
+        "rotation-timezone: failed to resolve timezone, falling back to 24h days",
+      );
+    }
     return new Date(startDate.getTime() + days * 86_400_000);
   }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   applyTheme,
@@ -86,11 +86,13 @@ export function Settings(): React.ReactElement {
   const [timezoneLoading, setTimezoneLoading] = useState(false);
   const [timezoneSaving, setTimezoneSaving] = useState(false);
   const [timezoneError, setTimezoneError] = useState<string | null>(null);
+  const timezoneDirtyRef = useRef(false);
 
   useEffect(() => {
     setTimezoneLoading(true);
     void fetchWithAuth(`${API_URL}/admin/tenant-settings`)
       .then((res) => {
+        if (timezoneDirtyRef.current) return;
         const data = (res as { data?: { defaultTimezone?: string | null } })
           .data;
         setDefaultTimezone(data?.defaultTimezone ?? "");
@@ -103,6 +105,7 @@ export function Settings(): React.ReactElement {
 
   async function handleTimezoneChange(nextTz: string): Promise<void> {
     if (!isAdmin) return;
+    timezoneDirtyRef.current = true;
     const prev = defaultTimezone;
     setDefaultTimezone(nextTz);
     setTimezoneSaving(true);

@@ -664,15 +664,23 @@ interface ScheduleFormData {
 }
 
 // A window made before cycles existed may not be a whole number of days; those keep a typed end.
-// Accounts for DST boundaries (+/- 1 hour drift) so a 7-day cycle across DST is recognized (#1162).
+// Accounts for DST boundaries so a 7-day cycle across DST is recognized (#1162, G4).
 function wholeCycleDays(schedule: OnCallSchedule): number | null {
-  const diffMs =
-    new Date(schedule.endsAt).getTime() - new Date(schedule.startsAt).getTime();
+  const starts = new Date(schedule.startsAt);
+  const ends = new Date(schedule.endsAt);
+  const diffMs = ends.getTime() - starts.getTime();
   const rounded = Math.round(diffMs / DAY_MS);
-  const isClose = Math.abs(diffMs - rounded * DAY_MS) <= 3_600_000;
-  return isClose && rounded >= MIN_CYCLE_DAYS && rounded <= MAX_CYCLE_DAYS
-    ? rounded
-    : null;
+  if (rounded < MIN_CYCLE_DAYS || rounded > MAX_CYCLE_DAYS) {
+    return null;
+  }
+  // Matches exact 24h multiple or local calendar days (DST-aware)
+  if (
+    diffMs === rounded * DAY_MS ||
+    addCalendarDaysLocal(starts, rounded).getTime() === ends.getTime()
+  ) {
+    return rounded;
+  }
+  return null;
 }
 
 function initialScheduleFormData(

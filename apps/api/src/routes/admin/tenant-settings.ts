@@ -15,9 +15,24 @@ import { logger } from "@platform/logger";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 
+/**
+ * Canonicalize timezone casing without rewriting modern IANA zones to legacy aliases
+ * (avoids ICU CLDR rewrites such as Asia/Kolkata -> Asia/Calcutta or Europe/Kyiv -> Europe/Kiev).
+ */
 export function canonicalizeTimezone(tz: string): string {
-  return new Intl.DateTimeFormat("en-US", { timeZone: tz }).resolvedOptions()
-    .timeZone;
+  const trimmed = tz.trim();
+  if (trimmed.toUpperCase() === "UTC") return "UTC";
+  return trimmed
+    .split("/")
+    .map((seg) =>
+      seg
+        .split("_")
+        .map((part) =>
+          part ? part[0]!.toUpperCase() + part.slice(1).toLowerCase() : "",
+        )
+        .join("_"),
+    )
+    .join("/");
 }
 
 export const PatchTenantSettingsSchema = z.object({

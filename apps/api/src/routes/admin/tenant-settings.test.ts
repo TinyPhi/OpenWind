@@ -181,6 +181,27 @@ describe("PATCH /admin/tenant-settings", () => {
     });
   });
 
+  it("preserves standard IANA names for Asia/Kolkata and Europe/Kyiv without legacy aliases (#1158 G1)", async () => {
+    for (const tz of [
+      "Asia/Kolkata",
+      "Europe/Kyiv",
+      "Asia/Ho_Chi_Minh",
+      "Asia/Kathmandu",
+    ]) {
+      storedSetting = { defaultTimezone: null };
+      const res = await makeApp().request("/admin/tenant-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultTimezone: tz }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        data: { defaultTimezone: tz },
+      });
+    }
+  });
+
   it("rejects inverted Etc/GMT timezone identifiers", async () => {
     const res = await makeApp().request("/admin/tenant-settings", {
       method: "PATCH",

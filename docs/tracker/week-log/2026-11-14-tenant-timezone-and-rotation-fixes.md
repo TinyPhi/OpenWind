@@ -63,7 +63,40 @@
 
 ---
 
-## 3. Test Coverage
+## 3. Review Follow-up & Fixes (PR #1187 Review Head `81f51930` / Review 5998283074)
+
+- **M1 (Far-East Zone DST Arithmetic Bug)**:
+  - In `packages/teams/src/rotation-timezone.ts`, replaced naive UTC date component sampling with multi-pass candidate sampling across candidate offsets. Correctly resolves transition day targets before fall-back/spring-forward in positive-offset zones (`Australia/Sydney`, `Australia/Lord_Howe` 30-min shifts, `Pacific/Auckland`).
+  - Added transition day test tables (both spring-forward and fall-back) for Sydney, Auckland, and Lord Howe at 00:00, 01:00, 02:00 for 1-, 7-, and 14-day steps.
+- **M2 (Migration Collision with `main`)**:
+  - Renamed `packages/db/migrations/0164_tenant_settings.sql` -> `0165_tenant_settings.sql`.
+  - Renumbered in `packages/db/migrations/meta/_journal.json` to `idx: 165`, `when: 1793750400000`, `tag: "0165_tenant_settings"`.
+  - Cleanly merged `origin/main` commit `cc39d7fb` containing `0164_reporting_audit_retention_role.sql`.
+- **M3 (Semantic Roster Merge with #1185)**:
+  - In `apps/admin-ui/src/pages/roster/index.tsx`, eliminated dead `onPartialSave` and redundant secondary PATCH call from #1185.
+  - In `apps/admin-ui/src/pages/roster/index.test.tsx`, verified that 422 errors from combined PATCH keep the modal open and display the rejection error message.
+- **G1 (IANA Timezone Canonicalization)**:
+  - In `apps/api/src/routes/admin/tenant-settings.ts`, updated `canonicalizeTimezone` to preserve standard IANA naming (`Asia/Kolkata`, `Europe/Kyiv`, `Asia/Ho_Chi_Minh`, `Asia/Kathmandu`, `UTC`) without rewriting to CLDR aliases (`Asia/Calcutta`, `Europe/Kiev`).
+  - Added unit test in `apps/api/src/routes/admin/tenant-settings.test.ts` asserting Kolkata and Kyiv are preserved.
+- **G2 (Tenant Default Timezone Worker Propagation)**:
+  - Added test in `apps/worker/src/oncall-rotation-worker.test.ts` verifying that when tenant default timezone changes between runs, `planWindows` is invoked with the updated timezone.
+- **G3 (Settings Page In-Flight Response Race)**:
+  - In `apps/admin-ui/src/pages/settings.tsx`, introduced `timezoneDirtyRef` so deliberate user selections (e.g. selecting "UTC") are not overwritten when an in-flight GET response completes.
+- **G4 (Zone-Aware Whole-Day Cycle Classification)**:
+  - In `apps/api/src/lib/rotation-windows.ts`, replaced loose `diff <= 1h` tolerance with zone-aware calendar addition check `addCalendarDays(window.startsAt, roundedDays, tz).getTime() === window.endsAt.getTime()`. Added unit tests in `apps/api/src/lib/rotation-windows.test.ts`.
+  - In `apps/admin-ui/src/pages/roster/index.tsx`, updated `wholeCycleDays` to require exact 24h multiple or local calendar day match.
+- **G5 (Real Database Isolation Rollback & Atomicity)**:
+  - In `apps/api/tests/isolation/on-call-rotations-routes.isolation.test.ts`, added Postgres isolation tests verifying:
+    1. Stopping rotation with invalid end date returns 422, keeps rotation active, preserves upcoming windows, and writes no audit rows (rollback).
+    2. Stopping rotation with valid edit on upcoming window stops rotation, preserves edited window (`exceptId`), releases other upcoming windows, and writes audit rows.
+- **S1 / NS-1 (Changelog Policies)**:
+  - Clarified RLS policy names `tenant_read` and `tenant_write` in `CHANGELOG.md`.
+- **S2 / NS-2 (Logger Deduplication)**:
+  - Integrated `@platform/logger` and deduplicated `warnedZones` Set in `rotation-timezone.ts`.
+
+---
+
+## 4. Test Coverage
 
 - **Isolation Tests**: `apps/api/tests/isolation/tenant-settings.isolation.test.ts` (verifies cross-tenant RLS enforcement).
 - **Unit Tests**:
