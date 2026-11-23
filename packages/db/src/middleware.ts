@@ -73,6 +73,16 @@ export async function setAccessLogRetentionRole(tx: Tx): Promise<void> {
 }
 
 /**
+ * Switches to reporting_audit_retention_role (migration 0164, #1139, ADR-019 criterion 14) for the remainder
+ * of the current transaction. For reporting-audit-retention.ts's cross-tenant sweep of reporting.*
+ * rows in admin_audit_log older than REPORTING_AUDIT_RETENTION_DAYS. The role is NOT BYPASSRLS; it has
+ * role-only policies strictly confined to action LIKE 'reporting.%' and column-scoped grants.
+ */
+export async function setReportingAuditRetentionRole(tx: Tx): Promise<void> {
+  await tx.execute(sql`SET LOCAL ROLE reporting_audit_retention_role`);
+}
+
+/**
  * Switches to oncall_rotation_sweeper (BYPASSRLS, column-scoped SELECT on on_call_rotations
  * only, see 0160_oncall_rotations.sql) for the remainder of the current transaction. For
  * oncall-rotation-worker's cross-tenant discovery of due rotations; the work on each rotation

@@ -480,6 +480,32 @@ describe("RosterPage repeating roster (oncall-team-rotation R4, R9)", () => {
     expect(bodiesFor("PATCH", "/admin/on-call-rotations/rot-1")).toEqual([]);
   });
 
+  it("keeps the form open and displays the 422 error message when the combined schedule and rotation PATCH is rejected (#1161)", async () => {
+    rotations = [ROTATION];
+    await openRotationEdit();
+    const base = mockFetchWithAuth.getMockImplementation();
+    mockFetchWithAuth.mockImplementation((...args: unknown[]) => {
+      const init = args[1] as { method?: string } | undefined;
+      if (
+        String(args[0]).includes("/admin/on-call-schedules/s-rot") &&
+        init?.method === "PATCH"
+      ) {
+        return Promise.reject(
+          new Error("A running window can only end in the future"),
+        );
+      }
+      return base?.(...args) ?? Promise.resolve({ data: {} });
+    });
+    fireEvent.click(screen.getByLabelText(/Repeat automatically/));
+    fireEvent.click(screen.getByLabelText("Save changes"));
+    await waitFor(() =>
+      expect(
+        screen.getByText("A running window can only end in the future"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByLabelText("Save changes")).toBeTruthy();
+  });
+
   it("resumes a stopped rotation atomically when repeat is ticked and the window is saved (#1161)", async () => {
     rotations = [{ ...ROTATION, status: "stopped" }];
     await openRotationEdit();

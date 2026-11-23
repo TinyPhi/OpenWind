@@ -528,6 +528,14 @@ export async function anonymizeAuditLogForTenant(
   // acted, so it must see them before the pass below rewrites them (#860).
   await scrubAuditLogPersonIdentifiers(db, tenantId);
 
+  // ADR-019 Stage 2 criterion 13 (#1139): tenant purge removes or anonymises audit SQL text.
+  await db.execute(sql`
+    UPDATE admin_audit_log
+    SET metadata = metadata - 'sql'
+    WHERE tenant_id = ${tenantId}::uuid
+      AND metadata ? 'sql'
+  `);
+
   const BATCH_SIZE = 1000;
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   while (true) {

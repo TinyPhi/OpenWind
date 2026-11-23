@@ -754,8 +754,28 @@ describe("retention settings (docs/specs/retention-classes.md)", () => {
     expect(parsed.RETENTION_DEFAULT_DAYS).toBe(90);
     expect(parsed.RETENTION_COMMENT_DAYS).toBe(365);
     expect(parsed.RETENTION_EVIDENCE_DAYS).toBe(2555);
+    expect(parsed.REPORTING_AUDIT_RETENTION_DAYS).toBe(90);
     expect(parsed.RETENTION_BATCH_SIZE).toBe(5000);
     expect(parsed.RETENTION_BATCH_PAUSE_MS).toBe(50);
+  });
+
+  it("accepts a reporting audit window only between the 30-day floor and the 90-day access-log cap", () => {
+    for (const ok of ["30", "60", "90"]) {
+      expect(
+        EnvSchema.parse({
+          ...MINIMAL_VALID_ENV,
+          REPORTING_AUDIT_RETENTION_DAYS: ok,
+        }).REPORTING_AUDIT_RETENTION_DAYS,
+      ).toBe(Number(ok));
+    }
+    for (const bad of ["1", "29", "91", "365"]) {
+      expect(() =>
+        EnvSchema.parse({
+          ...MINIMAL_VALID_ENV,
+          REPORTING_AUDIT_RETENTION_DAYS: bad,
+        }),
+      ).toThrow();
+    }
   });
 
   it("reject an evidence window below one year or a zero batch size", () => {

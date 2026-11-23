@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   type DbOrTx,
@@ -87,12 +88,56 @@ export const USER_REFERENCE_COLUMNS_EXEMPT: Readonly<Record<string, string>> = {
   "workflow_events.triggered_by":
     "not a user reference: holds the trigger type ('user', 'automation', 'api', 'system') — matched by the guard's column-name pattern only; the author is workflow_events.actor_id",
   "admin_audit_log.actor_id":
-    "append-only security audit trail, kept under Art. 17(3)(b); anonymized only on tenant purge",
+    "append-only security audit trail, kept under Art. 17(3)(b); reporting.* rows are pseudonymised on user erase (ADR-019 criterion 12, #1139); anonymized only on tenant purge",
   "admin_audit_log.acting_person_id":
-    "append-only security audit trail, kept under Art. 17(3)(b); anonymized only on tenant purge",
+    "append-only security audit trail, kept under Art. 17(3)(b); reporting.* rows are pseudonymised on user erase (ADR-019 criterion 12, #1139); anonymized only on tenant purge",
   "sandbox_provisioning_jobs.requested_by":
     "platform_admin who requested provisioning, not a tenant member -- table is platform-level (no tenant_id column by design, migration 0137) and is never purged/erased per-tenant",
 };
+
+/**
+ * Pseudonymous actor identifier for reporting.* audit rows (ADR-019 criterion 12, #1139).
+ * Random per erase, never derived from the user id: the id stays on the user's other audit
+ * rows, so any function of it would let those rows re-identify the pseudonymised ones.
+ * All of the erased user's reporting rows in one tenant share the token, which keeps them
+ * correlatable with each other; it does not link across tenants.
+ */
+export function newReportingPseudonym(): string {
+  return `pseudonym:${randomBytes(16).toString("hex")}`;
+}
+
+export async function pseudonymiseReportingAuditActor(
+  tx: DbOrTx,
+  tenantId: string,
+  targetUserId: string,
+): Promise<number> {
+  const pseudonym = newReportingPseudonym();
+  let updatedCount = 0;
+  await tx.transaction(async (sp) => {
+    await sp.execute(sql`SET LOCAL ROLE tenant_purge_role`);
+    const res = await sp.execute<{ count: number }>(sql`
+      WITH updated AS (
+        UPDATE admin_audit_log
+        SET actor_id = CASE
+              WHEN actor_id = ${targetUserId} THEN ${pseudonym}
+              ELSE actor_id
+            END,
+            acting_person_id = CASE
+              WHEN acting_person_id = ${targetUserId} THEN ${pseudonym}
+              ELSE acting_person_id
+            END
+        WHERE tenant_id = ${tenantId}::uuid
+          AND (actor_id = ${targetUserId} OR acting_person_id = ${targetUserId})
+          AND action LIKE 'reporting.%'
+        RETURNING 1
+      )
+      SELECT count(*)::int AS count FROM updated
+    `);
+    updatedCount = res[0]?.count ?? 0;
+    await sp.execute(sql`SET LOCAL ROLE app_user`);
+  });
+  return updatedCount;
+}
 
 /**
  * GDPR Art. 17 per-user erasure within one tenant (docs/specs/gdpr-erasure-coverage.md).
@@ -135,6 +180,7 @@ export async function eraseUserFromTenant(
     email: member?.email ?? null,
   });
   await scrubUserRefFields(tx, tenantId, targetUserId);
+  await pseudonymiseReportingAuditActor(tx, tenantId, targetUserId);
 
   // saved_views RLS also requires user_id = app.user_id, and the caller is the
   // admin, not the target — switch the GUC to the target for this one delete

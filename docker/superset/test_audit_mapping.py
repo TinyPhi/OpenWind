@@ -27,7 +27,41 @@ ENV = {
 }
 
 
+_STUB_DIR = None
+
+
+def ensure_superset_stub():
+    global _STUB_DIR
+    spec = importlib.util.find_spec("superset")
+    locations = list(getattr(spec, "submodule_search_locations", None) or [])
+    if not locations and _STUB_DIR is None:
+        import tempfile
+
+        d = Path(tempfile.mkdtemp())
+        s_dir = d / "superset"
+        (s_dir / "models").mkdir(parents=True)
+        (s_dir / "__init__.py").write_text("")
+        (s_dir / "models" / "__init__.py").write_text("")
+        (s_dir / "models" / "core.py").write_text('''
+class Database:
+    def get_sqla_engine(self, catalog=None, schema=None, nullpool: bool = True, source=None):
+        return self._get_sqla_engine(nullpool=nullpool)
+
+    def _get_sqla_engine(self, catalog=None, schema=None, nullpool: bool = True, source=None):
+        engine_kwargs = {}
+        if nullpool:
+            engine_kwargs["poolclass"] = NullPool
+        return engine_kwargs
+
+    def get_raw_connection(self, catalog=None, schema=None, nullpool: bool = True):
+        return self.get_sqla_engine(nullpool=nullpool)
+''')
+        _STUB_DIR = d
+        sys.path.insert(0, str(d))
+
+
 def load_config():
+    ensure_superset_stub()
     for name in ("superset_config", "superset.config"):
         sys.modules.pop(name, None)
     if "superset.config" not in sys.modules:
@@ -322,6 +356,234 @@ class AuditActor(AuditMapping):
         # `owuser:` narrows what a session may see; `owsub:` must never match it.
         self.assertFalse("owsub:5".startswith(self.config._OWN_ROWS_PREFIX))
         self.assertFalse("owuser:5".startswith(self.config.SUBJECT_ROLE_PREFIX))
+
+
+class SqlLiteralRedaction(AuditMapping):
+    """ADR-019 Stage 2 criterion 11 (#1139): typed SQL literals are redacted before audit."""
+
+    def redact(self, sql):
+        return self.config.redact_sql_literals(sql)
+
+    def hash(self, sql):
+        return self.config.compute_sql_hash(sql)
+
+    def test_redacts_email_string_literal(self):
+        query = "SELECT * FROM users WHERE email = 'user@example.com' AND status = 'active'"
+        redacted = self.redact(query)
+        self.assertNotIn("user@example.com", redacted)
+        self.assertNotIn("active", redacted)
+        self.assertEqual(
+            redacted,
+            "SELECT * FROM users WHERE email = '[REDACTED]' AND status = '[REDACTED]'",
+        )
+
+    def test_redacts_numeric_literals(self):
+        query = "SELECT id, name FROM employees WHERE salary >= 150000 AND dept_id = 42"
+        redacted = self.redact(query)
+        self.assertNotIn("150000", redacted)
+        self.assertNotIn("42", redacted)
+        self.assertEqual(
+            redacted,
+            "SELECT id, name FROM employees WHERE salary >= [REDACTED] AND dept_id = [REDACTED]",
+        )
+
+    def test_preserves_identifiers_with_numbers(self):
+        query = "SELECT t1.col1, tbl_2.field3 FROM table1 AS t1 JOIN tbl_2 ON t1.id = tbl_2.id"
+        redacted = self.redact(query)
+        self.assertEqual(redacted, query)
+
+    def test_preserves_quoted_identifiers(self):
+        query = 'SELECT "user 123"."email address", "order-99" FROM "my table 456"'
+        redacted = self.redact(query)
+        self.assertEqual(redacted, query)
+
+    def test_redacts_comment_bodies_keeping_their_position(self):
+        query = (
+            "-- Find customer 10492 by email 'c@example.com'\n"
+            "SELECT id FROM customers /* chasing jane.doe@acme.com's refund */ WHERE code = 'ABC'"
+        )
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "-- [REDACTED]\nSELECT id FROM customers /* [REDACTED] */ WHERE code = '[REDACTED]'",
+        )
+        self.assertNotIn("jane.doe@acme.com", redacted)
+        self.assertNotIn("c@example.com", redacted)
+
+    def test_redacts_nested_block_comments_as_one_comment(self):
+        redacted = self.redact("/* a /* b */ jane@acme.com */ SELECT 1")
+        self.assertEqual(redacted, "/* [REDACTED] */ SELECT [REDACTED]")
+
+    def test_unterminated_block_comment_is_redacted_to_the_end(self):
+        redacted = self.redact("SELECT 1 /* jane@acme.com")
+        self.assertEqual(redacted, "SELECT [REDACTED] /* [REDACTED] */")
+
+    def test_backslash_before_closing_quote_does_not_hide_the_next_literal(self):
+        for query, expected in (
+            (
+                "SELECT * FROM t WHERE path = 'C:\\' OR email = 'victim@example.com'",
+                "SELECT * FROM t WHERE path = '[REDACTED]' OR email = '[REDACTED]'",
+            ),
+            ("a = 'x\\' AND b = 'y'", "a = '[REDACTED]' AND b = '[REDACTED]'"),
+            ("WHERE n LIKE '%\\' AND m = 'secret'", "WHERE n LIKE '[REDACTED]' AND m = '[REDACTED]'"),
+        ):
+            with self.subTest(query=query):
+                self.assertEqual(self.redact(query), expected)
+
+    def test_backslash_quote_is_an_escape_only_inside_e_strings(self):
+        redacted = self.redact("SELECT E'it\\'s', 'a', e'b\\'c'")
+        self.assertEqual(redacted, "SELECT '[REDACTED]', '[REDACTED]', '[REDACTED]'")
+
+    def test_unterminated_literals_fail_closed(self):
+        for query, expected in (
+            ("WHERE x = 'jane@x.com", "WHERE x = '[REDACTED]'"),
+            ("WHERE x = E'jane@x.com\\'", "WHERE x = '[REDACTED]'"),
+            ("SELECT $$jane@x.com", "SELECT '[REDACTED]'"),
+            ('SELECT "jane@x.com', 'SELECT "[REDACTED]"'),
+        ):
+            with self.subTest(query=query):
+                out = self.redact(query)
+                self.assertEqual(out, expected)
+                self.assertNotIn("jane", out)
+
+    def test_redacts_pg16_underscore_and_prefixed_numerics(self):
+        redacted = self.redact("SELECT 1_000_000, 0x_FF, 0b101, 0o17, 1_0.5_0e1_0")
+        self.assertEqual(redacted, "SELECT " + ", ".join(["[REDACTED]"] * 5))
+
+    def test_prefixed_typed_and_array_literals_are_redacted(self):
+        redacted = self.redact(
+            "SELECT U&'d', X'1F', B'01', N'n', DATE '2020-01-01', ARRAY['a','b']"
+        )
+        self.assertEqual(
+            redacted,
+            "SELECT U&'[REDACTED]', X'[REDACTED]', B'[REDACTED]', N'[REDACTED]', "
+            "DATE '[REDACTED]', ARRAY['[REDACTED]','[REDACTED]']",
+        )
+
+    def test_dollar_quote_tags_may_contain_non_ascii_characters(self):
+        for query in (
+            "select $é$ jane.doe@example.com $é$",
+            "select $日本$ jane@example.com $日本$",
+        ):
+            with self.subTest(query=query):
+                redacted = self.redact(query)
+                self.assertEqual(redacted, "select '[REDACTED]'")
+
+    def test_a_dollar_quote_may_follow_a_number(self):
+        redacted = self.redact("select 1$a$ jane@example.com $a$")
+        self.assertNotIn("jane", redacted)
+
+    def test_an_escape_string_continued_on_the_next_line_stays_in_escape_mode(self):
+        for query in (
+            "select E'x'\n'b\\' jane@example.com '",
+            "select E'x' -- note\n  'b\\' jane@example.com '",
+            "select E'x'\n\n'b\\' jane@example.com ' , 7",
+        ):
+            with self.subTest(query=query):
+                self.assertNotIn("jane", self.redact(query))
+
+    def test_an_unterminated_escape_string_continuation_fails_closed(self):
+        redacted = self.redact("select E'x'\n'b jane@example.com")
+        self.assertEqual(redacted, "select '[REDACTED]'")
+
+    def test_numbers_with_trailing_letters_are_redacted(self):
+        redacted = self.redact("select 4111111111111111x, 12abc")
+        self.assertEqual(redacted, "select [REDACTED], [REDACTED]")
+
+    def test_redaction_stays_linear_on_hostile_input(self):
+        import time
+
+        for hostile in (
+            "e'" * 50000,
+            "$a$" * 50000,
+            "/*" * 50000,
+            "E'x'\n" * 20000,
+            "'" * 100000,
+            "1_" * 50000,
+        ):
+            started = time.monotonic()
+            self.redact(hostile)
+            self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_positional_parameters_are_left_alone(self):
+        query = "SELECT * FROM t WHERE a = $1 AND b = $2"
+        self.assertEqual(self.redact(query), query)
+
+    def test_redacts_escaped_quotes_and_empty_strings(self):
+        query = "SELECT * FROM authors WHERE name = 'O''Reilly' AND bio = ''"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT * FROM authors WHERE name = '[REDACTED]' AND bio = '[REDACTED]'",
+        )
+
+    def test_redacts_postgres_escape_and_dollar_quoted_strings(self):
+        query = "SELECT E'hello \\'world\\'', $$secret 123$$, $tag$tag value$tag$"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT '[REDACTED]', '[REDACTED]', '[REDACTED]'",
+        )
+
+    def test_redacts_hex_floats_and_scientific_notation(self):
+        query = "SELECT 0xDEADBEEF, 123.456, .75, 1.2e-4, 5E+10"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT [REDACTED], [REDACTED], [REDACTED], [REDACTED], [REDACTED]",
+        )
+
+    def test_preserves_query_structure_and_keywords(self):
+        query = "SELECT a, b, c FROM tbl WHERE a > 10 AND b IN (1, 2, 3) ORDER BY c DESC LIMIT 5 OFFSET 10"
+        redacted = self.redact(query)
+        self.assertEqual(
+            redacted,
+            "SELECT a, b, c FROM tbl WHERE a > [REDACTED] AND b IN ([REDACTED], [REDACTED], [REDACTED]) ORDER BY c DESC LIMIT [REDACTED] OFFSET [REDACTED]",
+        )
+
+    def test_sql_hash_is_a_fingerprint_of_the_redacted_statement(self):
+        import hashlib
+
+        h1 = self.hash("SELECT id FROM t WHERE salary >= 150000 -- jane@x.com")
+        h2 = self.hash("SELECT   id FROM t\nWHERE salary >= 7 -- someone else")
+        self.assertEqual(h1, h2)
+        self.assertEqual(
+            h1,
+            hashlib.sha256(b"SELECT id FROM t WHERE salary >= [REDACTED] -- [REDACTED]").hexdigest(),
+        )
+        self.assertNotEqual(h1, self.hash("SELECT name FROM t WHERE salary >= 150000"))
+        self.assertEqual(self.hash(""), "")
+
+    def test_sql_hash_cannot_confirm_a_guessed_literal(self):
+        import hashlib
+
+        raw = "SELECT * FROM t WHERE salary >= 150000"
+        stored_hash = self.hash(raw)
+        for guess in ("150000", "149999"):
+            candidate = hashlib.sha256(
+                f"SELECT * FROM t WHERE salary >= {guess}".encode("utf-8")
+            ).hexdigest()
+            self.assertNotEqual(stored_hash, candidate)
+
+    def test_build_audit_payload_stores_redacted_sql_and_hash(self):
+        raw_sql = "SELECT * FROM users WHERE email = 'victim@example.com' AND pin = 1234"
+        record = {
+            "sql": raw_sql,
+            "database_id": 2,
+            "schema": "public",
+            "client_id": "probe123",
+        }
+        payload = self.config.build_reporting_audit_payload("reporting.query_executed", record, {}, None)
+        self.assertNotIn("victim@example.com", payload["sql"])
+        self.assertNotIn("1234", payload["sql"])
+        self.assertEqual(
+            payload["sql"],
+            "SELECT * FROM users WHERE email = '[REDACTED]' AND pin = [REDACTED]",
+        )
+        import hashlib
+
+        self.assertEqual(payload["sql_hash"], self.hash(raw_sql))
+        self.assertNotEqual(payload["sql_hash"], hashlib.sha256(raw_sql.encode("utf-8")).hexdigest())
 
 
 if __name__ == "__main__":
