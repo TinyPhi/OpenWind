@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration: 0164_tenant_settings
+-- Migration: 0165_tenant_settings
 -- #1158 -- docs/specs/temporal-scheduler.md
 -- ============================================================
 --

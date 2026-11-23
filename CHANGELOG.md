@@ -7,7 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- Added `tenant_settings` table (migration `0164_tenant_settings.sql`) storing per-tenant organization configuration, with full Row Level Security isolation (`tenant_isolation_policy`) (#1158).
+- Added `tenant_settings` table (migration `0165_tenant_settings.sql`) storing per-tenant organization configuration, with Row Level Security policies (`tenant_read` and `tenant_write`) (#1158).
 - Added `GET /admin/tenant-settings` (read-only org baseline for authenticated users) and `PATCH /admin/tenant-settings` (admin-only, IANA timezone validation, audit-logged) (#1158).
 - Added Organization settings tab in Admin UI with Default Timezone picker and mirrored i18n keys across all 11 locales (#1158).
 - Updated Schedule Rules authoring to fetch tenant default timezone on rule creation, falling back to UTC instead of hardcoded `Asia/Kolkata` (#1158).

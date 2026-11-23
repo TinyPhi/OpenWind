@@ -462,7 +462,7 @@ export const platformSettings = pgTable("platform_settings", {
 
 /**
  * tenantSettings — per-tenant organization configuration (#1158).
- * Tenant-scoped with RLS (see migration 0164_tenant_settings.sql).
+ * Tenant-scoped with RLS (see migration 0165_tenant_settings.sql).
  * One row per tenant (tenantId is primary key and foreign key to tenants.id).
  */
 export const tenantSettings = pgTable("tenant_settings", {

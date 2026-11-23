@@ -1154,7 +1154,14 @@
       "idx": 164,
       "version": "7",
       "when": 1793664000000,
-      "tag": "0164_tenant_settings",
+      "tag": "0164_reporting_audit_retention_role",
+      "breakpoints": false
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0165_tenant_settings",
       "breakpoints": false
     }
   ]
