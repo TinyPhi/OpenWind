@@ -323,6 +323,10 @@ services:
       SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
       SERVER_WORKER_AMOUNT: ${SUPERSET_WORKER_AMOUNT:-2}
       GUNICORN_TIMEOUT: ${SUPERSET_GUNICORN_TIMEOUT:-120}
+      # Access log without the query string: Superset's GET endpoints carry filter values and ad-hoc SQL in
+      # `q=` / `form_data=`, and gunicorn's default format writes the whole request line plus the referer.
+      # Method, path, status and duration in microseconds only. See docs/runbooks/superset-erasure.md.
+      GUNICORN_CMD_ARGS: "--access-logformat '%(m)s %(U)s %(s)s %(D)s'"
       REDIS_URL: redis://redis:6379/2
       SUPERSET_OAUTH_ISSUER: ${SUPERSET_OAUTH_ISSUER:?set SUPERSET_OAUTH_ISSUER in .env}
       SUPERSET_SESSION_MAX_MINUTES: ${SUPERSET_SESSION_MAX_MINUTES:-480}

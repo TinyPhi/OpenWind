@@ -24,6 +24,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Non-admin workflow admins can no longer add or re-point transitions, or change who may take any transition, on a workflow that carries an actor rule. Adding a step alone, editing labels, requiresComment/requiresFields and deleting an unruled transition stay open to them, and a workflow with no actor rule is unchanged.
 - Still not covered, as documented in `docs/specs/segregation-of-duties.md` §K: a concurrent edit (the check reads the stored rule without a row lock), module and plugin install and seed paths, and self-loop transitions.
 
+## [Unreleased — Superset erasure hygiene checks (#1140)]
+
+### Changed
+
+- Finished Superset erasure jobs, whose payload names the person being erased, are now removed on a schedule: the `superset-erasure-reconcile` sweep (every 5 minutes, in any erasure mode) removes failed jobs more than 24 hours after they failed and completed jobs more than 1 hour after they completed (`cleanSupersetErasureFinishedJobs`). BullMQ's own `removeOnFail.age` (lowered from 7 days to 24 hours in both queue configurations) and `removeOnComplete.age` only trim when another job in the same queue finishes, so neither was a bound by itself; they stay as a second line (ADR-019 Stage 2 criterion 15, #1140).
+
+### Security & Privacy
+
+- Superset process logs hold less personal data. The gunicorn access log no longer carries the query string (both compose files set `GUNICORN_CMD_ARGS` to method, path, status and duration), a failed audit write logs the exception type and no longer its SQL parameters, and every failure log in the Superset config is type-only with the file and line it was raised at (the erasure endpoint, the user and tenant lookups), because a traceback carries the bound parameters, which can be a subject id. Sign-in warnings log the opaque Zitadel subject instead of `preferred_username` or an email, and a logging filter on Flask-AppBuilder's `security.manager` and `security.sqla.manager` loggers replaces the values in its own sign-in and user-management errors (the whole `userinfo` dict, the username, an email, a failed `add_user`'s text) with `[REDACTED]`. Container logs are rotated by size (`json-file`, 5 × 10 MB); that bounds their volume, not their age.
+
+### Added
+
+- `docs/runbooks/superset-erasure.md`: a corrected enumeration of every user-removal path with the code it was read from (ADR-019 criterion 16), watched by a best-effort tripwire, `apps/worker/src/superset-erasure-removal-paths.test.ts`, that matches the removal identifiers (an alias, a method call and a re-export count) and fails when a new file mentions them; it adds a platform-admin path marked not yet confirmed and records that a user removed directly in the Zitadel console is not covered; recovery of a failed job now points at the audit log, which outlasts the queue; the process-log and export-file sections state what is confirmed from code and config and mark what is **not yet confirmed** on a running instance, with the commands to confirm it.
+- A promtool case showing `SupersetErasureJobFailedInQueue` resolves when the failed job is removed.
+
 ## [Unreleased — redact audited SQL literals, pseudonymise actor, and cap reporting retention (#1139)]
 
 ### Security & Privacy
