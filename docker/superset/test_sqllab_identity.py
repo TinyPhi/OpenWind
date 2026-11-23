@@ -123,7 +123,9 @@ class SqlLabIdentity(unittest.TestCase):
 
     def test_an_unexpected_error_is_logged_and_fails_closed(self):
         # #806: an error inside the resolver must not look like "no tenant role".
-        # It still yields no user (fail closed), but leaves a warning with the trace.
+        # It still yields no user (fail closed), but leaves an error with the exception type and
+        # where it was raised. Never its text or a traceback (#1140): a database error's text carries
+        # the bound parameters.
         with self.app.test_request_context("/"), mock.patch(
             "flask.has_app_context", side_effect=RuntimeError("resolver broke")
         ):
@@ -131,8 +133,10 @@ class SqlLabIdentity(unittest.TestCase):
                 self.assertIsNone(self.config._session_user())
                 self.assertIsNone(self.config._tenant_from_user_roles())
         self.assertIn("failing closed", logs.output[0])
-        self.assertIsNotNone(logs.records[0].exc_info)
-        self.assertIn("resolver broke", str(logs.records[0].exc_info[1]))
+        self.assertIn("RuntimeError", logs.output[0])
+        self.assertRegex(logs.output[0], r"RuntimeError at \S+\.py:\d+")
+        self.assertIsNone(logs.records[0].exc_info)
+        self.assertNotIn("resolver broke", logs.output[0])
 
     def test_no_user_yields_nothing(self):
         self.assertIsNone(self.run_as(None, self.config._tenant_from_user_roles))

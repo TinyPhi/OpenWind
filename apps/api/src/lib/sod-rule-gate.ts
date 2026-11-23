@@ -5,8 +5,10 @@ import { sameJson } from "./audit-workflow-access.js";
 type ConditionTree = Parameters<typeof treeUsesActorRule>[0];
 
 export class SodRuleForbiddenError extends Error {
-  constructor() {
-    super("Only an admin can add, change or remove an actor rule");
+  constructor(
+    message = "Only an admin can add, change or remove an actor rule",
+  ) {
+    super(message);
     this.name = "SodRuleForbiddenError";
   }
 }
@@ -43,4 +45,30 @@ export function assertMaySetActorRules(
   if (!touchesRule) return;
   if (sameJson(before, next)) return;
   throw new SodRuleForbiddenError();
+}
+
+/** True when any of a workflow's transitions carries an `actor_*` condition. */
+export function workflowCarriesActorRule(
+  transitions: ReadonlyArray<{ conditions: unknown }>,
+): boolean {
+  return transitions.some((t) => usesActorRule(t.conditions));
+}
+
+/**
+ * Throws unless the caller is a person admin, when the workflow carries an actor rule and the write
+ * edits who may take a step: adding a transition, re-pointing one, or changing a transition's
+ * allowedRoles or conditions. A segregation-of-duties rule only holds if the graph around it cannot
+ * be rewired, so on such a workflow these edits are admin-only for every transition, not only the
+ * ruled one (#1132). `transitions` is the workflow's transitions as they will survive the write.
+ */
+export function assertMayEditRuledWorkflow(
+  auth: AuthContext,
+  transitions: ReadonlyArray<{ conditions: unknown }>,
+  action: string,
+): void {
+  if (isPersonAdmin(auth)) return;
+  if (!workflowCarriesActorRule(transitions)) return;
+  throw new SodRuleForbiddenError(
+    `Only an admin can ${action} on a workflow that carries an actor rule`,
+  );
 }

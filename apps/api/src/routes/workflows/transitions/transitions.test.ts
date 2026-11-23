@@ -34,13 +34,26 @@ let mockBeforeRow: {
   allowedRoles: [],
 };
 const mockPreRead = vi.fn();
+const mockAssertOwned = vi.fn();
+const beforeRows = () =>
+  mockBeforeRow
+    ? [{ id: "00000000-0000-0000-0000-000000000030", ...mockBeforeRow }]
+    : [];
 const mockTx = {
   select: () => ({
     from: () => ({
       where: () => ({
+        // A single-row read (delete) and the whole-workflow read (update) both count as a pre-read.
         limit: () => {
           mockPreRead();
-          return Promise.resolve(mockBeforeRow ? [mockBeforeRow] : []);
+          return Promise.resolve(beforeRows());
+        },
+        then: (
+          resolve: (rows: unknown[]) => unknown,
+          reject: (e: unknown) => unknown,
+        ) => {
+          mockPreRead();
+          return Promise.resolve(beforeRows()).then(resolve, reject);
         },
       }),
     }),
@@ -73,6 +86,7 @@ vi.mock("@platform/workflow-engine", async (importOriginal) => {
   const real = await importOriginal<typeof WorkflowEngine>();
   return {
     ...real,
+    assertWorkflowOwned: (...args: unknown[]) => mockAssertOwned(...args),
     addWorkflowTransition: (...args: unknown[]) => mockAddTransition(...args),
     updateWorkflowTransition: (...args: unknown[]) =>
       mockUpdateTransition(...args),
@@ -116,6 +130,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockBeforeRow = { allowedRoles: [] };
   mockWriteAuditEntry.mockResolvedValue(undefined);
+  mockAssertOwned.mockResolvedValue(undefined);
 });
 
 describe("POST /workflows/:id/transitions", () => {

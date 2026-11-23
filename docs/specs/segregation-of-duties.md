@@ -66,19 +66,34 @@ is evaluated by the same engine path that checks roles and conditions, under the
   in a later step) skip transition guards, so they are refused on any workflow that carries an actor rule
   (`STATE_CHANGE_NOT_ALLOWED`, docs/specs/state-override.md T6). The child-status route only moves child tickets,
   which keep their own fixed states. A workflow with no actor rule and no override is unchanged.
-- **Only a person admin changes a rule (#1008).** Creating a transition with an `actor_*` condition, changing or
+- **Only a person admin changes a rule (#1008, #1132).** Creating a transition with an `actor_*` condition, changing or
   clearing one, deleting a transition that carries one, and a canvas save that drops one are refused with 403 unless
-  the caller holds `admin` and is not an API key. Re-sending the stored condition is not a change, and a workflow admin
-  can still edit a transition that has no rule. Deleting a whole workflow and moving a ruled transition to other steps on
-  the canvas are gated the same way. Not covered: a concurrent edit (the check reads the stored rule without a row lock, so an
-  admin adding a rule in the same instant can be overwritten), and module and plugin install and seed paths, which write
-  transitions without going through these routes.
+  the caller holds `admin` and is not an API key. Deleting a whole workflow and moving a ruled transition to other steps
+  on the canvas are gated the same way. Re-sending the stored condition or roles is not a change.
+- **A workflow that carries an actor rule is admin-only to rewire (#1132).** A rule only holds if the graph around it
+  cannot be rewired, so on any workflow where a transition carries an `actor_*` condition, adding a transition,
+  re-pointing one, and changing `allowedRoles` or `conditions` on **any** transition of that workflow (not only the ruled
+  one) are refused with 403 unless the caller is a person admin. This covers the same-edge duplicate, the two-hop detour
+  through a new step, a skip edge to a later step, and widening roles on an unruled sibling of a ruled edge, through
+  `POST` and `PATCH /workflows/:id/transitions` and `PUT /workflows/:id/canvas`. Moving the workflow's initial step
+  (`PATCH /workflows/:id` with `initialState`) is gated the same way, since it would start every new record past a ruled
+  edge, and a canvas save refuses to delete a step that a rule names, as the standalone delete route does. Adding a step on its own is not gated
+  (it is inert without a transition), and editing a label, `requiresComment` or `requiresFields`, or deleting an
+  unruled transition, stays open. A caller who does not administer the workflow gets 404 whatever the rule state.
+  Not covered: a concurrent edit (the check reads the stored rule without a row lock, so an admin adding a rule in the
+  same instant can be overwritten), module and plugin install and seed paths, which write transitions without going
+  through these routes, and a workflow that already contains an unruled path around a ruled edge, which a person
+  admin authored and only a person admin can now change. A caller who does not administer the workflow gets 403, not 404, from the DELETE routes (transition and
+  workflow) when the target carries a rule; the definition is readable by every tenant member, so nothing new leaks, but it is
+  inconsistent with create and update.
 - A record with no user creator (created by the scheduler or an automation) has no conflict for
   `actor_not_creator`: any identified actor passes. Pinned by a unit test in `condition-evaluator.test.ts`.
 - A transition that does not change state (a self-loop) never counts as acting, so a workflow that uses
   a self-loop as an approval step lets the same person repeat it.
 - Two transitions between the same pair of steps, one with a rule and one without, let the caller pick the
-  unguarded one. Author workflows with one edge per pair, or put the rule on both.
+  unguarded one, and so does any unruled path from the ruled step to the same target. Author workflows with one path
+  per target, or put the rule on every path. Non-person-admins cannot add such a path, or widen who may take an
+  existing one, on a workflow that carries an actor rule (#1132).
 - Deleting a whole workflow removes its transitions and their conditions without a
   `workflow.transition_conditions_updated` entry; canvas edits that re-point an existing transition log its
   conditions as unchanged. Workflow deletion is blocked while instances exist.

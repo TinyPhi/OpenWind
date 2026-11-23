@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { i18n } from "../i18n.js";
+import { i18n, loadLocale } from "../i18n.js";
 import {
   SUPPORTED_LANGUAGES,
   TRANSLATED_LANGUAGES,
@@ -21,6 +21,12 @@ export type { SupportedLanguage, TranslatedLanguage };
 
 export async function changeLocale(lng: string): Promise<void> {
   const validated = isTranslatedLanguage(lng) ? lng : "en";
+  try {
+    await loadLocale(validated);
+  } catch (err) {
+    console.error("i18n: failed to load locale, keeping current language", err);
+    return;
+  }
   await i18n.changeLanguage(validated);
   setSavedLanguage(validated);
   document.documentElement.lang = validated;

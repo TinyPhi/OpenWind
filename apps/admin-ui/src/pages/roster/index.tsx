@@ -587,6 +587,10 @@ export function RosterPage(): React.ReactElement {
           refresh();
           refreshRotations();
         }}
+        onPartialSave={() => {
+          refresh();
+          refreshRotations();
+        }}
       />
 
       <AlertDialog
@@ -639,6 +643,8 @@ interface ScheduleFormModalProps {
   users: TenantUser[];
   onClose: () => void;
   onSaved: () => void;
+  /** Called when the window saved but the repeat change did not: refresh without closing. */
+  onPartialSave?: () => void;
   onDelete?: (() => void) | undefined;
 }
 
@@ -696,6 +702,7 @@ function ScheduleFormModal({
   users,
   onClose,
   onSaved,
+  onPartialSave,
   onDelete,
 }: ScheduleFormModalProps): React.ReactElement {
   const { t } = useTranslation();
@@ -907,13 +914,27 @@ function ScheduleFormModal({
         rotation &&
         repeating !== (rotation.status === "active")
       ) {
-        await fetchWithAuth(
-          `${API_URL}/admin/on-call-rotations/${rotation.id}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({ status: repeating ? "active" : "stopped" }),
-          },
-        );
+        try {
+          await fetchWithAuth(
+            `${API_URL}/admin/on-call-rotations/${rotation.id}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                status: repeating ? "active" : "stopped",
+              }),
+            },
+          );
+        } catch (err) {
+          // The window is already saved: reload so the roster shows what persisted, and keep the
+          // form open so the user can retry the repeat change (#1161).
+          onPartialSave?.();
+          setError(
+            err instanceof Error && err.message
+              ? `${t("roster.windowSavedRepeatFailed")} (${err.message})`
+              : t("roster.windowSavedRepeatFailed"),
+          );
+          return;
+        }
       }
       onSaved();
     } catch (err) {

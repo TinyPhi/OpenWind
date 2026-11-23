@@ -123,6 +123,7 @@ export const ALLOWED_ENV: Record<string, readonly string[]> = {
     "SUPERSET_CONFIG_PATH",
     "SERVER_WORKER_AMOUNT",
     "GUNICORN_TIMEOUT",
+    "GUNICORN_CMD_ARGS",
     "REDIS_URL",
     "SUPERSET_OAUTH_ISSUER",
     "SUPERSET_SESSION_MAX_MINUTES",

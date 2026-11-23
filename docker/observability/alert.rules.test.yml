@@ -229,6 +229,29 @@ tests:
               summary: "A failed Superset erasure job is waiting in the queue"
               description: "1 superset-erasure job(s) are in the failed state. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
 
+  - name: SupersetErasureJobFailedInQueue resolves once the sweep has removed the failed job
+    interval: 1m
+    input_series:
+      - series: 'bullmq_queue_depth{queue_name="superset-erasure",status="failed"}'
+        values: "0x5 1x30 0x30"
+      - series: 'bullmq_queue_depth{queue_name="superset-erasure",status="waiting"}'
+        values: "0x65"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SupersetErasureJobFailedInQueue
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              queue_name: superset-erasure
+              status: failed
+            exp_annotations:
+              summary: "A failed Superset erasure job is waiting in the queue"
+              description: "1 superset-erasure job(s) are in the failed state. Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md."
+      - eval_time: 50m
+        alertname: SupersetErasureJobFailedInQueue
+        exp_alerts: []
+
   - name: other queues with failed jobs do not raise SupersetErasureJobFailedInQueue
     interval: 1m
     input_series:

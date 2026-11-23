@@ -32,6 +32,7 @@ const mockTx = { execute: (...args: unknown[]) => mockExecute(...args) };
 vi.mock("@platform/db", () => ({
   db: { transaction: (cb: (tx: unknown) => unknown) => cb(mockTx) },
   setAccessLogRetentionRole: (...args: unknown[]) => mockSetRole(...args),
+  setReportingAuditRetentionRole: vi.fn(),
 }));
 
 const mockLoggerInfo = vi.fn();
@@ -43,6 +44,9 @@ vi.mock("@platform/logger", () => ({
 }));
 
 vi.mock("./queues.js", () => ({ connection: {} }));
+vi.mock("./reporting-audit-retention.js", () => ({
+  runReportingAuditRetentionSweep: vi.fn().mockResolvedValue(0),
+}));
 
 const { runAccessLogRetentionSweep } =
   await import("./access-log-retention.js");

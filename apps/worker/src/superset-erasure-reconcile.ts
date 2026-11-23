@@ -43,6 +43,7 @@ import {
   type UnreconciledErasureEntry,
 } from "@platform/redis";
 import { connection, supersetErasureQueue } from "./queues.js";
+import { cleanSupersetErasureFinishedJobs } from "./superset-erasure-failed-cleanup.js";
 import {
   enqueueSupersetErasure,
   supersetErasureJobId,
@@ -209,6 +210,16 @@ export async function reconcileTenantSupersetErasure(
  * Only executes when Superset erasure mode is "full".
  */
 export async function runSupersetErasureReconcile(): Promise<ReconcileSweepSummary> {
+  // Before the mode check: a finished job's payload must not outlive its retention in any mode.
+  try {
+    await cleanSupersetErasureFinishedJobs(supersetErasureQueue);
+  } catch (err) {
+    logger.error(
+      { err: String(err) },
+      "superset-erasure-reconcile: finished-job cleanup failed",
+    );
+  }
+
   const localMode = supersetErasureMode(env);
   const selfcheck = await readSupersetSelfcheck();
   const { mode, overridden } = resolveSupersetErasureMode(localMode, selfcheck);

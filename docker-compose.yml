@@ -685,6 +685,15 @@ services:
       dockerfile: docker/superset/Dockerfile
     image: openwind-superset:6.1.0
     restart: unless-stopped
+    # Docker's default json-file driver keeps container logs with no size or age limit. Rotating by size
+    # bounds what the container logs hold (up to 5 x 10 MB); it does not bound them by age. The logs hold
+    # request paths, status and timing, not query strings or SQL; see docs/runbooks/superset-erasure.md.
+    # Inherited by docker-compose.prod.yml, which does not override `logging`.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     # A ceiling so a runaway query or a large dataset load cannot take the
     # whole host (Postgres, Redis, the API) down with it. About 400MB at
     # rest with 2 workers; 2GB leaves room for heavy SQL Lab work.
@@ -719,6 +728,10 @@ services:
       # revisit alongside the real capacity number T17 is meant to set.
       SERVER_WORKER_AMOUNT: ${SUPERSET_WORKER_AMOUNT:-2}
       GUNICORN_TIMEOUT: ${SUPERSET_GUNICORN_TIMEOUT:-120}
+      # Access log without the query string: Superset's GET endpoints carry filter values and ad-hoc SQL in
+      # `q=` / `form_data=`, and gunicorn's default format writes the whole request line plus the referer.
+      # Method, path, status and duration in microseconds only. See docs/runbooks/superset-erasure.md.
+      GUNICORN_CMD_ARGS: "--access-logformat '%(m)s %(U)s %(s)s %(D)s'"
       # Superset's OWN metadata database (dashboards, charts, roles) — not the
       # platform database, and not the reporting credential. Superset creates
       # these tables itself, which needs DDL; analytics_user is read-only by
