@@ -171,10 +171,7 @@ export async function alignRotationCursor(
     roundedDays <= ROTATION_MAX_CYCLE_DAYS &&
     addCalendarDays(window.startsAt, roundedDays, tz).getTime() ===
       window.endsAt.getTime();
-  const wholeCycle =
-    isWholeDayCycle
-      ? roundedDays
-      : rotation.cycleDays;
+  const wholeCycle = isWholeDayCycle ? roundedDays : rotation.cycleDays;
 
   await tx
     .update(onCallRotations)

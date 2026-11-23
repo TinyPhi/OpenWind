@@ -134,17 +134,22 @@ export function addCalendarDays(
       // Overlap (fall-back): ambiguous local time occurs twice.
       // RFC 5545 / Temporal "compatible" rule: choose earlier instant (pre-transition).
       validMatches.sort((a, b) => a.getTime() - b.getTime());
-      return validMatches[0]!;
+      const earliest = validMatches[0];
+      if (earliest) return earliest;
     }
-    if (validMatches.length === 1) {
-      return validMatches[0]!;
+    const singleMatch = validMatches[0];
+    if (singleMatch) {
+      return singleMatch;
     }
 
     // Gap (spring-forward): target local time is nonexistent (skipped by transition).
     // RFC 5545 / Temporal "compatible" rule: advance past the gap into the first
     // valid instant after the gap (the later candidate instant).
     allCandidates.sort((a, b) => b.getTime() - a.getTime());
-    return allCandidates[0]!;
+    const latest = allCandidates[0];
+    if (latest) return latest;
+
+    return new Date(targetLocalAsUtc);
   } catch (err: unknown) {
     if (!warnedZones.has(timeZone)) {
       warnedZones.add(timeZone);

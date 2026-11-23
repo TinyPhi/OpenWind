@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { DbOrTx, onCallSchedules } from "@platform/db";
 import { alignRotationCursor } from "./rotation-windows.js";
+
+type ScheduleRow = typeof onCallSchedules.$inferSelect;
 
 const mockUpdateSet = vi.fn().mockReturnThis();
 const mockUpdateWhere = vi.fn().mockResolvedValue([]);
@@ -23,13 +26,12 @@ describe("rotation-windows alignRotationCursor", () => {
     });
   });
 
-  const makeTx = (rotation: unknown, tenantSetting?: unknown) => {
+  const makeTx = (rotation: unknown, tenantSetting?: unknown): DbOrTx => {
     return {
       select: () => ({
         from: (table: unknown) => ({
           where: () => ({
             limit: () => {
-              // If it's querying rotation
               if (
                 typeof table === "object" &&
                 table !== null &&
@@ -37,7 +39,6 @@ describe("rotation-windows alignRotationCursor", () => {
               ) {
                 return Promise.resolve(rotation ? [rotation] : []);
               }
-              // Else tenantSettings
               return Promise.resolve(tenantSetting ? [tenantSetting] : []);
             },
           }),
@@ -48,8 +49,30 @@ describe("rotation-windows alignRotationCursor", () => {
           where: mockUpdateWhere,
         }),
       }),
-    } as any;
+    } as unknown as DbOrTx;
   };
+
+  const makeScheduleWindow = (
+    startsAt: Date,
+    endsAt: Date,
+    rotationId = "rot-1",
+  ): ScheduleRow =>
+    ({
+      id: "win-1",
+      tenantId: "t-1",
+      teamId: "team-1",
+      rotationId,
+      label: "W1",
+      startsAt,
+      endsAt,
+      primaryUserId: "u-primary",
+      backupUserId: "u-backup",
+      escalationManagerUserId: null,
+      createdBy: "u-creator",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }) as ScheduleRow;
 
   it("updates cycleDays when window duration is an exact whole-day cycle in timezone", async () => {
     const rotation = {
@@ -58,12 +81,10 @@ describe("rotation-windows alignRotationCursor", () => {
       nextStartsAt: new Date("2026-06-01T00:00:00Z"),
     };
     const tx = makeTx(rotation);
-    const window = {
-      id: "win-1",
-      rotationId: "rot-1",
-      startsAt: new Date("2026-06-01T00:00:00Z"),
-      endsAt: new Date("2026-06-15T00:00:00Z"), // 14 days
-    } as any;
+    const window = makeScheduleWindow(
+      new Date("2026-06-01T00:00:00Z"),
+      new Date("2026-06-15T00:00:00Z"), // 14 days
+    );
 
     await alignRotationCursor(tx, "t-1", "u-1", window, "UTC");
 
@@ -90,12 +111,10 @@ describe("rotation-windows alignRotationCursor", () => {
       nextStartsAt: new Date("2026-06-01T00:00:00Z"),
     };
     const tx = makeTx(rotation);
-    const window = {
-      id: "win-1",
-      rotationId: "rot-1",
-      startsAt: new Date("2026-06-01T00:00:00Z"),
-      endsAt: new Date("2026-06-08T00:30:00Z"), // 7 days + 30 min
-    } as any;
+    const window = makeScheduleWindow(
+      new Date("2026-06-01T00:00:00Z"),
+      new Date("2026-06-08T00:30:00Z"), // 7 days + 30 min
+    );
 
     await alignRotationCursor(tx, "t-1", "u-1", window, "UTC");
 
@@ -119,12 +138,7 @@ describe("rotation-windows alignRotationCursor", () => {
       nextStartsAt: startsAt,
     };
     const tx = makeTx(rotation);
-    const window = {
-      id: "win-1",
-      rotationId: "rot-1",
-      startsAt,
-      endsAt,
-    } as any;
+    const window = makeScheduleWindow(startsAt, endsAt);
 
     await alignRotationCursor(tx, "t-1", "u-1", window, "America/New_York");
 
