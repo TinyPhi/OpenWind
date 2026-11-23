@@ -3,6 +3,13 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — audit log tenant policies tolerate a reset tenant setting (#1188)]
+
+### Fixed
+
+- The tenant isolation policies on `admin_audit_log` and `admin_audit_log_daily_rollup` now read `NULLIF(current_setting('app.tenant_id', true), '')::uuid` (migration 0165). On a pooled connection that had earlier run a tenant transaction the setting reads back as `''`, and the bare `::uuid` cast threw `invalid input syntax for type uuid: ""`. The shipped access-log retention sweep fails on such a connection (reproduced); any other role-switched query that meets a row its own policy rejects is exposed to the same error. An unset or reset tenant now matches no rows instead of raising; tenant sessions are unaffected.
+- About 39 other tenant policies still use the bare cast and are tracked in #1188.
+
 ## [Unreleased — redact audited SQL literals, pseudonymise actor, and cap reporting retention (#1139)]
 
 ### Security & Privacy
