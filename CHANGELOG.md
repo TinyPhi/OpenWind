@@ -3,6 +3,27 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — audit log tenant policies tolerate a reset tenant setting (#1188)]
+
+### Fixed
+
+- The tenant isolation policies on `admin_audit_log` and `admin_audit_log_daily_rollup` now read `NULLIF(current_setting('app.tenant_id', true), '')::uuid` (migration 0165). On a pooled connection that had earlier run a tenant transaction the setting reads back as `''`, and the bare `::uuid` cast threw `invalid input syntax for type uuid: ""`. The shipped access-log retention sweep fails on such a connection (reproduced); any other role-switched query that meets a row its own policy rejects is exposed to the same error. An unset or reset tenant now matches no rows instead of raising; tenant sessions are unaffected.
+- About 39 other tenant policies still use the bare cast and are tracked in #1188.
+
+## [Unreleased — Segregation of duties write-gate bypass fix (#1132)]
+
+### Security
+
+- On a workflow where any transition carries an `actor_*` rule, only a person admin (not an API key) may add a transition, re-point one, or change `allowedRoles` or `conditions` on **any** transition of that workflow (`POST` and `PATCH /workflows/:id/transitions…`, `PUT /workflows/:id/canvas`). This closes the single-edge bypass, the two-hop detour through a new step, a skip edge to a later step, and widening roles on an unruled sibling of a ruled edge (#1132).
+- Changing a workflow's initial step (`PATCH /workflows/:id` with `initialState`) is admin-only on a workflow that carries an actor rule: moving it past a ruled edge would start every new record beyond the rule. Re-sending the current value is not a change.
+- A canvas save can no longer delete a step that an actor rule names, as the standalone delete route already refused; it left the rule naming a step that no longer exists.
+- A caller who does not administer the workflow now gets `404` from create and update transition whatever the stored rule state; before, a ruled edge answered them with `403`.
+
+### Changed
+
+- Non-admin workflow admins can no longer add or re-point transitions, or change who may take any transition, on a workflow that carries an actor rule. Adding a step alone, editing labels, requiresComment/requiresFields and deleting an unruled transition stay open to them, and a workflow with no actor rule is unchanged.
+- Still not covered, as documented in `docs/specs/segregation-of-duties.md` §K: a concurrent edit (the check reads the stored rule without a row lock), module and plugin install and seed paths, and self-loop transitions.
+
 ## [Unreleased — Superset erasure hygiene checks (#1140)]
 
 ### Changed
