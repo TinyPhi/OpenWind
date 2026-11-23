@@ -69,15 +69,15 @@ export {
   SUPERSET_UNRECONCILED_KEY,
   SUPERSET_UNRECONCILED_ENTRIES_KEY,
   SUPERSET_UNRECONCILED_TTL_SECONDS,
+  SUPERSET_UNRECONCILED_ENTRY_CAP,
   supersetSelfcheckTtlSeconds,
   SUPERSET_SELFCHECK_OUTCOMES,
   writeSupersetSelfcheck,
   readSupersetSelfcheck,
   parseSupersetSelfcheck,
   resolveSupersetErasureMode,
-  writeSupersetUnreconciledCount,
+  writeSupersetUnreconciled,
   readSupersetUnreconciledCount,
-  writeSupersetUnreconciledEntries,
   readSupersetUnreconciledEntries,
 } from "./superset-selfcheck.js";
 export type {

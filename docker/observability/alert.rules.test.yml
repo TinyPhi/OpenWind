@@ -297,8 +297,8 @@ tests:
               severity: critical
               team: platform
             exp_annotations:
-              summary: "Unreconciled Superset user erasures older than 1 hour"
-              description: "2 user erasure(s) committed over 1 hour ago have not completed in Superset. The reconciler could not re-queue them or the erasure jobs are failing. Follow docs/runbooks/superset-erasure.md."
+              summary: "Unreconciled Superset erasures older than 1 hour"
+              description: "2 Superset erasure(s) (user deletions or tenant purges) committed over 1 hour ago have not completed. The reconciler could not re-queue them, the erasure jobs are failing, or they ran out of retries. Follow docs/runbooks/superset-erasure.md."
 
   - name: SupersetErasureUnreconciled clears when gauge returns to zero
     interval: 1m
@@ -313,22 +313,30 @@ tests:
               severity: critical
               team: platform
             exp_annotations:
-              summary: "Unreconciled Superset user erasures older than 1 hour"
-              description: "1 user erasure(s) committed over 1 hour ago have not completed in Superset. The reconciler could not re-queue them or the erasure jobs are failing. Follow docs/runbooks/superset-erasure.md."
+              summary: "Unreconciled Superset erasures older than 1 hour"
+              description: "1 Superset erasure(s) (user deletions or tenant purges) committed over 1 hour ago have not completed. The reconciler could not re-queue them, the erasure jobs are failing, or they ran out of retries. Follow docs/runbooks/superset-erasure.md."
       - eval_time: 30m
         alertname: SupersetErasureUnreconciled
         exp_alerts: []
 
-  - name: unreconciled erasure pending after 7 days raises SupersetErasurePending7d with tenant and subject hash
+  # Age series (openwind_superset_erasure_unreconciled_age_seconds): the value is the age of the
+  # audit row, so these inputs grow by 60 s per 1-minute sample, like the production gauge does.
+  # A completed erasure is zero-filled by the gauge (the exporter would otherwise hold its last age).
+  - name: an erasure open for more than 7 days raises SupersetErasurePending7d, once for the api and worker exports, and clears when completed
     interval: 1m
     input_series:
-      - series: 'openwind_superset_erasure_unreconciled_older_than_1h{tenant_id="t-1",subject_hash="h-1"}'
-        values: "0x5 1x10100 0x30"
+      - series: 'openwind_superset_erasure_unreconciled_age_seconds{instance="api",tenant_id="t-1",subject_hash="h-1"}'
+        values: "0+60x10300 0x100"
+      - series: 'openwind_superset_erasure_unreconciled_age_seconds{instance="worker",tenant_id="t-1",subject_hash="h-1"}'
+        values: "0+60x10300 0x100"
     alert_rule_test:
       - eval_time: 1440m
         alertname: SupersetErasurePending7d
         exp_alerts: []
-      - eval_time: 10086m
+      - eval_time: 10085m
+        alertname: SupersetErasurePending7d
+        exp_alerts: []
+      - eval_time: 10200m
         alertname: SupersetErasurePending7d
         exp_alerts:
           - exp_labels:
@@ -337,10 +345,100 @@ tests:
               tenant_id: t-1
               subject_hash: h-1
             exp_annotations:
-              summary: "Superset erasure pending after 7 days"
-              description: "A Superset erasure for tenant t-1 (subject hash h-1) has had no completed record for 7 days. Target completion is 30 days under GDPR Article 17; follow docs/runbooks/superset-erasure.md."
-      - eval_time: 10120m
+              summary: "Superset erasure pending for more than 7 days"
+              description: "A Superset erasure for tenant t-1 (subject hash h-1) has had no completed record for more than 7 days. Target completion is 30 days under GDPR Article 17; follow docs/runbooks/superset-erasure.md."
+      - eval_time: 10400m
         alertname: SupersetErasurePending7d
+        exp_alerts: []
+
+  - name: a gap in the series does not reset SupersetErasurePending7d (a failed sweep, a Prometheus restart)
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_age_seconds{tenant_id="t-gap",subject_hash="h-gap"}'
+        values: "0+60x6000 _x500 390060+60x5000"
+    alert_rule_test:
+      - eval_time: 6200m
+        alertname: SupersetErasurePending7d
+        exp_alerts: []
+      - eval_time: 10200m
+        alertname: SupersetErasurePending7d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              tenant_id: t-gap
+              subject_hash: h-gap
+            exp_annotations:
+              summary: "Superset erasure pending for more than 7 days"
+              description: "A Superset erasure for tenant t-gap (subject hash h-gap) has had no completed record for more than 7 days. Target completion is 30 days under GDPR Article 17; follow docs/runbooks/superset-erasure.md."
+
+  - name: SupersetErasurePending25d is critical, and keeps firing past day 30 instead of resolving
+    interval: 5m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_age_seconds{tenant_id="t-late",subject_hash="h-late"}'
+        values: "0+300x14000"
+    alert_rule_test:
+      - eval_time: 35000m
+        alertname: SupersetErasurePending25d
+        exp_alerts: []
+      - eval_time: 36100m
+        alertname: SupersetErasurePending25d
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              tenant_id: t-late
+              subject_hash: h-late
+            exp_annotations:
+              summary: "Superset erasure pending for more than 25 days"
+              description: "A Superset erasure for tenant t-late (subject hash h-late) has had no completed record for more than 25 days. The 30-day target under GDPR Article 17 is less than 5 days away, or has passed if this has been firing for longer. Escalate per docs/runbooks/superset-erasure.md."
+      - eval_time: 43300m
+        alertname: SupersetErasurePending25d
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              tenant_id: t-late
+              subject_hash: h-late
+            exp_annotations:
+              summary: "Superset erasure pending for more than 25 days"
+              description: "A Superset erasure for tenant t-late (subject hash h-late) has had no completed record for more than 25 days. The 30-day target under GDPR Article 17 is less than 5 days away, or has passed if this has been firing for longer. Escalate per docs/runbooks/superset-erasure.md."
+
+  - name: an erasure that completed at day 26 clears SupersetErasurePending25d, and the 7-day alert with it
+    interval: 5m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_age_seconds{tenant_id="t-done",subject_hash="h-done"}'
+        values: "0+300x7500 0x200"
+    alert_rule_test:
+      - eval_time: 37000m
+        alertname: SupersetErasurePending25d
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              tenant_id: t-done
+              subject_hash: h-done
+            exp_annotations:
+              summary: "Superset erasure pending for more than 25 days"
+              description: "A Superset erasure for tenant t-done (subject hash h-done) has had no completed record for more than 25 days. The 30-day target under GDPR Article 17 is less than 5 days away, or has passed if this has been firing for longer. Escalate per docs/runbooks/superset-erasure.md."
+      - eval_time: 38000m
+        alertname: SupersetErasurePending25d
+        exp_alerts: []
+      - eval_time: 38000m
+        alertname: SupersetErasurePending7d
+        exp_alerts: []
+
+  - name: an erasure younger than 7 days raises neither age alert
+    interval: 1m
+    input_series:
+      - series: 'openwind_superset_erasure_unreconciled_age_seconds{tenant_id="t-new",subject_hash="h-new"}'
+        values: "0+60x9000"
+    alert_rule_test:
+      - eval_time: 9000m
+        alertname: SupersetErasurePending7d
+        exp_alerts: []
+      - eval_time: 9000m
+        alertname: SupersetErasurePending25d
         exp_alerts: []
 
   - name: a slow tick raises ScheduleTickDurationSLOBreach
