@@ -28,7 +28,9 @@ export function canonicalizeTimezone(tz: string): string {
       seg
         .split("_")
         .map((part) =>
-          part ? part[0]!.toUpperCase() + part.slice(1).toLowerCase() : "",
+          part
+            ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+            : "",
         )
         .join("_"),
     )

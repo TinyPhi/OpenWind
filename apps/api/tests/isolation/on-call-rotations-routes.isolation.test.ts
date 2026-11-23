@@ -675,7 +675,7 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
       startsAt: base.toISOString(),
       endsAt: new Date(base.getTime() + 7 * DAY).toISOString(),
     });
-    const [w2] = await db
+    const [_w2] = await db
       .insert(onCallSchedules)
       .values({
         tenantId: TENANT_A,
