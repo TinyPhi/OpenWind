@@ -633,7 +633,12 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
     const auditsBefore = await db
       .select()
       .from(adminAuditLog)
-      .where(eq(adminAuditLog.tenantId, TENANT_A));
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT_A),
+          inArray(adminAuditLog.resourceId, [rotationId, scheduleId, w2.id]),
+        ),
+      );
 
     const res = await appA.request(
       `/admin/on-call-schedules/${scheduleId}`,
@@ -661,7 +666,12 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
     const auditsAfter = await db
       .select()
       .from(adminAuditLog)
-      .where(eq(adminAuditLog.tenantId, TENANT_A));
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT_A),
+          inArray(adminAuditLog.resourceId, [rotationId, scheduleId, w2.id]),
+        ),
+      );
     expect(auditsAfter.length).toBe(auditsBefore.length);
   });
 
@@ -675,7 +685,7 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
       startsAt: base.toISOString(),
       endsAt: new Date(base.getTime() + 7 * DAY).toISOString(),
     });
-    const [_w2] = await db
+    const [w2] = await db
       .insert(onCallSchedules)
       .values({
         tenantId: TENANT_A,
@@ -693,7 +703,12 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
     const auditsBefore = await db
       .select()
       .from(adminAuditLog)
-      .where(eq(adminAuditLog.tenantId, TENANT_A));
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT_A),
+          inArray(adminAuditLog.resourceId, [rotationId, scheduleId, w2.id]),
+        ),
+      );
 
     const newEnd = new Date(base.getTime() + 5 * DAY);
     const res = await appA.request(
@@ -722,10 +737,17 @@ describe("managing a rotation (R9) and tenant isolation (R10)", () => {
     const auditsAfter = await db
       .select()
       .from(adminAuditLog)
-      .where(eq(adminAuditLog.tenantId, TENANT_A));
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT_A),
+          inArray(adminAuditLog.resourceId, [rotationId, scheduleId, w2.id]),
+        ),
+      );
     expect(auditsAfter.length).toBeGreaterThan(auditsBefore.length);
 
-    const newAudits = auditsAfter.slice(auditsBefore.length);
+    const newAudits = auditsAfter.filter(
+      (a) => !auditsBefore.some((b) => b.id === a.id),
+    );
     const actions = newAudits.map((a) => `${a.resourceType}:${a.action}`);
     expect(actions).toContain("on_call_rotation:updated");
     expect(actions).toContain("on_call_schedule:deleted");
