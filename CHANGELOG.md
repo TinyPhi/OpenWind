@@ -7,7 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- Added `tenant_settings` table (migration `0165_tenant_settings.sql`) storing per-tenant organization configuration, with Row Level Security policies (`tenant_read` and `tenant_write`) (#1158).
+- Added `tenant_settings` table (migration `0166_tenant_settings.sql`) storing per-tenant organization configuration, with Row Level Security policies (`tenant_read` and `tenant_write`) (#1158).
 - Added `GET /admin/tenant-settings` (read-only org baseline for authenticated users) and `PATCH /admin/tenant-settings` (admin-only, IANA timezone validation, audit-logged) (#1158).
 - Added Organization settings tab in Admin UI with Default Timezone picker and mirrored i18n keys across all 11 locales (#1158).
 - Updated Schedule Rules authoring to fetch tenant default timezone on rule creation, falling back to UTC instead of hardcoded `Asia/Kolkata` (#1158).
@@ -20,6 +20,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Eliminated non-atomic schedule and rotation update race condition by supporting `rotationStatus` in `PATCH /admin/on-call-schedules/:id`, ensuring schedule and rotation status changes execute atomically within a single transaction (#1161).
 - Replaced fixed `DAY_MS = 86_400_000` date addition across `packages/teams/src/rotation.ts`, `apps/worker/src/oncall-rotation-worker.ts`, `apps/api/src/lib/rotation-windows.ts`, and `apps/admin-ui/src/pages/roster/index.tsx` with DST-aware calendar day arithmetic (`addCalendarDays`), preserving local wall-clock shift start/end times across daylight saving spring-forward (23h) and fall-back (25h) transitions (#1162).
+
+## [Unreleased — audit log tenant policies tolerate a reset tenant setting (#1188)]
+
+### Fixed
+
+- The tenant isolation policies on `admin_audit_log` and `admin_audit_log_daily_rollup` now read `NULLIF(current_setting('app.tenant_id', true), '')::uuid` (migration 0165). On a pooled connection that had earlier run a tenant transaction the setting reads back as `''`, and the bare `::uuid` cast threw `invalid input syntax for type uuid: ""`. The shipped access-log retention sweep fails on such a connection (reproduced); any other role-switched query that meets a row its own policy rejects is exposed to the same error. An unset or reset tenant now matches no rows instead of raising; tenant sessions are unaffected.
+- About 39 other tenant policies still use the bare cast and are tracked in #1188.
 
 ## [Unreleased — redact audited SQL literals, pseudonymise actor, and cap reporting retention (#1139)]
 

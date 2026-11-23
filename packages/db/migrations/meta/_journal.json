@@ -1161,7 +1161,14 @@
       "idx": 165,
       "version": "7",
       "when": 1793750400000,
-      "tag": "0165_tenant_settings",
+      "tag": "0165_audit_log_tenant_policy_nullif",
+      "breakpoints": false
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1793836800000,
+      "tag": "0166_tenant_settings",
       "breakpoints": false
     }
   ]
