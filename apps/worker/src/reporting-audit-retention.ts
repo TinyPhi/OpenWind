@@ -74,7 +74,6 @@ export async function runReportingAuditRetentionSweep(
         totalDeleted,
         maxBatches: MAX_REPORTING_BATCHES_PER_RUN,
         batchLimit: REPORTING_RETENTION_BATCH_LIMIT,
-        retentionDays: days,
       },
       "reporting-audit-retention: stopped at the batch cap, a backlog remains for the next run",
     );

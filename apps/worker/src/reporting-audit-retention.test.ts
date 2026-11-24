@@ -94,6 +94,11 @@ describe("runReportingAuditRetentionSweep", () => {
       }),
       expect.stringContaining("batch cap"),
     );
+    // The retention period comes from the environment, which CodeQL treats as sensitive in a log
+    // payload; the "sweep complete" line already carries it.
+    expect(mockLoggerWarn.mock.calls[0]?.[0]).not.toHaveProperty(
+      "retentionDays",
+    );
   });
 
   it("does not warn when the last batch was partial", async () => {
