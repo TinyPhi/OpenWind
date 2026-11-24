@@ -29,6 +29,7 @@ export {
   withPlatformAdminContext,
   withTenantLifecycleContext,
   withTenantPurgeContext,
+  withTenantPurgeRoleSavepoint,
   withEventLogMaintenanceContext,
 } from "./middleware.js";
 export type { DbOrTx } from "./middleware.js";

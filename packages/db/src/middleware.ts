@@ -151,6 +151,29 @@ export async function withTenantPurgeContext<T>(
 }
 
 /**
+ * Runs `fn` as tenant_purge_role inside a savepoint of the caller's own transaction, then
+ * switches back to app_user. For per-user erasure (#1190), which runs inside withTenantContext
+ * and so cannot open a second top-level transaction the way withTenantPurgeContext does: the
+ * caller's app.tenant_id stays in force, so the tables' tenant RLS policies still confine every
+ * statement, and callers keep their explicit tenant_id filters. If `fn` throws, rolling back the
+ * savepoint also reverts the role. The switch back assumes the caller runs as app_user, as
+ * withTenantContext does. The only boundary on tenant_purge_role is code discipline about where
+ * it is switched to (migration 0158), so every such switch goes through here or
+ * withTenantPurgeContext.
+ */
+export async function withTenantPurgeRoleSavepoint<T>(
+  tx: DbOrTx,
+  fn: (sp: Tx) => Promise<T>,
+): Promise<T> {
+  return tx.transaction(async (sp) => {
+    await sp.execute(sql`SET LOCAL ROLE tenant_purge_role`);
+    const result = await fn(sp);
+    await sp.execute(sql`SET LOCAL ROLE app_user`);
+    return result;
+  });
+}
+
+/**
  * For the only paths that may delete workflow_events rows: the retention sweep, tenant purge
  * and sandbox reset (migration 0147). app_user cannot DELETE them. app.tenant_id is set so the
  * table's tenant RLS policy still confines every statement to `tenantId`; callers keep their

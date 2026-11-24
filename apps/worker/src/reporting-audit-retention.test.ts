@@ -15,9 +15,11 @@ vi.mock("@platform/db", () => ({
 }));
 
 const mockLoggerInfo = vi.fn();
+const mockLoggerWarn = vi.fn();
 vi.mock("@platform/logger", () => ({
   logger: {
     info: (...args: unknown[]) => mockLoggerInfo(...args),
+    warn: (...args: unknown[]) => mockLoggerWarn(...args),
     error: vi.fn(),
   },
 }));
@@ -34,6 +36,7 @@ describe("runReportingAuditRetentionSweep", () => {
     mockExecute.mockReset();
     mockSetRole.mockReset();
     mockLoggerInfo.mockReset();
+    mockLoggerWarn.mockReset();
   });
 
   it("switches to reporting_audit_retention_role for every batch (#1139)", async () => {
@@ -76,6 +79,31 @@ describe("runReportingAuditRetentionSweep", () => {
 
     expect(deleted).toBe(REPORTING_RETENTION_BATCH_LIMIT * 2 + 42);
     expect(mockExecute).toHaveBeenCalledTimes(3);
+  });
+
+  it("warns when it stops at the batch cap with a full last batch", async () => {
+    mockExecute.mockResolvedValue(batchResult(REPORTING_RETENTION_BATCH_LIMIT));
+
+    await runReportingAuditRetentionSweep();
+
+    expect(mockExecute).toHaveBeenCalledTimes(20);
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxBatches: 20,
+        batchLimit: REPORTING_RETENTION_BATCH_LIMIT,
+      }),
+      expect.stringContaining("batch cap"),
+    );
+  });
+
+  it("does not warn when the last batch was partial", async () => {
+    mockExecute
+      .mockResolvedValueOnce(batchResult(REPORTING_RETENTION_BATCH_LIMIT))
+      .mockResolvedValueOnce(batchResult(1));
+
+    await runReportingAuditRetentionSweep();
+
+    expect(mockLoggerWarn).not.toHaveBeenCalled();
   });
 
   it("honors a custom retentionDays parameter", async () => {

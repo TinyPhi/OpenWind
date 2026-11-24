@@ -528,15 +528,29 @@ export async function anonymizeAuditLogForTenant(
   // acted, so it must see them before the pass below rewrites them (#860).
   await scrubAuditLogPersonIdentifiers(db, tenantId);
 
-  // ADR-019 Stage 2 criterion 13 (#1139): tenant purge removes or anonymises audit SQL text.
-  await db.execute(sql`
-    UPDATE admin_audit_log
-    SET metadata = metadata - 'sql'
-    WHERE tenant_id = ${tenantId}::uuid
-      AND metadata ? 'sql'
-  `);
-
   const BATCH_SIZE = 1000;
+
+  // ADR-019 Stage 2 criterion 13 (#1139): tenant purge removes or anonymises audit SQL text.
+  // Batched like the actor pass below, so one purge never holds row locks on every SQL-bearing
+  // row of a large tenant at once (#1190).
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  while (true) {
+    const scrubbed = await db.execute(sql`
+      UPDATE admin_audit_log
+      SET metadata = metadata - 'sql'
+      WHERE id IN (
+        SELECT id FROM admin_audit_log
+        WHERE tenant_id = ${tenantId}::uuid
+          AND metadata ? 'sql'
+        LIMIT ${BATCH_SIZE}
+      )
+      RETURNING id
+    `);
+    if (scrubbed.length < BATCH_SIZE) {
+      break;
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   while (true) {
     // Select the next batch of un-anonymized row IDs.

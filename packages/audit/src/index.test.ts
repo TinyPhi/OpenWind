@@ -280,6 +280,23 @@ describe("anonymizeAuditLogForTenant", () => {
     expect(hasSqlScrub).toBe(true);
   });
 
+  it("scrubs audit SQL text in batches of 1000 until a short batch (#1190)", async () => {
+    const fullBatch = Array.from({ length: 1000 }, (_, i) => ({ id: `r${i}` }));
+    mockExecute
+      .mockResolvedValueOnce([{ current_setting: null }]) // RLS context check
+      .mockResolvedValueOnce(fullBatch)
+      .mockResolvedValueOnce(fullBatch)
+      .mockResolvedValueOnce([{ id: "last" }]);
+
+    await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
+
+    const scrubCalls = mockExecute.mock.calls.filter((call) =>
+      JSON.stringify(call).includes("metadata - 'sql'"),
+    );
+    expect(scrubCalls).toHaveLength(3);
+    expect(JSON.stringify(scrubCalls[0])).toContain("LIMIT");
+  });
+
   it("throws and does not run the UPDATE when the RLS context check itself fails — fails closed, not open", async () => {
     mockExecute.mockRejectedValue(new Error("connection terminated"));
 
