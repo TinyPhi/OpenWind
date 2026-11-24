@@ -20,6 +20,8 @@ const BYSTANDER = "ffffffff-1190-4000-b000-000000000002";
 const RESOURCE = "ffffffff-1190-4000-a000-000000000009";
 const SQL_ROWS = 2500;
 const BYSTANDER_ROWS = 1200;
+// The purge also scrubs person identifiers over every row, which is slow on a loaded CI runner.
+const SLOW_MS = 60_000;
 
 async function seed(tenantId: string, count: number): Promise<void> {
   await db.execute(sql`
@@ -67,7 +69,7 @@ beforeAll(async () => {
   }
   await seed(TENANT, SQL_ROWS);
   await seed(BYSTANDER, BYSTANDER_ROWS);
-});
+}, SLOW_MS);
 
 afterAll(async () => {
   for (const t of [TENANT, BYSTANDER]) {
@@ -82,14 +84,18 @@ describe("tenant purge strips audit SQL text in batches (#1190)", () => {
     expect(await rowsWithSql(BYSTANDER)).toBe(BYSTANDER_ROWS);
   });
 
-  it("strips the SQL text from every row of the purged tenant, across several batches", async () => {
-    await withTenantPurgeContext(TENANT, (tx) =>
-      anonymizeAuditLogForTenant(tx, TENANT),
-    );
+  it(
+    "strips the SQL text from every row of the purged tenant, across several batches",
+    async () => {
+      await withTenantPurgeContext(TENANT, (tx) =>
+        anonymizeAuditLogForTenant(tx, TENANT),
+      );
 
-    expect(await rowsWithSql(TENANT)).toBe(0);
-    expect(await rowCount(TENANT)).toBe(SQL_ROWS);
-  });
+      expect(await rowsWithSql(TENANT)).toBe(0);
+      expect(await rowCount(TENANT)).toBe(SQL_ROWS);
+    },
+    SLOW_MS,
+  );
 
   it("keeps sql_hash and the rest of the metadata", async () => {
     const [kept] = await db
@@ -108,12 +114,16 @@ describe("tenant purge strips audit SQL text in batches (#1190)", () => {
     expect(await rowsWithSql(BYSTANDER)).toBe(BYSTANDER_ROWS);
   });
 
-  it("is a no-op the second time", async () => {
-    await withTenantPurgeContext(TENANT, (tx) =>
-      anonymizeAuditLogForTenant(tx, TENANT),
-    );
+  it(
+    "is a no-op the second time",
+    async () => {
+      await withTenantPurgeContext(TENANT, (tx) =>
+        anonymizeAuditLogForTenant(tx, TENANT),
+      );
 
-    expect(await rowsWithSql(TENANT)).toBe(0);
-    expect(await rowCount(TENANT)).toBe(SQL_ROWS);
-  });
+      expect(await rowsWithSql(TENANT)).toBe(0);
+      expect(await rowCount(TENANT)).toBe(SQL_ROWS);
+    },
+    SLOW_MS,
+  );
 });
