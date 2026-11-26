@@ -305,4 +305,34 @@ describe("projectWindows", () => {
         .escalationManager,
     ).toBeNull();
   });
+
+  it("preserves constant wall-clock handoff across DST transition without permanent drift", () => {
+    // Rotation starting 02:30 EST in New York before the March 8 transition:
+    const nyStart = new Date("2026-03-01T07:30:00.000Z"); // 02:30 EST
+    const projected = projectWindows({
+      ...base,
+      nextStartsAt: nyStart,
+      cycleDays: 7,
+      count: 3,
+      timeZone: "America/New_York",
+    });
+
+    // Window 0 spans the gap: ends at 07:30 UTC (03:30 EDT)
+    expect(projected[0]!.startsAt.toISOString()).toBe(
+      "2026-03-01T07:30:00.000Z",
+    );
+    expect(projected[0]!.endsAt.toISOString()).toBe("2026-03-08T07:30:00.000Z");
+
+    // Window 1 starts exactly at Window 0 end, but ends at the anchored 02:30 EDT handoff:
+    expect(projected[1]!.startsAt.toISOString()).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+    expect(projected[1]!.endsAt.toISOString()).toBe("2026-03-15T06:30:00.000Z"); // 06:30 UTC is 02:30 EDT!
+
+    // Window 2 continues cleanly at 02:30 EDT handoff (no permanent drift):
+    expect(projected[2]!.startsAt.toISOString()).toBe(
+      "2026-03-15T06:30:00.000Z",
+    );
+    expect(projected[2]!.endsAt.toISOString()).toBe("2026-03-22T06:30:00.000Z"); // 06:30 UTC is 02:30 EDT!
+  });
 });

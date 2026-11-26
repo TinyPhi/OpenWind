@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const { mockTransaction, mockInfo } = vi.hoisted(() => ({
-  mockTransaction: vi.fn(),
-  mockInfo: vi.fn(),
-}));
+const { mockTransaction, mockInfo, mockPlanWindows, mockWithTenantContext } =
+  vi.hoisted(() => ({
+    mockTransaction: vi.fn(),
+    mockInfo: vi.fn(),
+    mockPlanWindows: vi.fn(),
+    mockWithTenantContext: vi.fn(),
+  }));
 
 vi.mock("@platform/db", () => ({
   db: { transaction: (...args: unknown[]) => mockTransaction(...args) },
-  withTenantContext: vi.fn(),
+  withTenantContext: (...args: unknown[]) => mockWithTenantContext(...args),
   setOncallRotationSweeperRole: vi.fn(),
   onCallRotations: {},
   onCallSchedules: {},
@@ -15,12 +18,16 @@ vi.mock("@platform/db", () => ({
   notifications: {},
   notificationRecipients: {},
   teams: {},
+  tenantSettings: {
+    tenantId: "tenant_id",
+    defaultTimezone: "default_timezone",
+  },
   isOutboundNotificationsEnabled: () => Promise.resolve(false),
 }));
 vi.mock("@platform/teams", () => ({
-  planWindows: vi.fn(),
-  loadTeamMemberIds: vi.fn(),
-  loadPreviousHolders: vi.fn(),
+  planWindows: (...args: unknown[]) => mockPlanWindows(...args),
+  loadTeamMemberIds: () => Promise.resolve(["u-1", "u-2"]),
+  loadPreviousHolders: () => Promise.resolve({ primary: "u-1", backup: "u-2" }),
   ROTATION_NOTICE_LEAD_MS: 2 * 24 * 60 * 60 * 1000,
 }));
 vi.mock("@platform/audit", () => ({ writeAuditEntry: vi.fn() }));
@@ -52,8 +59,11 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn(),
 }));
 
-const { startOncallRotationWorker, stopOncallRotationWorker } =
-  await import("./oncall-rotation-worker.js");
+const {
+  startOncallRotationWorker,
+  stopOncallRotationWorker,
+  generateForRotation,
+} = await import("./oncall-rotation-worker.js");
 
 describe("oncall rotation worker lifecycle", () => {
   beforeEach(() => {
@@ -113,5 +123,176 @@ describe("oncall rotation worker lifecycle", () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1000);
     expect(mockTransaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("generateForRotation tenant timezone (#1162)", () => {
+  it("passes tenant default timezone to planWindows", async () => {
+    mockPlanWindows.mockReturnValue({
+      windows: [],
+      skippedEnded: 0,
+      capped: false,
+      stoppedBy: null,
+      cursor: { nextStartsAt: new Date() },
+    });
+    mockWithTenantContext.mockImplementation(
+      async (
+        _tenantId: string,
+        fn: (tx: Record<string, unknown>) => unknown,
+      ) => {
+        let fromTable = "";
+        const makeLimit = (data: unknown[]) =>
+          Object.assign(Promise.resolve(data), {
+            for: () => Promise.resolve(data),
+          });
+
+        const tx = {
+          select: () => tx,
+          from: (table: { defaultTimezone?: string }) => {
+            fromTable = table?.defaultTimezone ? "settings" : "other";
+            return tx;
+          },
+          where: () => tx,
+          update: () => tx,
+          set: () => tx,
+          limit: () =>
+            makeLimit(
+              fromTable === "settings"
+                ? [{ defaultTimezone: "America/Chicago" }]
+                : [
+                    {
+                      id: "rot-1",
+                      teamId: "team-1",
+                      status: "active",
+                      cycleDays: 7,
+                      nextStartsAt: new Date(Date.now() - 1000),
+                    },
+                  ],
+            ),
+        };
+        return fn(tx);
+      },
+    );
+
+    await generateForRotation("t-1", "rot-1", new Date());
+    expect(mockPlanWindows).toHaveBeenCalledWith(
+      expect.objectContaining({ timeZone: "America/Chicago" }),
+    );
+  });
+
+  it("passes null timeZone when tenant has no settings row (fallback to UTC)", async () => {
+    mockPlanWindows.mockReturnValue({
+      windows: [],
+      skippedEnded: 0,
+      capped: false,
+      stoppedBy: null,
+      cursor: { nextStartsAt: new Date() },
+    });
+    mockWithTenantContext.mockImplementation(
+      async (
+        _tenantId: string,
+        fn: (tx: Record<string, unknown>) => unknown,
+      ) => {
+        let fromTable = "";
+        const makeLimit = (data: unknown[]) =>
+          Object.assign(Promise.resolve(data), {
+            for: () => Promise.resolve(data),
+          });
+
+        const tx = {
+          select: () => tx,
+          from: (table: { defaultTimezone?: string }) => {
+            fromTable = table?.defaultTimezone ? "settings" : "other";
+            return tx;
+          },
+          where: () => tx,
+          update: () => tx,
+          set: () => tx,
+          limit: () =>
+            makeLimit(
+              fromTable === "settings"
+                ? []
+                : [
+                    {
+                      id: "rot-1",
+                      teamId: "team-1",
+                      status: "active",
+                      cycleDays: 7,
+                      nextStartsAt: new Date(Date.now() - 1000),
+                    },
+                  ],
+            ),
+        };
+        return fn(tx);
+      },
+    );
+
+    await generateForRotation("t-1", "rot-1", new Date());
+    expect(mockPlanWindows).toHaveBeenCalledWith(
+      expect.objectContaining({ timeZone: null }),
+    );
+  });
+
+  it("passes updated timeZone when tenant settings change between generation runs (G2)", async () => {
+    mockPlanWindows.mockReturnValue({
+      windows: [],
+      skippedEnded: 0,
+      capped: false,
+      stoppedBy: null,
+      cursor: { nextStartsAt: new Date() },
+    });
+
+    let currentTz = "Asia/Kolkata";
+    mockWithTenantContext.mockImplementation(
+      async (
+        _tenantId: string,
+        fn: (tx: Record<string, unknown>) => unknown,
+      ) => {
+        let fromTable = "";
+        const makeLimit = (data: unknown[]) =>
+          Object.assign(Promise.resolve(data), {
+            for: () => Promise.resolve(data),
+          });
+
+        const tx = {
+          select: () => tx,
+          from: (table: { defaultTimezone?: string }) => {
+            fromTable = table?.defaultTimezone ? "settings" : "other";
+            return tx;
+          },
+          where: () => tx,
+          update: () => tx,
+          set: () => tx,
+          limit: () =>
+            makeLimit(
+              fromTable === "settings"
+                ? [{ defaultTimezone: currentTz }]
+                : [
+                    {
+                      id: "rot-1",
+                      teamId: "team-1",
+                      status: "active",
+                      cycleDays: 7,
+                      nextStartsAt: new Date(Date.now() - 1000),
+                    },
+                  ],
+            ),
+        };
+        return fn(tx);
+      },
+    );
+
+    // Run 1: with Asia/Kolkata
+    await generateForRotation("t-1", "rot-1", new Date());
+    expect(mockPlanWindows).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeZone: "Asia/Kolkata" }),
+    );
+
+    // Run 2: tenant changes default timezone to Europe/London
+    currentTz = "Europe/London";
+    await generateForRotation("t-1", "rot-1", new Date());
+    expect(mockPlanWindows).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeZone: "Europe/London" }),
+    );
   });
 });
