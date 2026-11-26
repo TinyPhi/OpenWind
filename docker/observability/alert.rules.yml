@@ -108,9 +108,11 @@ groups:
           summary: "A Superset erasure did not complete ({{ $labels.outcome }})"
           description: '{{ $value | printf "%.0f" }} Superset erasure(s) with outcome {{ $labels.outcome }} in the last hour (failed: ran out of retries; not_queued: could not be queued; unverified: the Stage 2 state of Superset could not be confirmed). Personal data may remain in Superset; follow docs/runbooks/superset-erasure.md.'
 
-      # #1138: user erasures committed in OpenWind that have not completed in Superset after
-      # 1 hour. Unlike the 1h increase() alert above, this gauge alert stays firing as long as
-      # personal data remains in Superset with no completion record. Runbook: docs/runbooks/superset-erasure.md.
+      # #1138: Superset erasures (a deleted user or a purged tenant) committed in OpenWind that have
+      # not completed in Superset after 1 hour. Unlike the 1h increase() alert above, this gauge alert
+      # stays firing as long as personal data remains in Superset with no completion record. The
+      # gauge is one unlabelled series holding the true count, so {{ $value }} is that count.
+      # Runbook: docs/runbooks/superset-erasure.md.
       - alert: SupersetErasureUnreconciled
         expr: max(openwind_superset_erasure_unreconciled_older_than_1h) > 0
         for: 10m
@@ -118,8 +120,38 @@ groups:
           severity: critical
           team: platform
         annotations:
-          summary: "Unreconciled Superset user erasures older than 1 hour"
-          description: '{{ $value | printf "%.0f" }} user erasure(s) committed over 1 hour ago have not completed in Superset. The reconciler could not re-queue them or the erasure jobs are failing. Follow docs/runbooks/superset-erasure.md.'
+          summary: "Unreconciled Superset erasures older than 1 hour"
+          description: '{{ $value | printf "%.0f" }} Superset erasure(s) (user deletions or tenant purges) committed over 1 hour ago have not completed. The reconciler could not re-queue them, the erasure jobs are failing, or they ran out of retries. Follow docs/runbooks/superset-erasure.md.'
+
+      # #1141: an erasure with no superset_erasure.completed row after 7 days (warning) and after
+      # 25 days (critical), against the 30-day completion target under GDPR Article 17. Both read
+      # openwind_superset_erasure_unreconciled_age_seconds, whose value is the age of the audit row
+      # (worker sweep -> Redis -> scrape), not how long a series has existed: a missed sweep or a
+      # Prometheus restart cannot reset it, so the short `for:` only debounces. The gauge drops a
+      # reconciled erasure to 0, which resolves the alert. Terminally failed erasures are included,
+      # and the sweep keeps listing an erasure for 90 days, so the 25-day alert keeps firing past
+      # day 30 (the breach) instead of resolving. max by (...) collapses the API and worker exports
+      # of the same erasure. Names the tenant and the pseudonymous subject hash, never the raw
+      # subject. Runbook: docs/runbooks/superset-erasure.md.
+      - alert: SupersetErasurePending7d
+        expr: max by (tenant_id, subject_hash) (openwind_superset_erasure_unreconciled_age_seconds) > 7 * 24 * 3600
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Superset erasure pending for more than 7 days"
+          description: "A Superset erasure for tenant {{ $labels.tenant_id }} (subject hash {{ $labels.subject_hash }}) has had no completed record for more than 7 days. Target completion is 30 days under GDPR Article 17; follow docs/runbooks/superset-erasure.md."
+
+      - alert: SupersetErasurePending25d
+        expr: max by (tenant_id, subject_hash) (openwind_superset_erasure_unreconciled_age_seconds) > 25 * 24 * 3600
+        for: 15m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Superset erasure pending for more than 25 days"
+          description: "A Superset erasure for tenant {{ $labels.tenant_id }} (subject hash {{ $labels.subject_hash }}) has had no completed record for more than 25 days. The 30-day target under GDPR Article 17 is less than 5 days away, or has passed if this has been firing for longer. Escalate per docs/runbooks/superset-erasure.md."
 
       # #1137: the worker's self-check (a repeatable job, 15 minutes by default) found Superset and the platform disagreeing on
       # whether Stage 2 is on. Superset on with the id missing here is the dangerous direction: erasure

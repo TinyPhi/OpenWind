@@ -14,7 +14,21 @@ import { getRedis } from "./index.js";
 export const SUPERSET_SELFCHECK_KEY = "ops:superset-erasure:selfcheck";
 export const SUPERSET_UNRECONCILED_KEY =
   "ops:superset-erasure:unreconciled-older-1h";
+export const SUPERSET_UNRECONCILED_ENTRIES_KEY =
+  "ops:superset-erasure:unreconciled-entries";
 export const SUPERSET_UNRECONCILED_TTL_SECONDS = 15 * 60;
+/**
+ * Most per-erasure entries kept for the age gauge: the oldest ones, so a backlog during an outage
+ * cannot grow the label set without bound. The count key still holds the true total.
+ */
+export const SUPERSET_UNRECONCILED_ENTRY_CAP = 100;
+
+export interface UnreconciledErasureEntry {
+  tenantId: string;
+  subjectHash: string;
+  /** Epoch milliseconds of the audit row that recorded the erasure: the age comes from here, not from series uptime. */
+  createdAt: number;
+}
 
 /** How long a stored result stays fresh (SUPERSET_SELFCHECK_TTL_MINUTES). */
 export function supersetSelfcheckTtlSeconds(): number {
@@ -138,19 +152,80 @@ export function resolveSupersetErasureMode(
   };
 }
 
-/**
- * Stores the count of unreconciled deleted user audit rows older than 1 hour (#1138),
- * computed by the worker's superset-erasure-reconcile sweep for Prometheus scrape.
- */
-export async function writeSupersetUnreconciledCount(
-  count: number,
-): Promise<void> {
-  await getRedis().set(
-    SUPERSET_UNRECONCILED_KEY,
-    String(count),
-    "EX",
-    SUPERSET_UNRECONCILED_TTL_SECONDS,
+function isUnreconciledEntry(
+  value: unknown,
+): value is UnreconciledErasureEntry {
+  if (typeof value !== "object" || value === null) return false;
+  // Narrowing an unknown object to read its fields; each is checked below.
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e["tenantId"] === "string" &&
+    typeof e["subjectHash"] === "string" &&
+    typeof e["createdAt"] === "number" &&
+    Number.isFinite(e["createdAt"])
   );
+}
+
+/**
+ * Stores the unreconciled Superset erasures older than 1 hour for Prometheus scrape (#1138, #1141):
+ * the true `count`, and the oldest `entries` (one labelled age series each, capped at
+ * SUPERSET_UNRECONCILED_ENTRY_CAP). Both keys are written in one MULTI so a scrape never sees a
+ * count and a list from different sweeps. A subject listed twice keeps its oldest row.
+ */
+export async function writeSupersetUnreconciled(
+  count: number,
+  entries: readonly UnreconciledErasureEntry[],
+): Promise<void> {
+  const oldest = new Map<string, UnreconciledErasureEntry>();
+  for (const entry of entries) {
+    const key = `${entry.tenantId}:${entry.subjectHash}`;
+    const seen = oldest.get(key);
+    if (!seen || entry.createdAt < seen.createdAt) oldest.set(key, entry);
+  }
+  const kept = [...oldest.values()]
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, SUPERSET_UNRECONCILED_ENTRY_CAP);
+
+  const results = await getRedis()
+    .multi()
+    .set(
+      SUPERSET_UNRECONCILED_KEY,
+      String(count),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    )
+    .set(
+      SUPERSET_UNRECONCILED_ENTRIES_KEY,
+      JSON.stringify(kept),
+      "EX",
+      SUPERSET_UNRECONCILED_TTL_SECONDS,
+    )
+    .exec();
+  const failed = results?.find(([err]) => err !== null);
+  if (results === null || failed) {
+    throw new Error("superset unreconciled snapshot could not be written");
+  }
+}
+
+/**
+ * Reads the stored unreconciled erasure entries (#1141). Returns null if absent, on Redis failure,
+ * or if any element is malformed (for example an older payload without `createdAt`).
+ */
+export async function readSupersetUnreconciledEntries(): Promise<
+  UnreconciledErasureEntry[] | null
+> {
+  try {
+    const raw = await getRedis().get(SUPERSET_UNRECONCILED_ENTRIES_KEY);
+    if (raw === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.every(isUnreconciledEntry)) {
+      return null;
+    }
+    return parsed;
+  } catch (err) {
+    logger.warn({ err }, "superset unreconciled entries could not be read");
+    return null;
+  }
 }
 
 /**

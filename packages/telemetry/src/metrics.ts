@@ -4,6 +4,7 @@ import {
   getRedis,
   readSupersetSelfcheck,
   readSupersetUnreconciledCount,
+  readSupersetUnreconciledEntries,
 } from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
@@ -461,13 +462,15 @@ supersetErasureConfigMismatchGauge.addCallback(async (observableResult) => {
   }
 });
 
-// #1138: count of unreconciled deleted user audit rows older than 1 hour, computed by
-// apps/worker/src/superset-erasure-reconcile.ts every 5 minutes and stored in Redis.
+// #1138: count of unreconciled Superset erasures (a deleted user or a purged tenant with no
+// superset_erasure.completed record) older than 1 hour, computed by
+// apps/worker/src/superset-erasure-reconcile.ts every 5 minutes and stored in Redis. One unlabelled
+// series, so `max()`/`sum()` and `{{ $value }}` in the alerts read the real count.
 const supersetErasureUnreconciledGauge = meter.createObservableGauge(
   "openwind_superset_erasure_unreconciled_older_than_1h",
   {
     description:
-      "Count of unreconciled user erasures lacking Superset completion older than 1 hour",
+      "Count of Superset erasures (user or tenant) with no completed record that are older than 1 hour",
   },
 );
 
@@ -475,6 +478,60 @@ supersetErasureUnreconciledGauge.addCallback(async (observableResult) => {
   try {
     const count = await readSupersetUnreconciledCount();
     if (count !== null) observableResult.observe(count);
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
+// #1141: how long each of the oldest unreconciled erasures has gone without a completed record.
+// The age is read from the audit row's created_at (stored with the entry) and evaluated at scrape
+// time, so it keeps growing between sweeps and does not depend on how long the series has existed:
+// a missed sweep or a Prometheus restart delays an alert on it but cannot reset it. Capped to the
+// oldest SUPERSET_UNRECONCILED_ENTRY_CAP entries; the count gauge above carries the true total.
+// Labels are the tenant id and the audit resource id (a pseudonymous UUIDv5), never a raw subject.
+//
+// The SDK keeps exporting an observable gauge series at its last observed value after the callback
+// stops observing it (cumulative temporality, verified on sdk-metrics 2.10), so a completed erasure
+// would stay frozen at its last age and an alert on it could never clear. An entry that leaves the
+// list is therefore observed once as 0, which the exporter then holds. Only the previous scrape's
+// entries are tracked, so that set is bounded by the entry cap; the exporter itself keeps each
+// zeroed series until the process restarts, so the series count grows with the erasures that were
+// open for over an hour in this process. An entry also leaves the list when it is pushed out by
+// 100 older ones or passes the sweep's 90-day window: it then reads 0 although it may still be
+// open, and the count gauge (SupersetErasureUnreconciled) is what keeps reporting it.
+const supersetErasureUnreconciledAgeGauge = meter.createObservableGauge(
+  "openwind_superset_erasure_unreconciled_age_seconds",
+  {
+    description:
+      "Seconds since the audit row of an unreconciled Superset erasure (oldest entries, capped); 0 once it is reconciled",
+  },
+);
+
+type AgeSeriesLabels = { tenant_id: string; subject_hash: string };
+let observedAgeSeries = new Map<string, AgeSeriesLabels>();
+
+supersetErasureUnreconciledAgeGauge.addCallback(async (observableResult) => {
+  try {
+    const entries = await readSupersetUnreconciledEntries();
+    // No data (Redis down, or the snapshot expired): leave every series where it is.
+    if (entries === null) return;
+    const nowMs = Date.now();
+    const current = new Map<string, AgeSeriesLabels>();
+    for (const entry of entries) {
+      const labels = {
+        tenant_id: entry.tenantId,
+        subject_hash: entry.subjectHash,
+      };
+      current.set(`${entry.tenantId}:${entry.subjectHash}`, labels);
+      observableResult.observe(
+        Math.max(0, (nowMs - entry.createdAt) / 1000),
+        labels,
+      );
+    }
+    for (const [key, labels] of observedAgeSeries) {
+      if (!current.has(key)) observableResult.observe(0, labels);
+    }
+    observedAgeSeries = current;
   } catch {
     // Ignore redis/telemetry errors during scrape callbacks
   }

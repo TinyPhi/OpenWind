@@ -70,9 +70,11 @@ The `SupersetErasureFailed` alert fires when an erasure did not complete, told a
 - `unverified`: Superset's Stage 2 state could not be confirmed at erasure time. The reconciler retries the row once the
   self-check is green.
 
-A persistent gap raises **`SupersetErasureUnreconciled`**: fires when any committed user erasure remains unreconciled
-or uncompleted after 1 hour. Unlike the 1-hour `increase()` counter, this gauge alert remains active as long as personal data
-remains in Superset without an audit completion record.
+A persistent gap raises **`SupersetErasureUnreconciled`**: it fires when any committed erasure (a deleted user or a
+purged tenant) is still without a `superset_erasure.completed` row after 1 hour, and its value is the number of them.
+Unlike the 1-hour `increase()` counter, this gauge alert stays active as long as personal data remains in Superset
+without a completion record. How long an erasure has been open is tracked separately, against the 30-day target: see
+"The 30-day completion target" below.
 
 A third alert, `SupersetErasureJobFailedInQueue`, fires while any job is in the queue's failed state. A failed job is
 removed by the `superset-erasure-reconcile` sweep (every 5 minutes) once it has been failed for 24 hours, so the alert
@@ -84,15 +86,14 @@ stays until it is back. The alert also catches a job BullMQ failed because the w
 has no `failed` audit row.
 
 **The lasting record is the audit log, not Redis.** A failed job is gone from the queue after 24 hours, and the alert
-resolves with it, so a "resolved" notice does not mean the person was erased. To find an erasure that never completed,
-look in `admin_audit_log` for a `deleted` (user) or `purge.completed` (tenant) row with no `superset_erasure.completed`
-sibling for the same tenant and subject: that gives the tenant and subject to run by hand as below. The reconcile sweep
-re-queues **user** rows by itself; it does not yet cover **tenant** purge rows (that is #1182), so a stalled tenant
-erasure has to be found this way until #1182 lands.
+resolves with it, so a "resolved" notice does not mean the person was erased. What stays open is visible in two places:
+the age alerts below, which keep firing until a `superset_erasure.completed` row exists, and the audit log itself. The
+reconcile sweep re-queues **user** and **tenant purge** rows by itself, except a row that has already spent its retries
+(a `superset_erasure.failed` row): that one is never re-queued, but it stays in the gauges, so the 7-day and 25-day
+alerts still cover it. Fix the cause and run it by hand (steps below).
 
-A terminal failure also leaves **no standing alert**: the job is gone after 24 hours and `SupersetErasureFailed` clears
-after an hour. So check the audit log on a schedule that fits the 30-day target (weekly is enough), for erasures that
-failed for good and were never completed:
+To list every erasure that failed for good and was never completed, for example when preparing a report, query the
+audit log:
 
 ```sql
 SELECT f.tenant_id, f.resource_type, f.resource_id, f.created_at,
@@ -147,6 +148,64 @@ production database; it follows the matching the reconciler uses (`superset-eras
 
 If personal data stayed in Superset longer than expected, treat it as a possible personal-data
 incident and follow the [breach notification runbook](breach-notification.md).
+
+### The 30-day completion target (#1141)
+
+Under GDPR Article 17, personal data erasure must be completed without undue delay and at the latest within **30 calendar
+days** of the request. For Superset the target is: **a `superset_erasure.completed` row within 30 days of the `deleted`
+(user) or `purge.completed` (tenant) row.** Two alerts watch it, both on the age of that audit row (worker sweep, Redis,
+scrape), not on how long an alert has been pending, so a missed sweep or a Prometheus restart delays them but cannot reset
+them:
+
+| Alert                       | Fires when                                      | Severity   |
+| --------------------------- | ----------------------------------------------- | ---------- |
+| `SupersetErasurePending7d`  | an erasure has had no completed row for 7 days  | `warning`  |
+| `SupersetErasurePending25d` | an erasure has had no completed row for 25 days | `critical` |
+
+How the sweep supports them:
+
+- It looks back **90 days**, so an erasure that missed day 30 stays in the sweep and keeps being retried, and
+  `SupersetErasurePending25d` keeps firing instead of resolving at the breach. A firing 25-day alert older than 5 days
+  means the target has passed: tell the DPO.
+- A row that spent its retries is still listed; it only stops being re-queued.
+- A completed **tenant** erasure closes that tenant's earlier pending **user** rows, because it removes all of the tenant's
+  Superset accounts.
+- A tenant whose sweep failed in a round keeps its previous entries, so one transient error does not clear its alerts.
+- The first sweep after Stage 2 is enabled re-checks every tenant `purge.completed` row of the last 90 days: purges have no
+  Stage 2 marker, so a purge that ran with Stage 2 off is queued too. Superset erasure is idempotent, so this is a one-off
+  burst of `reconciled` counts and log lines, not a problem. It is intended.
+- Terminally failed rows are read separately from rows that still need a retry, so a pile of failed rows cannot fill the
+  batch and stop newer erasures from being re-queued.
+- A round in which a tenant's sweep failed and no previous snapshot is available publishes nothing; the gauges keep their
+  last values until the next clean sweep.
+- Only the oldest 100 erasures carry an age series; `openwind_superset_erasure_unreconciled_older_than_1h` holds the true
+  total. An erasure that completes is reported as `0` once, which clears its alert. **Limits:** an erasure that is pushed out
+  of the 100 by older ones, or that is older than the 90-day window, also reads `0` although it may still be open. In both
+  cases `SupersetErasureUnreconciled` keeps counting it (the first) or the audit-log query above finds it (the second), so
+  an erasure open for 90 days must already have been escalated.
+
+**Privacy of the alert labels.** The labels are the tenant id and `subject_hash`, the audit `resource_id`: a UUIDv5 of the
+Zitadel id under a namespace constant in `packages/audit/src/resource-id.ts`. It is not the raw identifier, but anyone
+holding a candidate Zitadel id can recompute it, so treat it as **pseudonymous personal data**. It is held in Prometheus
+for its retention period and sent to the Alertmanager receivers. Check that retention against ADR-015 for your deployment.
+No name, email or Zitadel id is ever a label.
+
+**When `SupersetErasurePending7d` or `SupersetErasurePending25d` fires:**
+
+1. **Check the audit log.** Query `admin_audit_log` with the alert's `tenant_id` and `resource_id = subject_hash` to find
+   the original `deleted` or `purge.completed` row. For a user, its `metadata.userId` is the Zitadel subject.
+2. **Inspect the worker and the queue.** Look for the job (`bull:superset-erasure:*`) and the worker log for a persistent
+   failure (authentication, the service account role, Superset being down). If there is a `superset_erasure.failed` row, the
+   job spent its retries and will not run again by itself.
+3. **Remediate by hand** before day 30, on the host that runs Superset:
+   ```bash
+   docker exec ow-superset superset openwind-erase --tenant <tenant-uuid> --subject <zitadel-user-id>
+   docker exec ow-superset superset openwind-erase --tenant <tenant-uuid>      # for a tenant purge
+   ```
+4. **Verify.** Confirm the account is erased (`erased-<id>`, `active = false`) and that a `superset_erasure.completed` row
+   exists. The age series drops to `0` on the next sweep and the alert resolves.
+5. **Escalate.** `SupersetErasurePending25d` is the Day-25 escalation signal: tell the Data Protection Officer and follow
+   the [breach notification runbook](breach-notification.md) if the deadline is at risk.
 
 ## Enablement self-check
 

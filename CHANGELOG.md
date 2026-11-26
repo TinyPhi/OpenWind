@@ -79,6 +79,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Non-English locale bundles are now separate on-demand chunks (`loadLocale` in `apps/admin-ui/src/i18n.ts`) instead of one all-locales chunk preloaded on every page load. Initial-load JS drops from about 431 kB to 205 kB gzip; the entry chunk is unchanged. Only English is bundled up front, and a saved non-English language is loaded before first render (#1120, #200).
 
+## [Unreleased — define and monitor Superset erasure completion target (#1141)]
+
+### Added
+
+- The 30-day completion target for Superset erasures (GDPR Article 17: a `superset_erasure.completed` row within 30 days of the user `deleted` or tenant `purge.completed` row) is written down in `docs/runbooks/superset-erasure.md`, with the escalation steps.
+- Two alerts on the age of an open erasure, `SupersetErasurePending7d` (warning) and `SupersetErasurePending25d` (critical, the Day-25 escalation). They read the new gauge `openwind_superset_erasure_unreconciled_age_seconds{tenant_id,subject_hash}`, whose value is the age of the audit row, so a missed sweep, a failed tenant sweep or a Prometheus restart delays an alert but cannot reset it. They name the tenant and the pseudonymous subject hash, never a raw subject.
+- The reconcile sweep now covers tenant `purge.completed` rows as well as user deletions, looks back **90 days** (was 7), reads oldest first, and lists an erasure until it completes, so it does not drop out at day 30. A terminally failed erasure is still listed, and is still not re-queued. A completed tenant erasure closes that tenant's earlier pending user rows.
+- The first full-mode sweep after Stage 2 is enabled re-checks every tenant purge of the last 90 days (purge rows have no Stage 2 marker). Superset erasure is idempotent, so this is a one-off burst of `reconciled` counts; it is intended and documented in the runbook.
+
+### Changed
+
+- `openwind_superset_erasure_unreconciled_older_than_1h` is again one unlabelled series holding the true count, so `SupersetErasureUnreconciled` and its `{{ $value }}` read the real number; its text now says erasures (user deletions or tenant purges).
+- `@platform/redis`: `writeSupersetUnreconciled(count, entries)` replaces `writeSupersetUnreconciledCount` and `writeSupersetUnreconciledEntries`. It writes both keys in one `MULTI`, de-duplicates a subject, and keeps the oldest 100 entries. Each entry now carries the audit row's `createdAt`. The reader validates the payload and returns `null` for an older or malformed one.
+- A tenant whose sweep fails in a round keeps its previous entries, and the published count never drops below the previous one; with no previous snapshot nothing is published that round. Terminally failed rows are read apart from rows that still need a retry, so they cannot fill the 500-row batch.
+
+### Fixed
+
+- The OpenTelemetry SDK keeps exporting an observable gauge series at its last value after the callback stops reporting it. A per-erasure series would therefore have stayed at its last age after the erasure completed, and an alert on it could not clear until a restart. The age gauge reports an erasure that leaves the list once as `0`.
+
 ## [Unreleased — reconcile unqueued Superset user erasures (#1138)]
 
 ### Fixed
