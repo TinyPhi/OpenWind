@@ -24,6 +24,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - G3 of #1190 (a partial index for the reporting retention query) needs a migration and waits until #1187 has taken its migration number.
 
+## [Unreleased — tenant default timezone, atomic roster patch, and DST calendar arithmetic (#1158, #1161, #1162)]
+
+### Added
+
+- Added `tenant_settings` table (migration `0166_tenant_settings.sql`) storing per-tenant organization configuration, with Row Level Security policies (`tenant_read` and `tenant_write`) (#1158).
+- Added `GET /admin/tenant-settings` (read-only org baseline for authenticated users) and `PATCH /admin/tenant-settings` (admin-only, IANA timezone validation, audit-logged) (#1158).
+- Added Organization settings tab in Admin UI with Default Timezone picker and mirrored i18n keys across all 11 locales (#1158).
+- Updated Schedule Rules authoring to fetch tenant default timezone on rule creation, falling back to UTC instead of hardcoded `Asia/Kolkata` (#1158).
+
+### Changed
+
+- Schedule rule default timezone for tenants without an explicit configuration changed to UTC (previously `Asia/Kolkata`). Existing tenants wishing to preserve India Standard Time should configure `Asia/Kolkata` under Organization Settings (#1158).
+
+### Fixed
+
+- Eliminated non-atomic schedule and rotation update race condition by supporting `rotationStatus` in `PATCH /admin/on-call-schedules/:id`, ensuring schedule and rotation status changes execute atomically within a single transaction (#1161).
+- Replaced fixed `DAY_MS = 86_400_000` date addition across `packages/teams/src/rotation.ts`, `apps/worker/src/oncall-rotation-worker.ts`, `apps/api/src/lib/rotation-windows.ts`, and `apps/admin-ui/src/pages/roster/index.tsx` with DST-aware calendar day arithmetic (`addCalendarDays`), preserving local wall-clock shift start/end times across daylight saving spring-forward (23h) and fall-back (25h) transitions (#1162).
+
 ## [Unreleased — audit log tenant policies tolerate a reset tenant setting (#1188)]
 
 ### Fixed

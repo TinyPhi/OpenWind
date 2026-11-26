@@ -4,11 +4,13 @@ import {
   onCallRotations,
   onCallScheduleNotices,
   onCallSchedules,
+  tenantSettings,
 } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import {
   ROTATION_MAX_CYCLE_DAYS,
   ROTATION_MIN_CYCLE_DAYS,
+  addCalendarDays,
 } from "@platform/teams";
 
 type RotationRow = typeof onCallRotations.$inferSelect;
@@ -145,18 +147,31 @@ export async function alignRotationCursor(
   tenantId: string,
   actorId: string,
   window: ScheduleRow,
+  timeZone?: string,
 ): Promise<void> {
   if (!window.rotationId) return;
   const rotation = await loadRotation(tx, tenantId, window.rotationId);
   if (!rotation) return;
 
-  const days = (window.endsAt.getTime() - window.startsAt.getTime()) / DAY_MS;
-  const wholeCycle =
-    Number.isInteger(days) &&
-    days >= ROTATION_MIN_CYCLE_DAYS &&
-    days <= ROTATION_MAX_CYCLE_DAYS
-      ? days
-      : rotation.cycleDays;
+  let tz = timeZone;
+  if (!tz) {
+    const [settings] = await tx
+      .select({ defaultTimezone: tenantSettings.defaultTimezone })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.tenantId, tenantId))
+      .limit(1);
+    tz = settings?.defaultTimezone ?? "UTC";
+  }
+
+  const ms = window.endsAt.getTime() - window.startsAt.getTime();
+  const roundedDays = Math.round(ms / DAY_MS);
+  // Whole-day check: classify with the zone (#1162, G4)
+  const isWholeDayCycle =
+    roundedDays >= ROTATION_MIN_CYCLE_DAYS &&
+    roundedDays <= ROTATION_MAX_CYCLE_DAYS &&
+    addCalendarDays(window.startsAt, roundedDays, tz).getTime() ===
+      window.endsAt.getTime();
+  const wholeCycle = isWholeDayCycle ? roundedDays : rotation.cycleDays;
 
   await tx
     .update(onCallRotations)

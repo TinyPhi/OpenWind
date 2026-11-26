@@ -175,6 +175,7 @@ vi.mock("@platform/db", () => {
     "scheduleExecutions",
     "orgEmployees",
     "orgDirectorySyncRuns",
+    "tenantSettings",
   ];
   return {
     ...Object.fromEntries(tableNames.map((name) => [name, { table: name }])),

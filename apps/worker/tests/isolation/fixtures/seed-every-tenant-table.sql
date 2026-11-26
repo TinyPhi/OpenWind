@@ -81,6 +81,7 @@ BEGIN
   INSERT INTO org_employees (tenant_id, user_id, name, is_root) VALUES (t, NULL, 'Org Cov Root', true) RETURNING id INTO root;
   INSERT INTO org_employees (tenant_id, user_id, parent_id, name, title, department, email) VALUES (t, u, root, 'Org Cov', 'Engineer', 'engineering', 'org-cov@example.invalid');
   INSERT INTO org_directory_sync_runs (tenant_id, status, triggered_by) VALUES (t, 'completed', u);
+  INSERT INTO tenant_settings (tenant_id, default_timezone) VALUES (t, 'UTC');
 
   INSERT INTO admin_audit_log (tenant_id, actor_id, actor_type, resource_type, resource_id, action) VALUES (t, u, 'user', 'ticket', inst, 'created');
   INSERT INTO admin_audit_log_daily_rollup (tenant_id, day, resource_type, action) VALUES (t, current_date, 'ticket', 'created');

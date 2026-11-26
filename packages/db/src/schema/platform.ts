@@ -461,6 +461,29 @@ export const platformSettings = pgTable("platform_settings", {
 });
 
 /**
+ * tenantSettings — per-tenant organization configuration (#1158).
+ * Tenant-scoped with RLS (see migration 0166_tenant_settings.sql).
+ * One row per tenant (tenantId is primary key and foreign key to tenants.id).
+ */
+export const tenantSettings = pgTable("tenant_settings", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /**
+   * Default IANA timezone for the tenant (e.g. "Asia/Kolkata", "Europe/Berlin", "UTC").
+   * Nullable: when NULL, features that read this setting (like the Schedule Rules
+   * create modal) fall back to neutral "UTC".
+   */
+  defaultTimezone: text("default_timezone"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+/**
  * connectorDefinitions — platform-wide connector catalog (ADR-009 Decision #8,
  * ADR-001's "Non-tenant-scoped tables" section names this table explicitly).
  * No tenant_id/RLS — readable by app_user, writable only by migration_user/

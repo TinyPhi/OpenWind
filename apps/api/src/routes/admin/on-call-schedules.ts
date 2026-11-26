@@ -49,6 +49,7 @@ import {
 import { writeAuditEntry } from "@platform/audit";
 import {
   alignRotationCursor,
+  releaseUpcomingWindows,
   releaseWindowsAfter,
 } from "../../lib/rotation-windows.js";
 import { logger } from "@platform/logger";
@@ -57,6 +58,8 @@ import {
   peopleCheckResponse,
   type PeopleCheck,
 } from "../../lib/oncall-people.js";
+
+class ScheduleNotFoundError extends Error {}
 
 type Vars = { Variables: { auth: AuthContext } };
 
@@ -108,6 +111,7 @@ const UpdateScheduleSchema = z
     primaryUserId: z.string().min(1).optional(),
     backupUserId: z.string().min(1).optional(),
     escalationManagerUserId: z.string().min(1).optional(),
+    rotationStatus: z.enum(["active", "stopped"]).optional(),
   })
   .refine((v) => !(v.startsAt && v.endsAt) || v.startsAt < v.endsAt, {
     message: "startsAt must be before endsAt",
@@ -683,15 +687,20 @@ router.patch(
     const auth = c.get("auth");
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
+    const { rotationStatus, ...scheduleInput } = input;
 
     try {
       const refused = peopleCheckResponse(
         c,
-        await checkPickedPeople(auth, input),
+        await checkPickedPeople(auth, scheduleInput),
       );
       if (refused) return refused;
       const result = await withTenantContext(auth.tenantId, async (tx) => {
-        const refErrors = await validateScheduleRefs(tx, auth.tenantId, input);
+        const refErrors = await validateScheduleRefs(
+          tx,
+          auth.tenantId,
+          scheduleInput,
+        );
         if (refErrors.length > 0) {
           return { status: "invalid" as const, refErrors };
         }
@@ -708,12 +717,17 @@ router.patch(
           .limit(1);
 
         if (!peek) return { status: "not_found" as const };
+        if (rotationStatus !== undefined && !peek.rotationId) {
+          return { status: "not_a_rotation" as const };
+        }
+
         let existing = peek;
+        let lockedRotation: typeof onCallRotations.$inferSelect | undefined;
         if (peek.rotationId) {
           // Same lock, same order as the rotation worker (rotation first, then its windows), so an
           // edit and a generation run cannot interleave.
-          await tx
-            .select({ id: onCallRotations.id })
+          const [rot] = await tx
+            .select()
             .from(onCallRotations)
             .where(
               and(
@@ -722,6 +736,8 @@ router.patch(
               ),
             )
             .for("update");
+          if (!rot) return { status: "not_found" as const };
+          lockedRotation = rot;
           const [locked] = await tx
             .select()
             .from(onCallSchedules)
@@ -736,31 +752,61 @@ router.patch(
           if (!locked) return { status: "not_found" as const };
           existing = locked;
         }
+
+        if (rotationStatus !== undefined && lockedRotation) {
+          const resuming =
+            rotationStatus === "active" && lockedRotation.status !== "active";
+          if (resuming) {
+            const [liveTeam] = await tx
+              .select({ id: teams.id })
+              .from(teams)
+              .where(
+                and(
+                  eq(teams.id, lockedRotation.teamId),
+                  eq(teams.tenantId, auth.tenantId),
+                  isNull(teams.deletedAt),
+                ),
+              )
+              .limit(1);
+            if (!liveTeam) return { status: "team_deleted" as const };
+            const members = await loadTeamMemberIds(
+              tx,
+              auth.tenantId,
+              lockedRotation.teamId,
+            );
+            if (members.length === 0) return { status: "no_members" as const };
+          }
+        }
+
         const now = new Date();
         if (existing.startsAt <= now) {
           // A window running now may only have its label or end changed, and the end must stay in
           // the future: the people and start are already on call.
           const touchesLocked =
-            (input.startsAt !== undefined &&
-              input.startsAt.getTime() !== existing.startsAt.getTime()) ||
-            (input.primaryUserId !== undefined &&
-              input.primaryUserId !== existing.primaryUserId) ||
-            (input.backupUserId !== undefined &&
-              input.backupUserId !== existing.backupUserId) ||
-            (input.escalationManagerUserId !== undefined &&
-              input.escalationManagerUserId !==
+            (scheduleInput.startsAt !== undefined &&
+              scheduleInput.startsAt.getTime() !==
+                existing.startsAt.getTime()) ||
+            (scheduleInput.primaryUserId !== undefined &&
+              scheduleInput.primaryUserId !== existing.primaryUserId) ||
+            (scheduleInput.backupUserId !== undefined &&
+              scheduleInput.backupUserId !== existing.backupUserId) ||
+            (scheduleInput.escalationManagerUserId !== undefined &&
+              scheduleInput.escalationManagerUserId !==
                 existing.escalationManagerUserId);
           if (existing.endsAt <= now || touchesLocked) {
             return { status: "already_started" as const };
           }
-          if (input.endsAt !== undefined && input.endsAt <= now) {
+          if (
+            scheduleInput.endsAt !== undefined &&
+            scheduleInput.endsAt <= now
+          ) {
             return { status: "end_in_past" as const };
           }
         }
 
         if (
-          (input.startsAt ?? existing.startsAt) >=
-          (input.endsAt ?? existing.endsAt)
+          (scheduleInput.startsAt ?? existing.startsAt) >=
+          (scheduleInput.endsAt ?? existing.endsAt)
         ) {
           return { status: "bad_window" as const };
         }
@@ -773,23 +819,23 @@ router.patch(
             {
               field: "primaryUserId",
               userId:
-                input.primaryUserId !== existing.primaryUserId
-                  ? input.primaryUserId
+                scheduleInput.primaryUserId !== existing.primaryUserId
+                  ? scheduleInput.primaryUserId
                   : undefined,
             },
             {
               field: "backupUserId",
               userId:
-                input.backupUserId !== existing.backupUserId
-                  ? input.backupUserId
+                scheduleInput.backupUserId !== existing.backupUserId
+                  ? scheduleInput.backupUserId
                   : undefined,
             },
             {
               field: "escalationManagerUserId",
               userId:
-                input.escalationManagerUserId !==
+                scheduleInput.escalationManagerUserId !==
                 existing.escalationManagerUserId
-                  ? input.escalationManagerUserId
+                  ? scheduleInput.escalationManagerUserId
                   : undefined,
             },
           ],
@@ -798,9 +844,63 @@ router.patch(
           return { status: "invalid" as const, refErrors: memberErrors };
         }
 
+        // All validations passed -- now perform writes atomically
+        if (rotationStatus !== undefined && lockedRotation) {
+          const resuming =
+            rotationStatus === "active" && lockedRotation.status !== "active";
+          let currentRotation = lockedRotation;
+          if (rotationStatus !== lockedRotation.status) {
+            const [updatedRotation] = await tx
+              .update(onCallRotations)
+              .set({
+                status: rotationStatus,
+                ...(resuming ? { blockedReason: null } : {}),
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(onCallRotations.id, lockedRotation.id),
+                  eq(onCallRotations.tenantId, auth.tenantId),
+                ),
+              )
+              .returning();
+            if (updatedRotation) currentRotation = updatedRotation;
+
+            if (
+              rotationStatus === "stopped" &&
+              lockedRotation.status === "active"
+            ) {
+              await releaseUpcomingWindows(
+                tx,
+                auth.tenantId,
+                auth.userId,
+                currentRotation,
+                { exceptId: id },
+              );
+            }
+
+            await writeAuditEntry(tx, {
+              tenantId: auth.tenantId,
+              actorId: auth.userId,
+              actorType: "user",
+              resourceType: "on_call_rotation",
+              resourceId: lockedRotation.id,
+              action: "updated",
+              beforeSnapshot: {
+                status: lockedRotation.status,
+                endsOn: lockedRotation.endsOn,
+              },
+              afterSnapshot: {
+                status: currentRotation.status,
+                endsOn: currentRotation.endsOn,
+              },
+            });
+          }
+        }
+
         const endChanges =
-          input.endsAt !== undefined &&
-          input.endsAt.getTime() !== existing.endsAt.getTime();
+          scheduleInput.endsAt !== undefined &&
+          scheduleInput.endsAt.getTime() !== existing.endsAt.getTime();
         if (existing.rotationId && endChanges) {
           // before the update, so a longer window does not hit the next one's exclusion constraint
           await releaseWindowsAfter(tx, auth.tenantId, auth.userId, existing);
@@ -808,7 +908,7 @@ router.patch(
 
         const [row] = await tx
           .update(onCallSchedules)
-          .set({ ...input, updatedAt: new Date() })
+          .set({ ...scheduleInput, updatedAt: new Date() })
           .where(
             and(
               eq(onCallSchedules.id, id),
@@ -817,8 +917,12 @@ router.patch(
             ),
           )
           .returning();
-        // soft-deleted by another transaction between the peek above and this UPDATE
-        if (!row) return { status: "not_found" as const };
+        // If the row vanished under mutation, throw to roll back transaction
+        if (!row) {
+          throw new ScheduleNotFoundError(
+            `Schedule ${id} vanished during update`,
+          );
+        }
         if (row.rotationId && endChanges) {
           await alignRotationCursor(tx, auth.tenantId, auth.userId, row);
         }
@@ -865,6 +969,30 @@ router.patch(
           404,
         );
       }
+      if (result.status === "not_a_rotation") {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Schedule is not part of a repeating rotation",
+          },
+          422,
+        );
+      }
+      if (result.status === "team_deleted") {
+        return c.json(
+          { error: "NOT_FOUND", message: "This team has been deleted" },
+          404,
+        );
+      }
+      if (result.status === "no_members") {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Cannot resume: this team has no members",
+          },
+          422,
+        );
+      }
       if (result.status === "bad_window") {
         return c.json(
           {
@@ -898,6 +1026,12 @@ router.patch(
       }
       return c.json({ data: result.row });
     } catch (err: unknown) {
+      if (err instanceof ScheduleNotFoundError) {
+        return c.json(
+          { error: "NOT_FOUND", message: "Schedule not found" },
+          404,
+        );
+      }
       if (isExclusionViolation(err)) {
         return c.json(
           {

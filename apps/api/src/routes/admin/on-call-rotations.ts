@@ -15,7 +15,13 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
 import type { DbOrTx } from "@platform/db";
-import { db, withTenantContext, onCallRotations, teams } from "@platform/db";
+import {
+  db,
+  withTenantContext,
+  onCallRotations,
+  teams,
+  tenantSettings,
+} from "@platform/db";
 import {
   loadPreviousHolders,
   loadPreviousHoldersBatch,
@@ -102,6 +108,7 @@ async function presentRotation(
   row: RotationRow,
   preloadedMembers?: string[],
   preloadedPrevious?: RotationHolders,
+  timeZone?: string | null,
 ): Promise<RotationView> {
   const members =
     preloadedMembers ?? (await loadTeamMemberIds(tx, tenantId, row.teamId));
@@ -118,6 +125,7 @@ async function presentRotation(
           escalationManager: row.escalationManagerUserId,
           endsOn: row.endsOn,
           count: PROJECTED_WINDOWS,
+          timeZone,
         }).map((w) => ({
           startsAt: w.startsAt,
           endsAt: w.endsAt,
@@ -164,10 +172,16 @@ router.get(
           .limit(100);
 
         const teamIds = [...new Set(rows.map((r) => r.teamId))];
-        const [membersByTeam, holdersByRotation] = await Promise.all([
-          loadTeamMemberIdsBatch(tx, auth.tenantId, teamIds),
-          loadPreviousHoldersBatch(tx, auth.tenantId, rows),
-        ]);
+        const [membersByTeam, holdersByRotation, [settings]] =
+          await Promise.all([
+            loadTeamMemberIdsBatch(tx, auth.tenantId, teamIds),
+            loadPreviousHoldersBatch(tx, auth.tenantId, rows),
+            tx
+              .select({ defaultTimezone: tenantSettings.defaultTimezone })
+              .from(tenantSettings)
+              .where(eq(tenantSettings.tenantId, auth.tenantId))
+              .limit(1),
+          ]);
 
         return Promise.all(
           rows.map((r) =>
@@ -177,6 +191,7 @@ router.get(
               r,
               membersByTeam.get(r.teamId),
               holdersByRotation.get(r.id),
+              settings?.defaultTimezone,
             ),
           ),
         );
@@ -277,9 +292,22 @@ router.patch(
           },
           afterSnapshot: { status: row.status, endsOn: row.endsOn },
         });
+        const [settings] = await tx
+          .select({ defaultTimezone: tenantSettings.defaultTimezone })
+          .from(tenantSettings)
+          .where(eq(tenantSettings.tenantId, auth.tenantId))
+          .limit(1);
+
         return {
           status: "updated" as const,
-          data: await presentRotation(tx, auth.tenantId, row),
+          data: await presentRotation(
+            tx,
+            auth.tenantId,
+            row,
+            undefined,
+            undefined,
+            settings?.defaultTimezone,
+          ),
         };
       });
 

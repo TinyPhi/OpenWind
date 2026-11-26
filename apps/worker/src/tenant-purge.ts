@@ -85,6 +85,7 @@ import {
   installedPlugins,
   pluginErrors,
   pluginDefinitions,
+  tenantSettings,
 } from "@platform/db";
 import { env, supersetErasureMode } from "@platform/config";
 import { logger } from "@platform/logger";
@@ -177,6 +178,7 @@ export const PURGED_TENANT_TABLES: readonly string[] = [
   "plugin_errors",
   "installed_plugins",
   "idempotency_keys",
+  "tenant_settings",
 ];
 
 /**
@@ -528,6 +530,11 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       await tx
         .delete(idempotencyKeys)
         .where(eq(idempotencyKeys.tenantId, tenantId));
+
+      // Organization settings (#1158)
+      await tx
+        .delete(tenantSettings)
+        .where(eq(tenantSettings.tenantId, tenantId));
     });
 
     // Mark the tenant row as 'purged' (keeps a tombstone for audit trail, minus the sandbox
