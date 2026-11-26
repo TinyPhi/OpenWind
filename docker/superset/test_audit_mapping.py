@@ -11,6 +11,7 @@ import importlib
 import importlib.util
 import json
 import os
+import shutil
 import sys
 import types
 import unittest
@@ -58,6 +59,31 @@ class Database:
 ''')
         _STUB_DIR = d
         sys.path.insert(0, str(d))
+
+
+def cleanup_superset_stub():
+    """Undo ensure_superset_stub so later test modules in this process do not find the fake.
+
+    test_nullpool_guard.py runs its checks whenever `find_spec("superset")` finds a package, and
+    would otherwise run them against this stub.
+    """
+    global _STUB_DIR
+    if _STUB_DIR is None:
+        return
+    for name in list(sys.modules):
+        if name == "superset" or name.startswith("superset.") or name == "superset_config":
+            sys.modules.pop(name, None)
+    try:
+        sys.path.remove(str(_STUB_DIR))
+    except ValueError:
+        pass
+    importlib.invalidate_caches()
+    shutil.rmtree(_STUB_DIR, ignore_errors=True)
+    _STUB_DIR = None
+
+
+def tearDownModule():
+    cleanup_superset_stub()
 
 
 def load_config():
@@ -584,6 +610,24 @@ class SqlLiteralRedaction(AuditMapping):
 
         self.assertEqual(payload["sql_hash"], self.hash(raw_sql))
         self.assertNotEqual(payload["sql_hash"], hashlib.sha256(raw_sql.encode("utf-8")).hexdigest())
+
+
+@unittest.skipIf(
+    importlib.util.find_spec("superset") is not None,
+    "a real superset is installed, so no stub is created",
+)
+class StubIsScoped(unittest.TestCase):
+    def test_cleanup_removes_the_fake_superset_package(self):
+        cleanup_superset_stub()
+        ensure_superset_stub()
+        stub_dir = _STUB_DIR
+        self.assertIsNotNone(importlib.util.find_spec("superset"))
+
+        cleanup_superset_stub()
+
+        self.assertIsNone(importlib.util.find_spec("superset"))
+        self.assertNotIn(str(stub_dir), sys.path)
+        self.assertFalse(stub_dir.exists())
 
 
 if __name__ == "__main__":

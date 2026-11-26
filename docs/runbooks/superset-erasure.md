@@ -388,3 +388,15 @@ docker exec ow-superset find / -xdev -newer /app/pythonpath/superset_config.py \
   namespaced. Dashboards re-query once.
 - **Retention** of Superset query history and audit records for people who are not erased is a
   separate decision (spec D4, open with Legal / DPO).
+- **Audit rows written before #1184 still hold raw SQL.** The redactor applies only to rows written
+  from then on. Older `reporting.*` rows keep their statement text until the reporting retention
+  sweep removes them (`REPORTING_AUDIT_RETENTION_DAYS`, default 90 days) or a tenant purge strips
+  it. There is no backfill: #1190 records that no Stage 2 deployment existed when #1184 shipped, so
+  none is expected where Stage 2 is enabled now. If that is wrong for your deployment, check
+  `SELECT count(*) FROM admin_audit_log WHERE action LIKE 'reporting.%' AND metadata ? 'sql'` before
+  enabling Stage 2.
+- **Known limits of the SQL redactor** (#1184, listed in #1190; whether to accept them is open):
+  a SQL Lab script that sets `standard_conforming_strings = off` desynchronises the scanner, because
+  a backslash then escapes a quote in plain strings; the body of a quoted identifier is kept on
+  purpose (`AS "jane@x.com"`); and an identifier such as `t1$x$` makes the rest of the statement
+  redact (it fails safe, losing detail rather than keeping a literal).

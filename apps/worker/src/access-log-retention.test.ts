@@ -36,16 +36,21 @@ vi.mock("@platform/db", () => ({
 }));
 
 const mockLoggerInfo = vi.fn();
+const mockLoggerWarn = vi.fn();
+const mockLoggerError = vi.fn();
 vi.mock("@platform/logger", () => ({
   logger: {
     info: (...args: unknown[]) => mockLoggerInfo(...args),
-    error: vi.fn(),
+    warn: (...args: unknown[]) => mockLoggerWarn(...args),
+    error: (...args: unknown[]) => mockLoggerError(...args),
   },
 }));
 
 vi.mock("./queues.js", () => ({ connection: {} }));
+const mockReportingSweep = vi.fn();
 vi.mock("./reporting-audit-retention.js", () => ({
-  runReportingAuditRetentionSweep: vi.fn().mockResolvedValue(0),
+  runReportingAuditRetentionSweep: (...args: unknown[]) =>
+    mockReportingSweep(...args),
 }));
 
 const { runAccessLogRetentionSweep } =
@@ -62,6 +67,10 @@ describe("runAccessLogRetentionSweep", () => {
     mockExecute.mockReset();
     mockSetRole.mockReset();
     mockLoggerInfo.mockReset();
+    mockLoggerWarn.mockReset();
+    mockLoggerError.mockReset();
+    mockReportingSweep.mockReset();
+    mockReportingSweep.mockResolvedValue(0);
   });
 
   it("runs every batch after switching to the retention role (#1131)", async () => {
@@ -125,6 +134,69 @@ describe("runAccessLogRetentionSweep", () => {
       expect.objectContaining({ totalDeleted: 0 }),
       expect.stringContaining("sweep complete"),
     );
+  });
+
+  it("warns when it stops at the batch cap with a full last batch", async () => {
+    mockExecute.mockResolvedValue(batchResult(BATCH_LIMIT));
+
+    await runAccessLogRetentionSweep();
+
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ maxBatches: 20, batchLimit: BATCH_LIMIT }),
+      expect.stringContaining("batch cap"),
+    );
+  });
+
+  it("does not warn when the last batch was partial", async () => {
+    mockExecute.mockResolvedValueOnce(batchResult(BATCH_LIMIT));
+    mockExecute.mockResolvedValueOnce(batchResult(3));
+
+    await runAccessLogRetentionSweep();
+
+    expect(mockLoggerWarn).not.toHaveBeenCalled();
+  });
+
+  it("still runs the reporting sweep when an access-log batch throws, and fails the job", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("lock timeout"));
+
+    await expect(runAccessLogRetentionSweep()).rejects.toThrow("lock timeout");
+
+    expect(mockReportingSweep).toHaveBeenCalledTimes(1);
+    expect(mockLoggerError).toHaveBeenCalledTimes(1);
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.stringContaining("lock timeout") }),
+      expect.stringContaining("access-log detail sweep failed"),
+    );
+  });
+
+  it("logs a reporting sweep failure under its own name, after the access-log sweep finished", async () => {
+    mockExecute.mockResolvedValueOnce(batchResult(7));
+    mockReportingSweep.mockRejectedValueOnce(new Error("role missing"));
+
+    await expect(runAccessLogRetentionSweep()).rejects.toThrow("role missing");
+
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ totalDeleted: 7 }),
+      expect.stringContaining("sweep complete"),
+    );
+    expect(mockLoggerError).toHaveBeenCalledTimes(1);
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.stringContaining("role missing") }),
+      expect.stringContaining("reporting audit sweep failed"),
+    );
+  });
+
+  it("reports both failures when both sweeps throw", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("first"));
+    mockReportingSweep.mockRejectedValueOnce(new Error("second"));
+
+    const err: unknown = await runAccessLogRetentionSweep().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(AggregateError);
+    expect((err as AggregateError).errors).toHaveLength(2); // narrowed by the instanceof above
+    expect(mockLoggerError).toHaveBeenCalledTimes(2);
   });
 
   it("invokes the sweep when the worker processor runs", async () => {

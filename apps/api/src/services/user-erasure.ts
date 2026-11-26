@@ -29,6 +29,7 @@ import {
   scheduleRules,
   orgEmployees,
   orgDirectorySyncRuns,
+  withTenantPurgeRoleSavepoint,
 } from "@platform/db";
 import type { EntityField } from "@platform/entity-engine";
 import { compactTeamPositions } from "@platform/teams";
@@ -112,9 +113,7 @@ export async function pseudonymiseReportingAuditActor(
   targetUserId: string,
 ): Promise<number> {
   const pseudonym = newReportingPseudonym();
-  let updatedCount = 0;
-  await tx.transaction(async (sp) => {
-    await sp.execute(sql`SET LOCAL ROLE tenant_purge_role`);
+  return withTenantPurgeRoleSavepoint(tx, async (sp) => {
     const res = await sp.execute<{ count: number }>(sql`
       WITH updated AS (
         UPDATE admin_audit_log
@@ -133,10 +132,8 @@ export async function pseudonymiseReportingAuditActor(
       )
       SELECT count(*)::int AS count FROM updated
     `);
-    updatedCount = res[0]?.count ?? 0;
-    await sp.execute(sql`SET LOCAL ROLE app_user`);
+    return res[0]?.count ?? 0;
   });
-  return updatedCount;
 }
 
 /**
@@ -157,6 +154,11 @@ export type UserErasureResult = {
    * outside their organisation through Superset.
    */
   wasMember: boolean;
+  /**
+   * `reporting.*` audit rows whose actor was replaced by a pseudonym (ADR-019 criterion 12,
+   * #1139). Recorded on the erase audit row as evidence for criterion 21.
+   */
+  reportingAuditRowsPseudonymised: number;
 };
 
 export async function eraseUserFromTenant(
@@ -180,7 +182,11 @@ export async function eraseUserFromTenant(
     email: member?.email ?? null,
   });
   await scrubUserRefFields(tx, tenantId, targetUserId);
-  await pseudonymiseReportingAuditActor(tx, tenantId, targetUserId);
+  const reportingAuditRowsPseudonymised = await pseudonymiseReportingAuditActor(
+    tx,
+    tenantId,
+    targetUserId,
+  );
 
   // saved_views RLS also requires user_id = app.user_id, and the caller is the
   // admin, not the target — switch the GUC to the target for this one delete
@@ -726,7 +732,11 @@ export async function eraseUserFromTenant(
       ),
     );
 
-  return { rotatedApiKeys, wasMember: member !== undefined };
+  return {
+    rotatedApiKeys,
+    wasMember: member !== undefined,
+    reportingAuditRowsPseudonymised,
+  };
 }
 
 /**

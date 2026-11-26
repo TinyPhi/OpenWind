@@ -196,6 +196,7 @@ describe("GET /users", () => {
       mockEraseUserFromTenant.mockResolvedValue({
         rotatedApiKeys: [],
         wasMember: true,
+        reportingAuditRowsPseudonymised: 3,
       });
       mockEnqueueErasure.mockResolvedValue(QUEUED);
       mockDeleteUser.mockResolvedValue(true);
@@ -316,6 +317,7 @@ describe("GET /users", () => {
       mockEraseUserFromTenant.mockResolvedValueOnce({
         rotatedApiKeys: [],
         wasMember: false,
+        reportingAuditRowsPseudonymised: 0,
       });
       const notMember = {
         status: "not_member",
@@ -363,6 +365,8 @@ describe("GET /users", () => {
           { id: "key-1", expiresAt: rotateBy },
           { id: "key-2", expiresAt: rotateBy },
         ],
+        wasMember: true,
+        reportingAuditRowsPseudonymised: 0,
       });
       mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
 
@@ -420,7 +424,11 @@ describe("GET /users", () => {
           resourceType: "user",
           resourceId: auditResourceId("target-user-123"),
           action: "deleted",
-          metadata: { userId: "target-user-123", wasMember: true },
+          metadata: {
+            userId: "target-user-123",
+            wasMember: true,
+            reportingAuditRowsPseudonymised: 3,
+          },
         }),
       );
       expect(mockInvalidateUserCache).toHaveBeenCalled();
@@ -476,6 +484,7 @@ describe("GET /users", () => {
       expect(deleted.metadata).toEqual({
         userId: "256000000000000001",
         wasMember: true,
+        reportingAuditRowsPseudonymised: 3,
       });
     });
 

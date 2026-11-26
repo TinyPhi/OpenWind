@@ -55,10 +55,12 @@ export async function runReportingAuditRetentionSweep(
 ): Promise<number> {
   const days = customDays ?? getReportingAuditRetentionDays();
   let totalDeleted = 0;
+  let hitBatchCap = true;
   for (let batchNum = 0; batchNum < MAX_REPORTING_BATCHES_PER_RUN; batchNum++) {
     const deleted = await runOneReportingBatch(days);
     totalDeleted += deleted;
     if (deleted < REPORTING_RETENTION_BATCH_LIMIT) {
+      hitBatchCap = false;
       break;
     }
   }
@@ -66,5 +68,15 @@ export async function runReportingAuditRetentionSweep(
     { totalDeleted, retentionDays: days },
     "reporting-audit-retention: sweep complete",
   );
+  if (hitBatchCap) {
+    logger.warn(
+      {
+        totalDeleted,
+        maxBatches: MAX_REPORTING_BATCHES_PER_RUN,
+        batchLimit: REPORTING_RETENTION_BATCH_LIMIT,
+      },
+      "reporting-audit-retention: stopped at the batch cap, a backlog remains for the next run",
+    );
+  }
   return totalDeleted;
 }

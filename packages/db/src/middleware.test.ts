@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import type { SQL } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 
 const dialect = new PgDialect();
 
@@ -30,6 +30,7 @@ vi.mock("./schema/index.js", () => ({}));
 
 const {
   withTenantPurgeContext,
+  withTenantPurgeRoleSavepoint,
   setAccessLogRetentionRole,
   setReportingAuditRetentionRole,
   withTenantLifecycleContext,
@@ -42,6 +43,43 @@ describe("db middleware context functions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executedStatements.length = 0;
+  });
+
+  describe("withTenantPurgeRoleSavepoint (#1190)", () => {
+    const outerTx = {
+      transaction: vi.fn(async (cb: (sp: unknown) => unknown) => cb(mockTx)),
+    };
+
+    it("switches to tenant_purge_role for fn, then back to app_user, and returns fn's result", async () => {
+      const result = await withTenantPurgeRoleSavepoint(
+        outerTx as never,
+        async (sp) => {
+          await sp.execute(sql`SELECT 1`);
+          return 42;
+        },
+      );
+
+      expect(result).toBe(42);
+      expect(outerTx.transaction).toHaveBeenCalledTimes(1);
+      expect(executedStatements.map((q) => q.sql)).toEqual([
+        "SET LOCAL ROLE tenant_purge_role",
+        "SELECT 1",
+        "SET LOCAL ROLE app_user",
+      ]);
+    });
+
+    it("does not switch back when fn throws (the savepoint rollback reverts the role)", async () => {
+      await expect(
+        withTenantPurgeRoleSavepoint(outerTx as never, async () => {
+          throw new Error("boom");
+        }),
+      ).rejects.toThrow("boom");
+
+      expect(executedStatements).toHaveLength(1);
+      expect(executedStatements[0]?.sql).toContain(
+        "SET LOCAL ROLE tenant_purge_role",
+      );
+    });
   });
 
   describe("setAccessLogRetentionRole (migration 0158 / #1131)", () => {

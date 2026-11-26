@@ -705,4 +705,10 @@ describe("per-user erasure anonymizes rather than deletes (#688)", () => {
     expect(row?.actorId).toBe(OTHER);
     expect(row?.actingPersonId).toMatch(/^pseudonym:[0-9a-f]{32}$/);
   });
+
+  it("returns how many reporting.* rows it pseudonymised, for the erase audit row (#1190)", () => {
+    // Three rows in TENANT name TARGET: as actor twice and as acting person once. The bystander
+    // tenant's row and the other user's row do not count.
+    expect(erasureResult.reportingAuditRowsPseudonymised).toBe(3);
+  });
 });

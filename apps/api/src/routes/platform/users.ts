@@ -190,10 +190,12 @@ usersRouter.delete(
     }
 
     let wasMember = false;
+    let reportingAuditRowsPseudonymised = 0;
     await withTenantContext(tenantId, async (tx) => {
       const erased = await eraseUserFromTenant(tx, tenantId, targetUserId);
       const { rotatedApiKeys } = erased;
       wasMember = erased.wasMember;
+      reportingAuditRowsPseudonymised = erased.reportingAuditRowsPseudonymised;
       // #688: one entry per key put on a forced rotation window, so admins
       // can find every key the erased user created and rotate it in time.
       for (const key of rotatedApiKeys) {
@@ -228,7 +230,11 @@ usersRouter.delete(
         // insert throw and rolled the whole erasure back.
         resourceId: auditResourceId(targetUserId),
         action: "deleted",
-        metadata: { userId: targetUserId, wasMember },
+        metadata: {
+          userId: targetUserId,
+          wasMember,
+          reportingAuditRowsPseudonymised,
+        },
       });
     });
 

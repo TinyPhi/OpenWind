@@ -82,14 +82,16 @@ async function runOneBatch(): Promise<number> {
   });
 }
 
-export async function runAccessLogRetentionSweep(): Promise<void> {
+async function sweepAccessLogDetailRows(): Promise<void> {
   let totalDeleted = 0;
+  let hitBatchCap = true;
   for (let batchNum = 0; batchNum < MAX_BATCHES_PER_RUN; batchNum++) {
     const deleted = await runOneBatch();
     totalDeleted += deleted;
     if (deleted < BATCH_LIMIT) {
       // Last batch was partial (or empty) -- nothing older than the
       // retention window remains right now.
+      hitBatchCap = false;
       break;
     }
   }
@@ -97,7 +99,51 @@ export async function runAccessLogRetentionSweep(): Promise<void> {
     { totalDeleted, retentionDays: RETENTION_DAYS },
     "access-log-retention: sweep complete",
   );
-  await runReportingAuditRetentionSweep();
+  if (hitBatchCap) {
+    logger.warn(
+      {
+        totalDeleted,
+        maxBatches: MAX_BATCHES_PER_RUN,
+        batchLimit: BATCH_LIMIT,
+        retentionDays: RETENTION_DAYS,
+      },
+      "access-log-retention: stopped at the batch cap, a backlog remains for the next run",
+    );
+  }
+}
+
+/**
+ * Runs the access-log sweep, then the reporting-audit sweep. Each runs even if the other
+ * throws, and each failure is logged under its own name; the job still fails afterwards so
+ * BullMQ records it.
+ */
+export async function runAccessLogRetentionSweep(): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    await sweepAccessLogDetailRows();
+  } catch (err) {
+    logger.error(
+      { err: String(err) },
+      "access-log-retention: access-log detail sweep failed",
+    );
+    failures.push(err);
+  }
+  try {
+    await runReportingAuditRetentionSweep();
+  } catch (err) {
+    logger.error(
+      { err: String(err) },
+      "access-log-retention: reporting audit sweep failed",
+    );
+    failures.push(err);
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(
+      failures,
+      "access-log-retention: access-log and reporting audit sweeps both failed",
+    );
+  }
 }
 
 export const accessLogRetentionWorker = new Worker(

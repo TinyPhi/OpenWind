@@ -3,6 +3,27 @@
 All notable changes to OpenWind are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased — reporting retention follow-ups from the #1184 review (#1190)]
+
+### Fixed
+
+- The access-log retention job now runs its two sweeps independently. A failure in one no longer skips the other, each failure is logged under its own name (`access-log detail sweep failed`, `reporting audit sweep failed`), and the job still fails afterwards so BullMQ records it. Both sweeps log a warning when they stop at their batch cap with a full last batch, which means a backlog is waiting for the next run.
+- A tenant purge now strips audit SQL text (`metadata - 'sql'`) in batches of 1000 instead of one `UPDATE` over every such row of the tenant, so one large purge no longer holds row locks on all of them at once.
+
+### Changed
+
+- The per-user erasure's switch to `tenant_purge_role` for the reporting actor pseudonym now goes through a new `@platform/db` helper, `withTenantPurgeRoleSavepoint`, instead of inline `SET LOCAL ROLE` statements.
+- The erase audit row (`resource_type: user`, `action: deleted`) now records `reportingAuditRowsPseudonymised` in its metadata, and `eraseUserFromTenant` returns the same count, as evidence for ADR-019 Stage 2 criterion 21.
+- `docker/superset/test_audit_mapping.py` removes its fake `superset` package when the module finishes, so it cannot be found by other test modules in the same process.
+
+### Documentation
+
+- `docs/runbooks/superset-erasure.md` records that audit rows written before #1184 keep raw SQL until the retention sweep, and lists the redactor's known limits.
+
+### Not included
+
+- G3 of #1190 (a partial index for the reporting retention query) needs a migration and waits until #1187 has taken its migration number.
+
 ## [Unreleased — tenant default timezone, atomic roster patch, and DST calendar arithmetic (#1158, #1161, #1162)]
 
 ### Added
